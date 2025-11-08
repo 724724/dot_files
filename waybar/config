@@ -1,0 +1,108 @@
+{
+  // 전체 바 설정
+  "layer": "top",
+  "position": "top",
+  "height": 30,
+  "spacing": 0,
+  "margin-top": 10,
+
+  // 배치
+  "modules-left":   ["clock", "hyprland/workspaces"],
+  //"modules-center": ["hyprland/workspaces"],
+  "modules-right":  ["tray", "cpu", "memory", "pulseaudio", "battery", "network", "custom/swaync"],
+
+  // 시계 (아이콘 + 12시간제)
+  "clock": {
+    "interval": 1,
+    "format": "  {:%I:%M:%S %p}",
+    "tooltip-format": "{:%Y-%m-%d (%a)}",
+    "on-click": "gnome-clocks",
+    "on-click-right": "wlogout"
+  },
+
+  // 현재 창 제목
+  "hyprland/window": {
+    "max-length": 40,
+    "separate-outputs": true
+  },
+
+  // 워크스페이스: 숫자만 심플하게
+  "hyprland/workspaces": {
+    "on-click": "activate",
+    "format": "{name}",
+    "all-outputs": false
+  },
+
+  // Tray
+  "tray": {
+    "icon-size": 14,
+    "spacing": 8,
+    "show-passive-items": true
+  },
+
+  // CPU
+  "cpu": {
+    "interval": 2,
+    "format": "  {usage}%",
+    "tooltip": true
+  },
+
+  // RAM
+  "memory": {
+    "interval": 3,
+    "format": "  {percentage}%",
+    "tooltip-format": "{used:0.1f}GiB / {total:0.1f}GiB"
+  },
+
+  // 사운드 (PipeWire/PulseAudio 겸용)
+  "pulseaudio": {
+    "format": "{icon}  {volume}%",
+    "format-muted": "󰝟  0%",
+    "format-icons": {
+      "phone":   ["󰕿", "󰖀", "󰕾"],  // low, med, high
+      "default": ["󰕿", "󰖀", "󰕾"]
+    },
+    "on-click": "pavucontrol"
+  },
+
+  // 배터리
+  "battery": {
+    "interval": 5,
+    "states": { "warning": 25, "critical": 10 },
+
+    // 기본(방전 중)
+    "format": "{icon}  {capacity}%",
+
+    // 충전기 꽂아 충전 중일 때(번개/충전 아이콘)
+    "format-charging": "󰂄  {capacity}%",
+
+    // 콘센트만 연결(혹은 100% 근접해 충전 안 함)일 때
+    "format-plugged": "󰚥  {capacity}%",
+
+    // 100% 꽉 찼을 때
+    "format-full": "󰁹  100%",
+
+    // 용량에 따른 기본 아이콘 램프
+    "format-icons": ["󰁺","󰁻","󰁼","󰁽","󰁾","󰁿","󰂀","󰂁","󰂂","󰁹"]
+  },
+
+  // 네트워크 (Wi-Fi는 이름 표시)
+  "network": {
+    "interval": 3,
+    "format-wifi": "{icon}  {essid}",
+    "format-ethernet": "󰈀  eth",
+    "format-disconnected": "󰤮",
+    "tooltip-format": "{ifname} · {ipaddr} · {essid} · {signalStrength}%",
+    "format-icons": ["󰤟", "󰤢", "󰤥", "󰤨"],
+    "on-click": "nm-connection-editor",
+    "max-length": 25
+  },
+
+  // swaync 토글 버튼
+  "custom/swaync": {
+    "format": "󰂚",
+    "tooltip": false,
+    "on-click": "swaync-client -t",
+    "on-click-right": "swaync-client -D"
+  }
+}

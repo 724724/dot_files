@@ -1,0 +1,283 @@
+@import url('file:///home/sejunlee/.cache/wal/colors-waybar.css');
+@define-color pill_bg rgba(0, 0, 0, 0.7);
+
+* {
+    border: none;
+    border-radius: 0px;
+    font-family: 'Millimetre', 'FiraCode Nerd Font', 'JetBrainsMono Nerd Font', 'RobotoMono Nerd Font', Helvetica, Arial, sans-serif;
+    font-size: 12px;
+    min-height: 0;
+}
+
+window#waybar {
+    background-color: transparent;
+    color: rgba(0, 0, 0, 0.5);
+    transition-property: background-color;
+    transition-duration: .5s;
+}
+
+window#waybar.hidden {
+    opacity: 0.2;
+}
+
+
+#workspaces button:first-child {
+    border-radius: 20px 0 0 20px;
+}
+
+#workspaces button:last-child {
+    border-top-right-radius: 20px;
+    border-bottom-right-radius: 20px;
+}
+#workspaces button {
+    background: @pill_bg;
+    color: #ffffff;
+    /* border-radius: 20px; */
+}
+
+#workspaces {
+    border-radius: 20px;
+}
+
+#workspaces button.active {
+    background: shade(@pill_bg, 1.5);
+}
+
+#workspaces button.urgent {
+    background-color: @color1;
+}
+
+#mode {
+    background-color: #64727D;
+    border-bottom: 3px solid #ffffff;
+}
+
+#clock,
+#battery,
+#cpu,
+#memory,
+#disk,
+#temperature,
+#backlight,
+#network,
+#pulseaudio,
+#custom-media,
+#custom-launcher,
+#custom-power,
+#custom-updater,
+#clock,
+#mode,
+#idle_inhibitor,
+#custom-weather,
+#mpd {
+    padding: 0 1em;
+    color: white;
+}
+
+#window {
+    background-color: @pill_bg;
+    color: white;
+    border-radius: 20px;
+    padding: 0 1em;
+    margin: 0 4px;
+    min-width: 0;
+}
+
+#workspaces {
+    margin: 0px 4px;
+}
+
+/* If workspaces is the leftmost module, omit left margin */
+.modules-left > widget:first-child > #workspaces {
+    margin-left: 0px;
+}
+
+/* If workspaces is the rightmost module, omit right margin */
+.modules-right > widget:last-child > #workspaces {
+    margin-right: 0px;
+}
+
+#tray {
+    background-color: @pill_bg;
+    color: white;
+    border-radius: 0 20px 20px 0; /* 오른쪽 둥글게 */
+    padding: 0 1em;
+    margin-right: 4px; /* 오른쪽 공간 약간 */
+}
+
+/* tray 내부 아이콘 상태별 스타일은 그대로 유지 가능 */
+#tray > .passive {
+    -gtk-icon-effect: dim;
+    background-color: transparent;
+    color: white;
+}
+
+#tray > .needs-attention {
+    -gtk-icon-effect: highlight;
+    background-color: transparent;
+    color: white;
+}
+
+#clock {
+    background-color: @pill_bg;
+    color: white;
+    border-radius: 0;
+    padding: 0 1em;
+    margin: 0;
+}
+
+
+
+@keyframes blink {
+    to {
+        background-color: @pill_bg;
+        color: @color1;
+    }
+}
+
+#battery.critical:not(.charging) {
+    background-color: @color1;
+    color: @pill_bg;
+    animation-name: blink;
+    animation-duration: 0.5s;
+    animation-timing-function: linear;
+    animation-iteration-count: infinite;
+    animation-direction: alternate;
+}
+
+label:focus {
+    background-color: #000000;
+}
+
+#cpu {
+    background-color: @pill_bg;
+    color: white;
+}
+
+#memory, #battery {
+    background-color: @pill_bg;
+    color: white;
+}
+
+#disk {
+    background-color: @pill_bg;
+    color: white;
+}
+
+#backlight {
+    background-color: @pill_bg;
+    color: white;
+}
+
+#network {
+    background-color: @pill_bg;
+    color: white;
+    border-radius: 20px 0px 0px 20px;
+}
+
+#network.disconnected {
+    background-color: @pill_bg;
+    color: red;
+    border-radius: 20px 0px 0px 20px;
+}
+
+#pulseaudio {
+    background-color: @pill_bg;
+    color: white;
+}
+
+#pulseaudio.muted {
+    background-color: @pill_bg;
+    color: red;
+}
+
+#custom-weather {
+    background-color: @pill_bg;
+    color: white;
+}
+
+#custom-media {
+    background-color: @pill_bg;
+    color: white;
+}
+
+#custom-media.custom-spotify {
+    background-color: @pill_bg;
+    color: white;
+    border-radius: 20px;
+    margin-right: 5px;
+
+}
+
+#custom-media.custom-vlc {
+    background-color: #8EC5FC;
+    color: white;
+    border-radius: 20px;
+    margin-right: 5px;
+}
+#custom-power {
+    background-color: @pill_bg;
+    color: white;
+    font-size: 12px;
+    border-radius: 20px;
+    padding: 0 1em;
+    margin: 0 4px 0 4px; /* tray 그룹과 살짝 띄우고 오른쪽도 여백 */
+}
+#custom-launcher{
+    background-color: @pill_bg;
+    font-size: 18px;
+    border-radius: 20px;
+
+}
+
+#custom-updater {
+    background-color: @pill_bg;
+    color: white;
+}
+
+#temperature {
+    background-color: @pill_bg;
+    color: white;
+}
+
+#temperature.critical {
+    background-color: #eb4d4b;
+}
+
+#tray {
+    background-color: @pill_bg;
+    color: white;
+}
+
+#tray > .passive {
+    -gtk-icon-effect: dim;
+    background-color: @pill_bg;
+    color: white;
+}
+
+#tray > .needs-attention {
+    -gtk-icon-effect: highlight;
+    background-color: @pill_bg;
+    color: white;
+}
+
+#idle_inhibitor {
+    background-color: @pill_bg;
+    border-radius: 20px 0px 0px 20px;
+
+}
+
+#idle_inhibitor.activated {
+    background-color: @pill_bg;
+    color: white;
+    border-radius: 20px 0px 0px 20px;
+
+}
+
+.modules-left {
+    margin-left: 8px;   /* 왼쪽 화면 끝 ↔ (#window pill) 사이 여백 */
+}
+
+.modules-right {
+    margin-right: 8px;  /* 오른쪽 화면 끝 ↔ (#custom-power pill) 사이 여백 */
+}

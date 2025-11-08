@@ -1,0 +1,15 @@
+{
+  "positionX": "right",
+  "positionY": "top",
+  "layer": "overlay",
+
+  "notification-window-width": 380,
+  "control-center-width": 420,
+  "control-center-height": 540,
+
+  "control-center-margin-top": 44,   // ← 60에서 44로
+  "control-center-margin-right": 12,
+
+  "style": "/home/sejunlee/.config/swaync/themes/glass.css",
+  "cssPriority": "user"
+}

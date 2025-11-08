@@ -1,0 +1,97 @@
+/* 전체: 완전 투명 + 흰색 텍스트, Helvetica */
+* {
+  font-family: "Helvetica Neue", Helvetica, Arial, "Symbols Nerd Font", "Noto Color Emoji", sans-serif;
+  font-size: 13px;
+  font-weight: 800;
+  color: #ffffff;
+}
+
+window#waybar {
+  background: rgba(0,0,0,0);
+  color: #ffffff;
+  transition: background 0.2s ease, color 0.2s ease;
+  box-shadow: none;
+  border: none;
+}
+
+/* 모듈 컨테이너 간 여백 (좌/중/우 그룹 사이) */
+.modules-left,
+.modules-center,
+.modules-right {
+  padding: 0 8px;
+}
+
+/* 각 모듈 공통 패딩/정렬 – 가로 10px, 세로 0 */
+#clock,
+#window,
+#workspaces,
+#tray,
+#cpu,
+#memory,
+#pulseaudio,
+#battery,
+#network,
+#swaync,
+#custom-swaync {
+  padding: 0 10px;
+  margin: 0;
+  background: transparent;
+  border: none;
+}
+
+/* 창 제목 */
+#window {
+  min-width: 0;
+}
+
+/* 워크스페이스: inactive는 연하게, active는 순수 흰색 */
+#workspaces button {
+  color: rgba(255,255,255,0.45);   /* inactive */
+  padding: 0 6px;
+  margin: 0 2px;
+  background: transparent;
+  border: none;
+}
+
+#workspaces button.active {
+  color: #ffffff;                  /* active */
+  border-bottom: none;
+}
+
+#workspaces button.urgent {
+  color: #ff6b6b;                  /* urgent만 예외 */
+}
+
+/* 오른쪽 상태 아이콘 계열 */
+#cpu,
+#memory,
+#pulseaudio,
+#battery,
+#network,
+#swaync,
+#custom-swaync {
+  color: #ffffff;
+}
+#battery.warning  { color: #ffd166; }
+#battery.critical { color: #ff6b6b; }
+
+/* tray: 다른 모듈과 동일한 가로 패딩 */
+#tray {
+  padding: 0 10px;
+}
+
+/* tray 아이콘 상태 표시 */
+#tray > .needs-attention {
+  background: rgba(255,255,255,0.12);
+  border-radius: 10px;
+}
+#tray > .passive {
+  opacity: 0.6;
+}
+
+/* 텍스트 공통 – 높이/간격 통일 */
+label {
+  letter-spacing: 0.2px;
+  margin: 0;
+  padding: 0;
+}
