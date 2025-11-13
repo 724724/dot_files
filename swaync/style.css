@@ -1,0 +1,308 @@
+/* 1. 공통 폰트 / 컬러 팔레트 (Waybar 테마와 매칭) */
+@define-color theme_fg            #ffffff;
+@define-color theme_fg_secondary  rgba(255,255,255,0.65);
+@define-color theme_bg            rgba(10,10,16,0.85);
+@define-color module_bg           rgba(10,10,16,0.72);
+@define-color module_hover_bg     rgba(20,20,26,0.90);
+@define-color popup_bg            rgba(10,10,16,0.90);
+@define-color border_light        rgba(255,255,255,0.16);
+@define-color border_medium       rgba(255,255,255,0.10);
+@define-color border_dark         rgba(0,0,0,0.70);
+@define-color accent_color        rgba(255,255,255,0.55);
+@define-color critical_color      #ff6b6b;
+@define-color close_button_bg     rgba(0,0,0,0.65);
+@define-color close_button_hover_bg rgba(255,255,255,0.14);
+@define-color slider_trough_bg    rgba(255,255,255,0.10);
+@define-color button_bg           rgba(255,255,255,0.10);
+@define-color button_hover_bg     rgba(255,255,255,0.18);
+@define-color icon_primary        #ffffff;
+@define-color icon_secondary      rgba(255,255,255,0.70);
+
+/* 2. 기본 설정 */
+* {
+  font-family: "Helvetica Neue", Helvetica, Arial, "Symbols Nerd Font", "Noto Color Emoji", sans-serif;
+  font-size: 13px;
+  font-weight: 900;
+  color: @theme_fg;
+}
+
+/* swaync 윈도우 자체는 투명 (Hypr blur 사용) */
+window#swaync-control-center,
+window#swaync-notification-window {
+  background-color: transparent;
+}
+
+/* 3. 컨트롤 센터 전체 컨테이너 (반투명 카드) */
+.control-center {
+  background-color: @theme_bg;
+  border-radius: 18px;
+  border: 1px solid @border_medium;
+  padding: 10px;
+  margin: 0 6px 6px 6px;
+}
+
+/* 컨트롤 센터 안의 각 위젯들을 pill 모양 카드로 */
+.widget-mpris,
+.widget-volume,
+.widget-backlight,
+.widget-buttons-grid,
+.control-center-list > box > *:not(.widget-title) {
+  background-color: @module_bg;
+  border-radius: 18px;
+  padding: 12px 14px;
+  margin-bottom: 8px;
+  border: 1px solid @border_medium;
+}
+
+/* 마지막 위젯은 아래 마진 제거 */
+.control-center > box > *:last-child {
+  margin-bottom: 0;
+}
+
+/* 4. Title 위젯 (상단 헤더) */
+.widget-title {
+  background: transparent;
+  border: none;
+  padding: 2px 4px 10px 4px;
+  margin-bottom: 4px;
+}
+
+.widget-title > label {
+  font-size: 15px;
+  font-weight: 900;
+  color: @theme_fg;
+}
+
+.widget-title > button {
+  margin-left: auto;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid @border_medium;
+  background-color: @button_bg;
+  color: @theme_fg;
+}
+
+.widget-title > button:hover {
+  background-color: @button_hover_bg;
+}
+
+/* 5. DND 위젯 */
+.widget-dnd {
+  background-color: @module_bg;
+  border-radius: 999px;
+  padding: 6px 10px;
+  border: 1px solid @border_medium;
+  margin-bottom: 8px;
+}
+
+.widget-dnd label {
+  color: @theme_fg_secondary;
+}
+
+/* 6. MPRIS */
+.widget-mpris {
+  padding: 0;
+  border: none;
+  background: transparent;
+}
+
+.widget-mpris .widget-mpris-player {
+  background-color: @module_bg;
+  border-radius: 18px;
+  border: 1px solid @border_medium;
+  padding: 12px;
+}
+
+.widget-mpris .widget-mpris-title {
+  font-size: 14px;
+  font-weight: 900;
+  color: @theme_fg;
+}
+
+.widget-mpris .widget-mpris-subtitle {
+  font-size: 12px;
+  color: @theme_fg_secondary;
+}
+
+/* 재생 버튼들 */
+.widget-mpris .widget-mpris-player button {
+  all: unset;
+  background: transparent;
+  border-radius: 50%;
+  padding: 6px;
+  min-width: 26px;
+  min-height: 26px;
+  color: @icon_secondary;
+}
+
+.widget-mpris .widget-mpris-player button:hover {
+  background-color: @button_bg;
+  color: @icon_primary;
+}
+
+/* 7. 볼륨 / 백라이트 슬라이더 */
+.widget-volume,
+.widget-backlight {
+  padding: 10px 14px;
+}
+
+.widget-volume label,
+.widget-backlight label {
+  color: @icon_primary;
+  margin-right: 10px;
+}
+
+/* GTK4 scale */
+scale trough {
+  min-height: 6px;
+  border-radius: 999px;
+  background-color: @slider_trough_bg;
+}
+
+scale trough progress {
+  min-height: 6px;
+  border-radius: 999px;
+  background-color: @accent_color;
+}
+
+scale slider {
+  min-width: 12px;
+  min-height: 12px;
+  border-radius: 999px;
+  background-color: @theme_fg;
+}
+
+/* 8. 알림 리스트 (컨트롤 센터) */
+.control-center-list {
+  background: transparent;
+  padding-top: 4px;
+}
+
+.control-center .notification-row {
+  margin-bottom: 8px;
+}
+
+.control-center .notification-background {
+  background-color: @module_bg;
+  border-radius: 18px;
+  border: 1px solid @border_medium;
+  padding: 10px 12px;
+}
+
+.control-center .notification-row:hover .notification-background {
+  background-color: @module_hover_bg;
+}
+
+.control-center .notification {
+  background: transparent;
+}
+
+.control-center .notification .summary {
+  font-weight: 900;
+  color: @theme_fg;
+  margin-bottom: 2px;
+}
+
+.control-center .notification .body {
+  color: @theme_fg_secondary;
+}
+
+.control-center .notification .time {
+  font-size: 11px;
+  color: @theme_fg_secondary;
+}
+
+/* 알림 액션 버튼 */
+.control-center .notification .notification-action button,
+.control-center .notification .notification-alt-actions button {
+  border-radius: 999px;
+  padding: 4px 10px;
+  border: 1px solid @border_medium;
+  background: transparent;
+  margin-right: 6px;
+}
+
+.control-center .notification .notification-action button:hover,
+.control-center .notification .notification-alt-actions button:hover {
+  background-color: @button_bg;
+}
+
+/* 중요 알림 좌측 강조선 */
+.control-center .notification.critical .notification-background {
+  border-left: 3px solid @critical_color;
+}
+
+/* 닫기 버튼 */
+.control-center .close-button {
+  background-color: @close_button_bg;
+  border-radius: 999px;
+  min-width: 24px;
+  min-height: 24px;
+}
+
+.control-center .close-button:hover {
+  background-color: @close_button_hover_bg;
+}
+
+/* 9. 떠있는 팝업 알림 (Waybar pill 느낌, 더 두껍게) */
+.floating-notifications .notification-row {
+  margin-bottom: 8px;
+}
+
+.floating-notifications .notification-background {
+  background-color: @popup_bg;
+  border-radius: 18px;
+  border: 1px solid @border_light;
+  padding: 14px 18px;      /* 세로/가로 padding 증가 → 높이/너비 체감 업 */
+  margin: 10px 12px 4px 12px;
+}
+
+.floating-notifications .notification-row:hover .notification-background {
+  background-color: alpha(@popup_bg, 0.98);
+}
+
+.floating-notifications .notification .summary {
+  font-weight: 900;
+  color: @theme_fg;
+}
+
+.floating-notifications .notification .body {
+  color: @theme_fg_secondary;
+}
+
+.floating-notifications .notification .time {
+  font-size: 11px;
+  color: @icon_secondary;
+}
+
+/* 팝업 알림 닫기 버튼 */
+.floating-notifications .close-button {
+  background-color: @close_button_bg;
+  border-radius: 999px;
+  min-width: 22px;
+  min-height: 22px;
+}
+
+.floating-notifications .close-button:hover {
+  background-color: @close_button_hover_bg;
+}
+
+/* 10. 스크롤바 최소화 */
+scrollbar,
+scrollbar slider {
+  background-color: transparent;
+}
+
+/* 11. 알림 썸네일 / 이미지: 네모 모양으로 오버라이드 (hyprshot 썸네일 포함) */
+.notification .icon,
+.notification .icon > image,
+.notification .notification-image,
+.notification .notification-image > image,
+.notification .body-image,
+.notification .body-image > image,
+.body-image,
+.image {
+  border-radius: 10px;
+  overflow: hidden;
+}
+

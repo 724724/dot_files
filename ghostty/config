@@ -28,7 +28,7 @@
 # font-family = Iosevka
 window-padding-x = 20,20
 window-padding-y = 20,20
-theme = Catppuccin Latte
+theme = GitHub Dark Default
 #
 # # Spacing around the equals sign does not matter.
 # # All of these are identical:

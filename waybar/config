@@ -3,7 +3,7 @@
   "layer": "top",
   "position": "top",
   "height": 30,
-  "spacing": 0,
+  "spacing": 8,          // 모듈 사이 간격 조금 추가
   "margin-top": 10,
 
   // 배치
@@ -44,14 +44,16 @@
   "cpu": {
     "interval": 2,
     "format": "  {usage}%",
-    "tooltip": true
+    "tooltip": true,
+    "on-click": "gnome-system-monitor"
   },
 
   // RAM
   "memory": {
     "interval": 3,
-    "format": "  {percentage}%",
-    "tooltip-format": "{used:0.1f}GiB / {total:0.1f}GiB"
+    "format": "  {percentage}%",
+    "tooltip-format": "{used:0.1f}GiB / {total:0.1f}GiB",
+    "on-click": "gnome-system-monitor"
   },
 
   // 사운드 (PipeWire/PulseAudio 겸용)
@@ -106,3 +108,4 @@
     "on-click-right": "swaync-client -D"
   }
 }
+
