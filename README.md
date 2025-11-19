@@ -5,7 +5,7 @@
 packages (Arch btw)
 
 ```bash
-sudo pacman -S hyprland hypridle hyprlock hyprpaper nwg-monitors nwg-looks \
+sudo pacman -S hyprland hypridle hyprlock hyprpaper nwg-displays nwg-look \
 		fastfetch ghostty hyprshell rofi sddm swaync waybar firefox obs-studio \
 		loupe imagemagick xdg-desktop-portal xdg-desktop-portal-hyprland \
 		noto-fonts-cjk tlp gnome-boxes gimp docker gnome-calculator gnome-calendar \
