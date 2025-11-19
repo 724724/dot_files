@@ -1,5 +1,7 @@
 # dot_files
 
+![Hyprland Screenshot](/assets/screenshot.png)
+
 packages (Arch btw)
 
 ```bash
