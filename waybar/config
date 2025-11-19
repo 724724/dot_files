@@ -17,7 +17,7 @@
     "format": "  {:%I:%M:%S %p}",
     "tooltip-format": "{:%Y-%m-%d (%a)}",
     "on-click": "gnome-clocks",
-    "on-click-right": "wlogout"
+    "on-click-right": "gnome-calendar"
   },
 
   // 현재 창 제목
@@ -105,7 +105,7 @@
     "format": "󰂚",
     "tooltip": false,
     "on-click": "swaync-client -t",
-    "on-click-right": "swaync-client -D"
+    "on-click-right": "wlogout"
   }
 }
 
