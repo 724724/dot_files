@@ -12,4 +12,4 @@ HOUR=${HOUR#0}         # 앞 0 제거 → 05 -> 5
 
 FILENAME="Screenshot $DAY at $HOUR.$MINUTE.$SECOND $AMP.png"
 
-hyprshot -m "$MODE" -o "$OUT_DIR" -f "$FILENAME"
+hyprshot --freeze -m "$MODE" -o "$OUT_DIR" -f "$FILENAME"

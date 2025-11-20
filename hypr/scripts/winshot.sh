@@ -13,7 +13,7 @@ HOUR=${HOUR#0}       # 앞 0 제거
 FILENAME="Screenshot $DAY at $HOUR.$MINUTE.$SECOND $AMP.png"
 FINAL_PATH="$OUT_DIR/$FILENAME"
 
-hyprshot -m window --raw | magick png:- \
+hyprshot --freeze -m window --raw | magick png:- \
   \( +clone -background black -shadow 100x30+0+0 \) \
   +swap -background white -layers merge +repage \
   -strip \
