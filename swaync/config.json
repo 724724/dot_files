@@ -1,6 +1,5 @@
 {
   "$schema": "/etc/xdg/swaync/configSchema.json",
-
   "positionX": "right",
   "positionY": "top",
   "layer": "overlay",
@@ -42,9 +41,10 @@
 
   "widgets": [
     "title",
-    "dnd",
-    "mpris",
+    "buttons-grid",
+    "backlight",
     "volume",
+    "mpris",
     "notifications"
   ],
 
@@ -54,17 +54,57 @@
       "clear-all-button": true,
       "button-text": "Clear"
     },
-    "dnd": {
-      "text": "Do Not Disturb"
-    },
+
     "mpris": {
       "image-size": 64,
-      "image-radius": 12
+      "image-radius": 3
     },
+
+    "backlight": {
+      "label": "󰃠",
+      "device": "intel_backlight",
+      "min": 0
+    },
+
     "volume": {
-      "label": "Volume",
+      "label": "󰕾",
       "show-per-app": false
+    },
+
+    "buttons-grid": {
+      "buttons-per-row": 5,
+      "actions": [
+        {
+          "label": "󰀝",
+          "type": "toggle",
+          "command": "~/.config/swaync/scripts/toggle-airplane.sh",
+          "update-command": "~/.config/swaync/scripts/state-airplane.sh"
+        },
+        {
+          "label": "󰖩",
+          "type": "toggle",
+          "command": "~/.config/swaync/scripts/toggle-wifi.sh",
+          "update-command": "~/.config/swaync/scripts/state-wifi.sh"
+        },
+        {
+          "label": "󰂯",
+          "type": "toggle",
+          "command": "~/.config/swaync/scripts/toggle-bluetooth.sh",
+          "update-command": "~/.config/swaync/scripts/state-bluetooth.sh"
+        },
+        {
+          "label": "󰚥",
+          "type": "toggle",
+          "command": "~/.config/swaync/scripts/toggle-lowpower.sh",
+          "update-command": "~/.config/swaync/scripts/state-lowpower.sh"
+        },
+        {
+          "label": "",
+          "type": "toggle",
+          "command": "~/.config/swaync/scripts/toggle-dnd.sh",
+          "update-command": "~/.config/swaync/scripts/state-dnd.sh"
+        }
+      ]
     }
   }
 }
-

@@ -86,7 +86,7 @@ window#swaync-notification-window {
   background-color: @button_hover_bg;
 }
 
-/* 5. DND 위젯 */
+/* 5. DND 위젯 (지금은 사용 안 하지만 남겨둠) */
 .widget-dnd {
   background-color: @module_bg;
   border-radius: 999px;
@@ -99,57 +99,65 @@ window#swaync-notification-window {
   color: @theme_fg_secondary;
 }
 
-/* 6. MPRIS */
+/* 6. MPRIS – 다른 위젯이랑 높이 맞추기 */
 .widget-mpris {
+  /* 위에서 공통 카드 스타일을 이미 적용하므로
+   * 여기서는 패딩만 슬라이더와 비슷하게 조정 */
   padding: 0;
-  border: none;
-  background: transparent;
-}
-
-.widget-mpris .widget-mpris-player {
-  background-color: @module_bg;
-  border-radius: 18px;
   border: 1px solid @border_medium;
-  padding: 12px;
+  background-color: @module_bg;
 }
 
+/* 안쪽 player 박스는 배경/보더 제거하고 여분 패딩 없앰 */
+.widget-mpris .widget-mpris-player {
+  background: transparent;
+  border: none;
+  padding: 0;
+}
+
+/* 제목/부제도 약간만 줄여서 높이 절약 */
 .widget-mpris .widget-mpris-title {
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 900;
   color: @theme_fg;
 }
 
 .widget-mpris .widget-mpris-subtitle {
-  font-size: 12px;
+  font-size: 11px;
   color: @theme_fg_secondary;
 }
 
-/* 재생 버튼들 */
-.widget-mpris .widget-mpris-player button {
-  all: unset;
-  background: transparent;
-  border-radius: 50%;
-  padding: 6px;
-  min-width: 26px;
-  min-height: 26px;
-  color: @icon_secondary;
+/* 앨범아트: 세로 높이 줄이기 */
+.widget-mpris image,
+.widget-mpris .image {
+  min-width: 36px;
+  min-height: 36px;
+  border-radius: 3px;
 }
 
-.widget-mpris .widget-mpris-player button:hover {
-  background-color: @button_bg;
-  color: @icon_primary;
-}
-
-/* 7. 볼륨 / 백라이트 슬라이더 */
+/* 7. 볼륨 / 백라이트 슬라이더 (컨테이너/내부 패딩 동일) */
 .widget-volume,
 .widget-backlight {
-  padding: 10px 14px;
+  padding: 12px 16px;
+}
+
+.widget-volume > box,
+.widget-backlight > box {
+  margin: 0;
+  padding: 0;
 }
 
 .widget-volume label,
 .widget-backlight label {
   color: @icon_primary;
   margin-right: 10px;
+  min-width: 20px;   /* 아이콘 폭 고정 → 슬라이더 정렬 */
+  padding: 0;
+}
+
+.widget-volume scale,
+.widget-backlight scale {
+  margin: 0;
 }
 
 /* GTK4 scale */
@@ -253,7 +261,7 @@ scale slider {
   background-color: @popup_bg;
   border-radius: 18px;
   border: 1px solid @border_light;
-  padding: 14px 18px;      /* 세로/가로 padding 증가 → 높이/너비 체감 업 */
+  padding: 14px 18px;
   margin: 10px 12px 4px 12px;
 }
 
@@ -306,3 +314,39 @@ scrollbar slider {
   overflow: hidden;
 }
 
+/* 12. 토글 버튼 그리드 (아이콘 전용 동그란 버튼) */
+.widget-buttons-grid {
+  padding: 8px 10px;
+}
+
+.widget-buttons-grid > flowbox > flowboxchild > button {
+  min-width: 34px;
+  min-height: 34px;
+  border-radius: 999px;
+  background-color: @button_bg;
+  border: 1px solid @border_medium;
+  margin: 4px;
+  padding: 0;
+}
+
+.widget-buttons-grid > flowbox > flowboxchild > button:hover {
+  background-color: @button_hover_bg;
+}
+
+.widget-buttons-grid > flowbox > flowboxchild > button label {
+  padding: 0;
+  margin: 0;
+  font-size: 16px; /* 아이콘 크게 */
+}
+
+/* 토글 ON 상태 */
+.widget-buttons-grid > flowbox > flowboxchild > button.toggle:checked,
+.widget-buttons-grid > flowbox > flowboxchild > button.active {
+  background-color: @accent_color;
+  color: @theme_bg;
+}
+
+.widget-buttons-grid > flowbox > flowboxchild > button.toggle:checked label,
+.widget-buttons-grid > flowbox > flowboxchild > button.active label {
+  color: @theme_bg;
+}
