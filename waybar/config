@@ -9,7 +9,8 @@
   // 배치
   "modules-left":   ["clock", "hyprland/workspaces"],
   //"modules-center": ["hyprland/workspaces"],
-  "modules-right":  ["tray", "cpu", "memory", "pulseaudio", "battery", "network", "custom/swaync"],
+  //"modules-right":  ["tray", "cpu", "memory", "pulseaudio", "battery", "network", "custom/swaync"],
+  "modules-right":  ["tray", "pulseaudio", "battery", "network", "custom/swaync"],
 
   // 시계 (아이콘 + 12시간제)
   "clock": {
