@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # color-scheme 기준으로 토글 상태 표시 (swaync 에서는 true/false만 필요)
-SCHEME="$(gsettings get org.gnome.desktop.interface color-scheme 2>/dev/null || echo "'default'")"
+SCHEME="$(gsettings get org.gnome.desktop.interface color-scheme 2>/dev/null || echo "'prefer-light'")"
 
 case "$SCHEME" in
     *dark*)

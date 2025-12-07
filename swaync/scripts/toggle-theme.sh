@@ -10,7 +10,7 @@ CUR_THEME="$(gsettings get org.gnome.desktop.interface gtk-theme 2>/dev/null | t
 if [ "$CUR_THEME" = "$DARK_THEME" ]; then
     # 다크 → 라이트
     gsettings set org.gnome.desktop.interface gtk-theme "$LIGHT_THEME" >/dev/null 2>&1
-    gsettings set org.gnome.desktop.interface color-scheme 'default' >/dev/null 2>&1
+    gsettings set org.gnome.desktop.interface color-scheme 'prefer-light' >/dev/null 2>&1
 else
     # 라이트 (또는 다른 테마) → 다크
     gsettings set org.gnome.desktop.interface gtk-theme "$DARK_THEME" >/dev/null 2>&1
