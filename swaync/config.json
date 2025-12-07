@@ -5,7 +5,6 @@
   "layer": "overlay",
   "control-center-layer": "top",
   "layer-shell": true,
-
   "cssPriority": "user",
 
   "control-center-margin-top": 10,
@@ -72,7 +71,7 @@
     },
 
     "buttons-grid": {
-      "buttons-per-row": 5,
+      "buttons-per-row": 6,
       "actions": [
         {
           "label": "󰀝",
@@ -103,8 +102,15 @@
           "type": "toggle",
           "command": "~/.config/swaync/scripts/toggle-dnd.sh",
           "update-command": "~/.config/swaync/scripts/state-dnd.sh"
+        },
+        {
+          "label": "󰔎",
+          "type": "toggle",
+          "command": "~/.config/swaync/scripts/toggle-theme.sh",
+          "update-command": "~/.config/swaync/scripts/state-theme.sh"
         }
       ]
     }
   }
 }
+
