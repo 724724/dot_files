@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 
 # Light / Dark 에서 사용할 GTK3 테마 이름
-LIGHT_THEME="adw-gtk3"
-DARK_THEME="adw-gtk3-dark"
+LIGHT_THEME="Adwaita"
+DARK_THEME="Adwaita-dark"
 
 # 현재 GTK 테마 확인
 CUR_THEME="$(gsettings get org.gnome.desktop.interface gtk-theme 2>/dev/null | tr -d "'")"

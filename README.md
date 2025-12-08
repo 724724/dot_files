@@ -13,6 +13,6 @@ sudo pacman -S hyprland hypridle hyprlock hyprpaper nwg-displays nwg-look \
 		intel-media-driver intel-ucode mesa lib32-mesa vulkan-intel \
 		lib32-vulkan-intel brightnessctl playerctl gnome-system-monitor gnome-clock \
         fcitx5 fcitx5-hangul fcitx5-configtool keyd jq grim slurp wl-clipboard hyprpicker \
-		xdg-desktop-portal-gtk
+		xdg-desktop-portal-gtk gnome-themes-extra
 ```
 
