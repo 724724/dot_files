@@ -17,7 +17,7 @@ FINAL_PATH="$OUT_DIR/$FILENAME"
 # 화면 freeze + 커서 숨김
 wayfreeze --hide-cursor &
 WF_PID=$!
-#sleep 0.1   # 레이어 올라올 시간 조금만 줌
+sleep 0.1   # 레이어 올라올 시간 조금만 줌
 
 # grimblast가 끝나는 순간 wayfreeze 해제되도록 그룹으로 묶어서 파이프
 if { 
