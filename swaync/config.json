@@ -92,7 +92,7 @@
           "update-command": "~/.config/swaync/scripts/state-bluetooth.sh"
         },
         {
-          "label": "",
+          "label": "",
           "type": "toggle",
           "command": "~/.config/swaync/scripts/toggle-lowpower.sh",
           "update-command": "~/.config/swaync/scripts/state-lowpower.sh"
