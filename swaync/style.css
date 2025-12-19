@@ -22,7 +22,7 @@
 * {
   font-family: "Helvetica Neue", Helvetica, Arial, "Symbols Nerd Font", "Noto Color Emoji", sans-serif;
   font-size: 13px;
-  font-weight: 900;
+  font-weight: 700;
   color: @theme_fg;
 }
 
@@ -69,7 +69,7 @@ window#swaync-notification-window {
 
 .widget-title > label {
   font-size: 15px;
-  font-weight: 900;
+  font-weight: 700;
   color: @theme_fg;
 }
 
@@ -118,7 +118,7 @@ window#swaync-notification-window {
 /* 제목/부제도 약간만 줄여서 높이 절약 */
 .widget-mpris .widget-mpris-title {
   font-size: 13px;
-  font-weight: 900;
+  font-weight: 700;
   color: @theme_fg;
 }
 
@@ -206,7 +206,7 @@ scale slider {
 }
 
 .control-center .notification .summary {
-  font-weight: 900;
+  font-weight: 700;
   color: @theme_fg;
   margin-bottom: 2px;
 }
@@ -270,7 +270,7 @@ scale slider {
 }
 
 .floating-notifications .notification .summary {
-  font-weight: 900;
+  font-weight: 700;
   color: @theme_fg;
 }
 
