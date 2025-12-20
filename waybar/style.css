@@ -1,7 +1,7 @@
 /* 전체: 폰트 / 기본 색 */
 * {
-  font-family: "Helvetica Neue", Helvetica, Arial, "Symbols Nerd Font", "Noto Color Emoji", sans-serif;
-  font-size: 11px;
+  font-family: "SF Pro", Arial, "Symbols Nerd Font", "Noto Color Emoji", sans-serif;
+  font-size: 12px;
   font-weight: 700;
   color: #ffffff;
 }
@@ -36,7 +36,7 @@ window#waybar {
 #custom-swaync {
   padding: 0 10px;
   margin: 0 2px;                            /* 모듈 사이 간격 작게 */
-  background: rgba(10, 10, 16, 0.35);
+  background: rgba(10, 10, 16, 0.5);
   border-radius: 999px;
   border: 1px solid rgba(255, 255, 255, 0.08);
   box-shadow: none;
