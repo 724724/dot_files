@@ -15,7 +15,7 @@
   // 시계 (아이콘 + 12시간제)
   "clock": {
     "interval": 1,
-    "format": "  {:%I:%M:%S %p}",
+    "format": "   {:%I:%M:%S %p}",
     "tooltip-format": "{:%Y-%m-%d (%a)}",
     "on-click": "gnome-clocks",
     "on-click-right": "gnome-calendar"
@@ -44,7 +44,7 @@
   // CPU
   "cpu": {
     "interval": 2,
-    "format": "  {usage}%",
+    "format": "   {usage}%",
     "tooltip": true,
     "on-click": "gnome-system-monitor"
   },
@@ -52,15 +52,15 @@
   // RAM
   "memory": {
     "interval": 3,
-    "format": "  {percentage}%",
+    "format": "   {percentage}%",
     "tooltip-format": "{used:0.1f}GiB / {total:0.1f}GiB",
     "on-click": "gnome-system-monitor"
   },
 
   // 사운드 (PipeWire/PulseAudio 겸용)
   "pulseaudio": {
-    "format": "{icon}  {volume}%",
-    "format-muted": "󰝟  0%",
+    "format": "{icon}   {volume}%",
+    "format-muted": "󰝟   0%",
     "format-icons": {
       "phone":   ["󰕿", "󰖀", "󰕾"],  // low, med, high
       "default": ["󰕿", "󰖀", "󰕾"]
@@ -74,16 +74,16 @@
     "states": { "warning": 25, "critical": 10 },
 
     // 기본(방전 중)
-    "format": "{icon}  {capacity}%",
+    "format": "{icon}   {capacity}%",
 
     // 충전기 꽂아 충전 중일 때(번개/충전 아이콘)
-    "format-charging": "󰂄  {capacity}%",
+    "format-charging": "󰂄   {capacity}%",
 
     // 콘센트만 연결(혹은 100% 근접해 충전 안 함)일 때
-    "format-plugged": "󰚥  {capacity}%",
+    "format-plugged": "󰚥   {capacity}%",
 
     // 100% 꽉 찼을 때
-    "format-full": "󰁹  100%",
+    "format-full": "󰁹   100%",
 
     // 용량에 따른 기본 아이콘 램프
     "format-icons": ["󰁺","󰁻","󰁼","󰁽","󰁾","󰁿","󰂀","󰂁","󰂂","󰁹"]
@@ -92,8 +92,8 @@
   // 네트워크 (Wi-Fi는 이름 표시)
   "network": {
     "interval": 3,
-    "format-wifi": "{icon}  {essid}",
-    "format-ethernet": "󰈀  eth",
+    "format-wifi": "{icon}   {essid}",
+    "format-ethernet": "󰈀   eth",
     "format-disconnected": "󰤮",
     "tooltip-format": "{ifname} · {ipaddr} · {essid} · {signalStrength}%",
     "format-icons": ["󰤟", "󰤢", "󰤥", "󰤨"],
