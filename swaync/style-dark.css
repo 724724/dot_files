@@ -1,0 +1,191 @@
+/* 1. macOS Dark Mode 팔레트 */
+@define-color theme_fg            #ffffff;
+@define-color theme_fg_secondary  rgba(255,255,255,0.60);
+@define-color theme_bg            rgba(30,30,30,0.70);
+@define-color module_bg           rgba(50,50,50,0.60);
+@define-color module_hover_bg     rgba(70,70,70,0.70);
+@define-color popup_bg            rgba(30,30,30,0.90);
+@define-color border_light        rgba(255,255,255,0.10);
+@define-color border_medium       rgba(255,255,255,0.15);
+@define-color border_dark         rgba(0,0,0,0.50);
+@define-color accent_color        #0A84FF;
+@define-color critical_color      #FF453A;
+@define-color close_button_bg     rgba(255,255,255,0.1);
+@define-color close_button_hover_bg rgba(255,255,255,0.2);
+@define-color slider_trough_bg    rgba(255,255,255,0.15);
+@define-color button_bg           rgba(255,255,255,0.10);
+@define-color button_hover_bg     rgba(255,255,255,0.18);
+@define-color icon_primary        #ffffff;
+@define-color icon_secondary      rgba(255,255,255,0.6);
+
+/* 2. 기본 설정 (Light와 100% 동일) */
+* {
+  font-family: "Helvetica Neue", Helvetica, Arial, "Symbols Nerd Font", "Noto Color Emoji", sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  color: @theme_fg;
+}
+
+window#swaync-control-center,
+window#swaync-notification-window {
+  background-color: transparent;
+}
+
+/* 3. 컨트롤 센터 */
+.control-center {
+  background-color: @theme_bg;
+  border-radius: 18px;
+  border: 1px solid @border_medium;
+  padding: 12px;
+  box-shadow: none;
+  margin: 0;
+}
+
+/* 위젯 공통 스타일 */
+.widget-mpris,
+.widget-volume,
+.widget-backlight,
+.widget-buttons-grid,
+.control-center-list > box > *:not(.widget-title) {
+  background-color: @module_bg;
+  border-radius: 16px;
+  padding: 12px 14px;
+  margin-bottom: 10px;
+  border: 1px solid @border_medium;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.15); /* 그림자 농도만 다름 */
+}
+
+/* 4. Title 위젯 */
+.widget-title {
+  padding: 4px 8px 12px 8px;
+  margin-bottom: 4px;
+}
+.widget-title > label {
+  font-size: 16px;
+  font-weight: 700;
+  color: @theme_fg;
+}
+.widget-title > button {
+  background-color: @button_bg;
+  color: @theme_fg;
+  border: 1px solid @border_medium;
+  border-radius: 12px;
+}
+.widget-title > button:hover {
+  background-color: @button_hover_bg;
+}
+
+/* 6. MPRIS */
+.widget-mpris {
+  background-color: @module_bg;
+  border: 1px solid @border_medium;
+}
+.widget-mpris .widget-mpris-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: @theme_fg;
+}
+.widget-mpris .widget-mpris-subtitle {
+  color: @theme_fg_secondary;
+}
+
+/* 7. 볼륨 / 백라이트 */
+.widget-volume label,
+.widget-backlight label {
+  color: @icon_primary;
+}
+scale trough {
+  background-color: @slider_trough_bg;
+}
+scale trough progress {
+  background-color: @accent_color;
+}
+scale slider {
+  background-color: #ffffff;
+  border: none;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+}
+
+/* 8. 알림 리스트 */
+.control-center .notification-background {
+  background-color: @module_bg;
+  border-radius: 16px;
+  border: 1px solid @border_medium;
+  padding: 12px;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.15);
+}
+.control-center .notification-row:hover .notification-background {
+  background-color: @module_hover_bg;
+}
+.control-center .notification .summary {
+  color: @theme_fg;
+  font-weight: 700;
+}
+.control-center .notification .body {
+  color: @theme_fg_secondary;
+}
+.control-center .notification .time {
+  color: rgba(255,255,255,0.4);
+}
+
+/* 알림 액션 버튼 */
+.control-center .notification .notification-action button {
+  background-color: @button_bg;
+  border: 1px solid @border_medium;
+  color: @theme_fg;
+}
+.control-center .notification .notification-action button:hover {
+  background-color: @button_hover_bg;
+}
+
+/* 9. 팝업 알림 */
+.floating-notifications .notification-background {
+  background-color: @popup_bg;
+  border-radius: 18px;
+  border: 1px solid @border_medium;
+  box-shadow: none; 
+  padding: 12px;
+}
+
+.floating-notifications .notification {
+  background-color: rgba(0,0,0,0.03);
+  border-radius: 12px;
+  padding: 10px;
+  box-shadow: none;
+}
+
+.floating-notifications .notification .summary { color: @theme_fg; }
+.floating-notifications .notification .body { color: @theme_fg_secondary; }
+
+/* 12. 토글 버튼 그리드 (Light와 100% 동일 구조) */
+.widget-buttons-grid {
+  padding: 8px;
+}
+
+.widget-buttons-grid > flowbox > flowboxchild > button {
+  background-color: @button_bg;
+  border: none;
+  border-radius: 50%;
+  min-height: 50px;    /* 높이 고정 */
+  min-width: 50px;      /* 너비 꽉 차게 */
+  padding: 0;
+  margin: 4px;
+  color: @theme_fg;
+  font-size: 16px;
+}
+
+.widget-buttons-grid > flowbox > flowboxchild > button:hover {
+  background-color: @button_hover_bg;
+}
+
+/* 토글 ON 상태 */
+.widget-buttons-grid > flowbox > flowboxchild > button.toggle:checked,
+.widget-buttons-grid > flowbox > flowboxchild > button.active {
+  background-color: @accent_color;
+  color: #ffffff;
+  box-shadow: 0 2px 8px rgba(10, 132, 255, 0.3);
+}
+.widget-buttons-grid > flowbox > flowboxchild > button.toggle:checked label,
+.widget-buttons-grid > flowbox > flowboxchild > button.active label {
+  color: #ffffff;
+}
