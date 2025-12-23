@@ -130,3 +130,12 @@ label {
   padding: 0;
 }
 
+#tray menu menuitem {
+  background-color: #2f2f2f;
+  color: #000000;
+}
+
+#tray menu menuitem:hover {
+  background-color: #4f4f4f;
+  color: #000000;
+}
