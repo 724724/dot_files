@@ -1,0 +1,161 @@
+/*******************************************************************************
+ * ROFI Shared Layout (North + Offset)
+ *******************************************************************************/
+
+configuration {
+    modi:                       "drun,run,filebrowser";
+    show-icons:                 true;
+    display-drun:               "";
+    display-run:                "";
+    display-filebrowser:        "";
+    display-window:             "";
+    drun-display-format:        "{name}";
+    window-format:              "{w} · {c} · {t}";
+    
+    /* 폰트 크기 10 유지 */
+    font:                       "Helvetica Neue Bold 10, JetBrainsMono Nerd Font 10"; 
+}
+
+window {
+    transparency:               "real";
+    
+    /* [위치 수정 핵심] */
+    /* 1. 화면의 상단 중앙(north)을 기준으로 잡습니다. */
+    location:                   north;
+    
+    /* 2. 윈도우의 기준점도 상단(north)으로 맞춥니다. */
+    anchor:                     north;
+    
+    /* 3. 상단에서 화면 높이의 30%만큼 아래로 내려오게 합니다. 
+       (macOS Spotlight가 보통 상단 30~35% 지점에 위치합니다) 
+       너무 높으면 35%, 너무 낮으면 25%로 숫자를 조절하세요. */
+    y-offset:                   30%;
+    
+    /* x축은 그대로 중앙 */
+    x-offset:                   0px;
+
+    fullscreen:                 false;
+    width:                      800px;
+    
+    enabled:                    true;
+    border-radius:              20px;
+    border:                     1px;
+    cursor:                     "default";
+    background-color:           @background-col;
+    border-color:               @border-col;
+}
+
+mainbox {
+    enabled:                    true;
+    spacing:                    0px;
+    background-color:           transparent;
+    orientation:                vertical;
+    children:                   [ "inputbar", "listview" ];
+}
+
+inputbar {
+    enabled:                    true;
+    spacing:                    10px;
+    margin:                     0px;
+    padding:                    12px;
+    background-color:           transparent;
+    text-color:                 @foreground-col;
+    children:                   [ "prompt", "entry" ];
+}
+
+prompt {
+    enabled:                    true;
+    background-color:           inherit;
+    text-color:                 inherit;
+    font:                       "JetBrainsMono Nerd Font 20"; 
+    padding:                    0px 10px 0px 5px;
+    vertical-align:             0.5;
+}
+
+entry {
+    enabled:                    true;
+    background-color:           inherit;
+    text-color:                 inherit;
+    cursor:                     text;
+    placeholder:                "Search";
+    placeholder-color:          inherit;
+    vertical-align:             0.5;
+    font:                       "Helvetica Neue Bold 10";
+}
+
+listview {
+    enabled:                    true;
+    columns:                    1;
+    lines:                      6;
+    cycle:                      true;
+    dynamic:                    true;
+    scrollbar:                  false;
+    layout:                     vertical;
+    reverse:                    false;
+    fixed-height:               true;
+    fixed-columns:              true;
+    spacing:                    5px;
+    margin:                     0px;
+    padding:                    10px;
+    background-color:           transparent;
+    border:                     1px solid 0px 0px ;
+    border-color:               @border-col;
+}
+
+element {
+    enabled:                    true;
+    spacing:                    15px;
+    margin:                     0px;
+    padding:                    10px;
+    border:                     0px;
+    border-radius:              12px;
+    background-color:           transparent;
+    text-color:                 @foreground-col;
+    cursor:                     pointer;
+}
+
+element normal.normal,
+element alternate.normal {
+    background-color:           inherit;
+    text-color:                 @foreground-col;
+}
+
+element selected.normal {
+    background-color:           @selected-col;
+    text-color:                 @selected-text-col;
+}
+
+element-icon {
+    background-color:           transparent;
+    text-color:                 inherit;
+    size:                       32px;
+    cursor:                     inherit;
+}
+
+element-text {
+    background-color:           transparent;
+    text-color:                 inherit;
+    highlight:                  inherit;
+    cursor:                     inherit;
+    vertical-align:             0.5;
+    horizontal-align:           0.0;
+    font:                       "Helvetica Neue Bold 10";
+}
+
+message {
+    background-color:           transparent;
+    text-color:                 @foreground-col;
+}
+
+textbox {
+    padding:                    12px;
+    background-color:           @background-col;
+    text-color:                 @foreground-col;
+    vertical-align:             0.5;
+}
+
+error-message {
+    padding:                    12px;
+    background-color:           @background-col;
+    text-color:                 @foreground-col;
+}
