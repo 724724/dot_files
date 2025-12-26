@@ -139,3 +139,18 @@ label {
   background-color: #424242;
   color: #000000;
 }
+
+/* custom-magic은 active 클래스가 있을 때만(창이 있을 때만) 스타일 적용 */
+#custom-magic.active {
+  padding: 0 10px;
+  margin: 0 2px;
+  background: rgba(10, 10, 16, 0.60);
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: none;
+  color: #ffffff;
+}
+
+#custom-magic.active:hover {
+  background: rgba(14, 14, 22, 0.78);
+}

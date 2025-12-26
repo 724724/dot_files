@@ -10,7 +10,7 @@
   "modules-left":   ["clock", "hyprland/workspaces"],
   //"modules-center": ["hyprland/workspaces"],
   //"modules-right":  ["tray", "cpu", "memory", "pulseaudio", "battery", "network", "custom/swaync"],
-  "modules-right":  ["tray", "pulseaudio", "battery", "network", "custom/swaync"],
+  "modules-right":  ["custom/magic", "tray", "pulseaudio", "battery", "network", "custom/swaync"],
 
   // 시계 (아이콘 + 12시간제)
   "clock": {
@@ -32,6 +32,15 @@
     "on-click": "activate",
     "format": "{name}",
     "all-outputs": false
+  },
+
+  // custom/magic
+  "custom/magic": {
+    "interval": 1,
+    "return-type": "json",
+    "exec": "hyprctl clients -j | jq -e \".[] | select(.workspace.name == \\\"special:magic\\\")\" > /dev/null && echo '{\"text\":\"󰘔\", \"class\":\"active\"}' || echo '{\"text\":\"\"}'",
+    "on-click": "hyprctl dispatch togglespecialworkspace magic",
+    "tooltip": false
   },
 
   // Tray
