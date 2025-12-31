@@ -1,24 +1,24 @@
-/* 1. macOS Light Mode 팔레트 */
-@define-color theme_fg            #333333;
-@define-color theme_fg_secondary  rgba(0,0,0,0.65);
-@define-color theme_bg            rgba(255,255,255,0.65);
-@define-color module_bg           rgba(255,255,255,0.5);
-@define-color module_hover_bg     rgba(255,255,255,0.8);
-@define-color popup_bg            rgba(255,255,255,0.90);
-@define-color border_light        rgba(0,0,0,0.05);
-@define-color border_medium       rgba(0,0,0,0.12);
-@define-color border_dark         rgba(0,0,0,0.30);
-@define-color accent_color        #007AFF;
-@define-color critical_color      #FF3B30;
-@define-color close_button_bg     rgba(0,0,0,0.1);
-@define-color close_button_hover_bg rgba(0,0,0,0.2);
-@define-color slider_trough_bg    rgba(0,0,0,0.1);
-@define-color button_bg           rgba(0,0,0,0.06);
-@define-color button_hover_bg     rgba(0,0,0,0.12);
-@define-color icon_primary        #333333;
-@define-color icon_secondary      rgba(0,0,0,0.6);
+/* 1. macOS Dark Mode 팔레트 */
+@define-color theme_fg            #ffffff;
+@define-color theme_fg_secondary  rgba(255,255,255,0.60);
+@define-color theme_bg            rgba(30,30,30,0.70);
+@define-color module_bg           rgba(50,50,50,0.60);
+@define-color module_hover_bg     rgba(70,70,70,0.70);
+@define-color popup_bg            rgba(30,30,30,0.90);
+@define-color border_light        rgba(255,255,255,0.10);
+@define-color border_medium       rgba(255,255,255,0.15);
+@define-color border_dark         rgba(0,0,0,0.50);
+@define-color accent_color        #0A84FF;
+@define-color critical_color      #FF453A;
+@define-color close_button_bg     rgba(255,255,255,0.1);
+@define-color close_button_hover_bg rgba(255,255,255,0.2);
+@define-color slider_trough_bg    rgba(255,255,255,0.15);
+@define-color button_bg           rgba(255,255,255,0.10);
+@define-color button_hover_bg     rgba(255,255,255,0.18);
+@define-color icon_primary        #ffffff;
+@define-color icon_secondary      rgba(255,255,255,0.6);
 
-/* 2. 기본 설정 (Dark와 동일 구조) */
+/* 2. 기본 설정 (Light와 100% 동일) */
 * {
   font-family: "Helvetica Neue", Helvetica, Arial, "Symbols Nerd Font", "Noto Color Emoji", sans-serif;
   font-size: 13px;
@@ -52,7 +52,7 @@ window#swaync-notification-window {
   padding: 12px 14px;
   margin-bottom: 10px;
   border: 1px solid @border_medium;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.15); /* 그림자 농도만 다름 */
 }
 
 /* 4. Title 위젯 */
@@ -63,7 +63,7 @@ window#swaync-notification-window {
 .widget-title > label {
   font-size: 16px;
   font-weight: 700;
-  color: #000000;
+  color: @theme_fg;
 }
 .widget-title > button {
   background-color: @button_bg;
@@ -83,10 +83,10 @@ window#swaync-notification-window {
 .widget-mpris .widget-mpris-title {
   font-size: 13px;
   font-weight: 700;
-  color: #ffffff;
+  color: @theme_fg;
 }
 .widget-mpris .widget-mpris-subtitle {
-  color: rgba(255,255,255,0.60);
+  color: @theme_fg_secondary;
 }
 
 /* 7. 볼륨 / 백라이트 */
@@ -102,64 +102,43 @@ scale trough progress {
 }
 scale slider {
   background-color: #ffffff;
-  border: 1px solid rgba(0,0,0,0.2);
-  box-shadow: 0 1px 2px rgba(0,0,0,0.2);
+  border: none;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.3);
 }
 
-/* 8. 알림 리스트 (Control Center) */
+/* 8. 알림 리스트 */
 .control-center .notification-background {
-  background-color: #ffffff;
+  background-color: @module_bg;
   border-radius: 16px;
   border: 1px solid @border_medium;
-  padding: 12px; /* 패딩을 살짝 줄이고 내부에서 여백 확보 */
-  box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+  padding: 12px;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.15);
 }
-
-.control-center .notification-row {
-  outline: none;
-}
-
 .control-center .notification-row:hover .notification-background {
-  background-color: #f0f0f0 !important;
+  background-color: @module_hover_bg;
+}
+.control-center .notification .summary {
+  color: @theme_fg;
+  font-weight: 700;
+}
+.control-center .notification .body {
+  color: @theme_fg_secondary;
+}
+.control-center .notification .time {
+  color: rgba(255,255,255,0.4);
 }
 
-/* [수정] 내부 알림 컨테이너: 투명 대신 아주 연한 틴트 적용 */
-.control-center .notification {
-  background-color: rgba(0,0,0,0.03); /* 아주 미세한 회색 배경 */
-  border-radius: 12px;
-  box-shadow: none;
+/* 알림 액션 버튼 */
+.control-center .notification .notification-action button {
+  background-color: @button_bg;
+  border: 1px solid @border_medium;
+  color: @theme_fg;
+}
+.control-center .notification .notification-action button:hover {
+  background-color: @button_hover_bg;
 }
 
-/* [중요] 텍스트 가독성 확보 & 호버 시 색상 고정 */
-.control-center .notification .summary,
-.control-center .notification .body,
-.control-center .notification-row:hover .notification .summary,
-.control-center .notification-row:hover .notification .body {
-  color: #1c1c1e !important; /* 짙은 검정 회색 */
-  background-color: transparent;
-  text-shadow: none;
-}
-
-.control-center .notification .time,
-.control-center .notification-row:hover .notification .time {
-  color: #8e8e93 !important; /* 애플 스타일 회색 */
-  font-weight: 500;
-}
-
-/* 닫기 버튼 */
-.control-center .close-button {
-  background-color: transparent;
-  color: #8e8e93;
-  text-shadow: none;
-  box-shadow: none;
-  border: none;
-}
-.control-center .close-button:hover {
-  background-color: rgba(0,0,0,0.05);
-  color: #ff3b30; /* 호버 시 빨간색 */
-}
-
-/* 9. 팝업 알림 (Floating) - 위와 동일한 스타일 적용 */
+/* 9. 팝업 알림 */
 .floating-notifications .notification-background {
   background-color: @popup_bg;
   border-radius: 18px;
@@ -175,15 +154,10 @@ scale slider {
   box-shadow: none;
 }
 
-.floating-notifications .notification .summary,
-.floating-notifications .notification .body {
-  color: #1c1c1e !important;
-}
-.floating-notifications .notification .time {
-  color: #8e8e93 !important;
-}
+.floating-notifications .notification .summary { color: @theme_fg; }
+.floating-notifications .notification .body { color: @theme_fg_secondary; }
 
-/* 12. 토글 버튼 그리드 (Dark와 100% 동일 구조) */
+/* 12. 토글 버튼 그리드 (Light와 100% 동일 구조) */
 .widget-buttons-grid {
   padding: 8px;
 }
@@ -209,7 +183,7 @@ scale slider {
 .widget-buttons-grid > flowbox > flowboxchild > button.active {
   background-color: @accent_color;
   color: #ffffff;
-  box-shadow: 0 2px 6px rgba(0, 122, 255, 0.4);
+  box-shadow: 0 2px 8px rgba(10, 132, 255, 0.3);
 }
 .widget-buttons-grid > flowbox > flowboxchild > button.toggle:checked label,
 .widget-buttons-grid > flowbox > flowboxchild > button.active label {
