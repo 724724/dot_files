@@ -1,18 +1,18 @@
 {
   "layer": "top",
   "position": "top",
-  "height": 33,
-  "spacing": 8,
-  "margin-top": 10,
-  "margin-left": 10,
-  "margin-right": 10,
+  "height": 36,
+  "spacing": 6,
+  "margin-top": 8,
+  "margin-left": 16,
+  "margin-right": 16,
 
   "modules-left": ["clock", "hyprland/workspaces"],
   "modules-center": [],
   "modules-right": ["custom/magic", "tray", "pulseaudio", "battery", "network", "custom/swaync"],
 
   "clock": {
-    "format": "󰥔  {:%H:%M:%S   %a %d %b}",
+    "format": "󰥔 {:%H:%M:%S  %a %d %b}",
     "interval": 1,
     "tooltip-format": "<tt><small>{calendar}</small></tt>",
     "calendar": {
@@ -51,8 +51,8 @@
   },
 
   "pulseaudio": {
-    "format": "{icon}  {volume}%",
-    "format-muted": "󰝟  Muted",
+    "format": "{icon} {volume}%",
+    "format-muted": "󰝟 Muted",
     "format-icons": {
       "headphone": "󰋋",
       "hands-free": "󰋎",
@@ -71,17 +71,17 @@
       "warning": 30,
       "critical": 15
     },
-    "format": "{icon}  {capacity}%",
-    "format-charging": "󰂄  {capacity}%",
-    "format-plugged": "󰂄  {capacity}%",
+    "format": "{icon} {capacity}%",
+    "format-charging": "󰂄 {capacity}%",
+    "format-plugged": "󰂄 {capacity}%",
     "format-icons": ["󰂃", "󰁺", "󰁻", "󰁼", "󰁽", "󰁾", "󰁿", "󰂀", "󰂁", "󰂂", "󰁹"],
     "tooltip-format": "{timeTo}"
   },
 
   "network": {
-    "format-wifi": "󰤨  {essid}",
-    "format-ethernet": "󰈀  Connected",
-    "format-disconnected": "󰤭  Disconnected",
+    "format-wifi": "󰤨 {essid}",
+    "format-ethernet": "󰈀 Connected",
+    "format-disconnected": "󰤭 Disconnected",
     "tooltip-format": "{ifname}: {ipaddr}/{cidr}",
     "tooltip-format-wifi": "{essid} ({signalStrength}%)\n󰈀 {ipaddr}/{cidr}",
     "on-click": "nm-connection-editor"
