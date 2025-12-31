@@ -7,24 +7,13 @@ Item {
     id: lockScreen
     signal loginRequested
 
+
     // TODO: Support for weather info?
     ColumnLayout {
         id: timePositioner
         spacing: Config.dateMarginTop
-        Text {
-            id: time
-            visible: Config.clockDisplay
-            font.pixelSize: Config.clockFontSize * Config.generalScale
-            font.weight: Config.clockFontWeight
-            font.family: Config.clockFontFamily
-            color: Config.clockColor
-            Layout.alignment: Config.clockAlign === "left" ? Qt.AlignLeft : (Config.clockAlign === "right" ? Qt.AlignRight : Qt.AlignHCenter)
-
-            function updateTime() {
-                text = new Date().toLocaleString(Qt.locale(Config.dateLocale), Config.clockFormat);
-            }
-        }
-
+        
+        // [수정 1] 날짜(Date)를 시계 위로 이동
         Text {
             id: date
             Layout.alignment: Config.clockAlign === "left" ? Qt.AlignLeft : (Config.clockAlign === "right" ? Qt.AlignRight : Qt.AlignHCenter)
@@ -36,6 +25,21 @@ Item {
 
             function updateDate() {
                 text = new Date().toLocaleString(Qt.locale(Config.dateLocale), Config.dateFormat);
+            }
+        }
+
+        // [수정 1] 시계(Time)를 날짜 아래로 이동
+        Text {
+            id: time
+            visible: Config.clockDisplay
+            font.pixelSize: Config.clockFontSize * Config.generalScale
+            font.weight: Config.clockFontWeight
+            font.family: Config.clockFontFamily
+            color: Config.clockColor
+            Layout.alignment: Config.clockAlign === "left" ? Qt.AlignLeft : (Config.clockAlign === "right" ? Qt.AlignRight : Qt.AlignHCenter)
+
+            function updateTime() {
+                text = new Date().toLocaleString(Qt.locale(Config.dateLocale), Config.clockFormat);
             }
         }
 
@@ -163,6 +167,8 @@ Item {
         hoverEnabled: true
         z: -1
         anchors.fill: lockScreen
+        // [수정 2] 마우스 커서 숨기기 추가
+        cursorShape: Qt.BlankCursor 
         onClicked: lockScreen.loginRequested()
     }
 
