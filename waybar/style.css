@@ -18,10 +18,10 @@ window#waybar {
 #battery,
 #network,
 #custom-swaync {
-  background: linear-gradient(135deg, rgba(100, 210, 180, 0.25), rgba(70, 160, 150, 0.25));
+  background: linear-gradient(135deg, rgba(100, 210, 180, 0.35), rgba(70, 160, 150, 0.35));
   border: 1px solid rgba(100, 210, 180, 0.3);
-  border-radius: 20px;
-  padding: 2px 14px;
+  border-radius: 999px;
+  padding: 0 12px;
   margin: 0 3px;
   color: #d4f1e8;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
@@ -35,7 +35,7 @@ window#waybar {
 #battery:hover,
 #network:hover,
 #custom-swaync:hover {
-  background: linear-gradient(135deg, rgba(100, 210, 180, 0.35), rgba(70, 160, 150, 0.35));
+  background: linear-gradient(135deg, rgba(100, 210, 180, 0.45), rgba(70, 160, 150, 0.45));
   border-color: rgba(100, 210, 180, 0.4);
 }
 
@@ -50,35 +50,41 @@ window#waybar {
 }
 
 #workspaces button {
-  padding: 2px 12px;
-  border-radius: 20px;
+  padding: 0 12px;
+  margin: 0;
+  border-radius: 999px;
   color: #8ba3b8;
   background: transparent;
   border: none;
   box-shadow: none;
   outline: none;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  min-width: 0;
+  min-width: 18px;
   min-height: 0;
+}
+
+#workspaces button + button {
+  margin-left: 2px;
 }
 
 #workspaces button:hover {
   color: #b8d4e8;
   background: rgba(255, 255, 255, 0.08);
-  border-radius: 20px;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.10);
+  border-radius: 999px;
 }
 
 #workspaces button.active {
   background: linear-gradient(135deg, rgba(255, 140, 130, 0.4), rgba(255, 110, 120, 0.4));
   color: #ffd4d0;
   border: 1px solid rgba(255, 140, 130, 0.5);
-  border-radius: 20px;
+  border-radius: 999px;
 }
 
 #workspaces button.urgent {
   background: rgba(255, 100, 100, 0.5);
   color: #ffffff;
-  border-radius: 20px;
+  border-radius: 999px;
 }
 
 /* Magic workspace indicator */

@@ -27,7 +27,9 @@
         "weekdays": "<span color='#ffcc66'><b>{}</b></span>",
         "today": "<span color='#ff6699'><b><u>{}</u></b></span>"
       }
-    }
+    },
+    "on-click": "gnome-clocks",
+    "on-click-right": "gnome-calendar"
   },
 
   "hyprland/workspaces": {
@@ -73,7 +75,7 @@
     },
     "format": "{icon}  {capacity}%",
     "format-charging": "󰂄  {capacity}%",
-    "format-plugged": "󰂄  {capacity}%",
+    "format-plugged": "󰂄  {capacity}%",                                                                            
     "format-icons": ["󰂃", "󰁺", "󰁻", "󰁼", "󰁽", "󰁾", "󰁿", "󰂀", "󰂁", "󰂂", "󰁹"],
     "tooltip-format": "{timeTo}"
   },
@@ -99,7 +101,7 @@
       "inhibited-none": "󰂚",
       "dnd-inhibited-notification": "<span foreground='#ff6b9d'><sup></sup></span>󰂛",
       "dnd-inhibited-none": "󰂛"
-    },
+    },                                                                                                             
     "return-type": "json",
     "exec-if": "which swaync-client",
     "exec": "swaync-client -swb",
