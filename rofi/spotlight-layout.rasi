@@ -13,7 +13,7 @@ configuration {
     window-format:              "{w} · {c} · {t}";
     
     /* 폰트 크기 10 유지 */
-    font:                       "Helvetica Neue Bold 10, JetBrainsMono Nerd Font 10"; 
+    font:                       "SF Pro Display 10, JetBrainsMono Nerd Font 10"; 
 }
 
 window {
@@ -80,7 +80,7 @@ entry {
     placeholder:                "Search";
     placeholder-color:          inherit;
     vertical-align:             0.5;
-    font:                       "Helvetica Neue Bold 10";
+    font:                       "SF Pro Display 10";
 }
 
 listview {
@@ -139,7 +139,7 @@ element-text {
     cursor:                     inherit;
     vertical-align:             0.5;
     horizontal-align:           0.0;
-    font:                       "Helvetica Neue Bold 10";
+    font:                       "SF Pro Display 10";
 }
 
 message {
