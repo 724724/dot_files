@@ -18,11 +18,13 @@
 @define-color icon_primary        #333333;
 @define-color icon_secondary      rgba(0,0,0,0.6);
 
-/* 2. 기본 설정 (Dark와 동일 구조) */
+/* ============================================
+   Default Font Settings
+   ============================================ */
 * {
-  font-family: "Helvetica Neue", Helvetica, Arial, "Symbols Nerd Font", "Noto Color Emoji", sans-serif;
-  font-size: 13px;
-  font-weight: 600;
+  font-family: "SF Pro Display", "Noto Sans CJK KR", "JetBrainsMono Nerd Font Propo", "Font Awesome 6 Free", monospace;
+  font-size: 12px;
+  font-weight: 500;
   color: @theme_fg;
 }
 
