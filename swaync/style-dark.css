@@ -160,12 +160,19 @@ window#swaync-notification-window {
 }
 scale trough {
   background-color: @slider_trough_bg;
+  min-height: 6px;
 }
 scale trough progress {
   background-color: @accent_color;
+  min-height: 6px;
 }
 scale slider {
   background-color: #ffffff;
+  border-radius: 15px;
+  min-width: 38px;
+  min-height: 24px;
+  max-width: 38px;
+  max-height: 24px;
   border: @border_light;
   box-shadow: 0 1px 3px rgba(0,0,0,0.3);
 }
