@@ -23,7 +23,7 @@
   "transition-time": 200,
   "hide-on-clear": false,
   "hide-on-action": true,
-  "text-empty": "No",
+  "text-empty": "Nothing",
   "fit-to-screen": true,
   "relative-timestamps": true,
 
@@ -32,7 +32,6 @@
   "widgets": [
     "title",
     "menubar",
-    "buttons-grid",
     "backlight",
     "volume",
     "mpris",
@@ -53,28 +52,61 @@
     },
 
     "menubar": {
+      "buttons#buttons-grid": {
+        "label": "",
+        "position": "left",
+        "actions": [
+          {
+            "label": "󰀝",
+            "type": "toggle",
+            "command": "~/.config/swaync/scripts/toggle-airplane.sh",
+            "update-command": "~/.config/swaync/scripts/state-airplane.sh"
+          },
+          {
+            "label": "󰖩",
+            "type": "toggle",
+            "command": "~/.config/swaync/scripts/toggle-wifi.sh",
+            "update-command": "~/.config/swaync/scripts/state-wifi.sh"
+          },
+          {
+            "label": "󰂯",
+            "type": "toggle",
+            "command": "~/.config/swaync/scripts/toggle-bluetooth.sh",
+            "update-command": "~/.config/swaync/scripts/state-bluetooth.sh"
+          },
+          {
+            "label": "",
+            "type": "toggle",
+            "command": "~/.config/swaync/scripts/toggle-dnd.sh",
+            "update-command": "~/.config/swaync/scripts/state-dnd.sh"
+          },
+          {
+            "label": "",
+            "type": "toggle",
+            "command": "~/.config/swaync/scripts/toggle-theme.sh",
+            "update-command": "~/.config/swaync/scripts/state-theme.sh"
+          }
+        ]
+      },
       "menu#powermode-buttons": {
         "label": "",
-        "position": "right",
         "actions": [
           {
             "label": "Performance",
-            "command": "sudo tlp performance"
+            "command": "sudo tlp performance && notify-send Power Performance"
           },
           {
             "label": "Balanced",
-            "command": "sudo tlp balanced"
+            "command": "sudo tlp balanced && notify-send Power Balanced"
           },
           {
             "label": "Power-saver",
-            "command": "sudo tlp power-saver"
+            "command": "sudo tlp power-saver && notify-send Power Power-saver"
           }
-        ],
-        "type": "toggle"
+        ]
       },
       "menu#power-buttons": {
         "label": "",
-        "position": "right",
         "actions": [
           {
             "label": "Lock",
@@ -94,42 +126,6 @@
           }
         ]
       }
-    },
-
-    "buttons-grid": {
-      "buttons-per-row": 5,
-      "actions": [
-        {
-          "label": "󰀝",
-          "type": "toggle",
-          "command": "~/.config/swaync/scripts/toggle-airplane.sh",
-          "update-command": "~/.config/swaync/scripts/state-airplane.sh"
-        },
-        {
-          "label": "󰖩",
-          "type": "toggle",
-          "command": "~/.config/swaync/scripts/toggle-wifi.sh",
-          "update-command": "~/.config/swaync/scripts/state-wifi.sh"
-        },
-        {
-          "label": "󰂯",
-          "type": "toggle",
-          "command": "~/.config/swaync/scripts/toggle-bluetooth.sh",
-          "update-command": "~/.config/swaync/scripts/state-bluetooth.sh"
-        },
-        {
-          "label": "",
-          "type": "toggle",
-          "command": "~/.config/swaync/scripts/toggle-dnd.sh",
-          "update-command": "~/.config/swaync/scripts/state-dnd.sh"
-        },
-        {
-          "label": "",
-          "type": "toggle",
-          "command": "~/.config/swaync/scripts/toggle-theme.sh",
-          "update-command": "~/.config/swaync/scripts/state-theme.sh"
-        }
-      ]
     },
 
     "volume": {

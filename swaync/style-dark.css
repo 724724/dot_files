@@ -18,11 +18,13 @@
 @define-color icon_primary        #ffffff;
 @define-color icon_secondary      rgba(255,255,255,0.6);
 
-/* 2. 기본 설정 (Light와 100% 동일) */
+/* ============================================
+   Default Font Settings
+   ============================================ */
 * {
-  font-family: "Helvetica Neue", Helvetica, Arial, "Symbols Nerd Font", "Noto Color Emoji", sans-serif;
-  font-size: 13px;
-  font-weight: 600;
+  font-family: "SF Pro Display", "Noto Sans CJK KR", "JetBrainsMono Nerd Font Propo", "Font Awesome 6 Free", monospace;
+  font-size: 12px;
+  font-weight: 500;
   color: @theme_fg;
 }
 
@@ -31,7 +33,7 @@ window#swaync-notification-window {
   background-color: transparent;
 }
 
-/* 3. 컨트롤 센터 */
+/* 1. Control Center */
 .control-center {
   background-color: @theme_bg;
   border-radius: 18px;
@@ -45,54 +47,116 @@ window#swaync-notification-window {
 .widget-mpris,
 .widget-volume,
 .widget-backlight,
-.widget-buttons-grid,
+.widget-menubar,
 .control-center-list > box > *:not(.widget-title) {
   background-color: @module_bg;
   border-radius: 16px;
   padding: 12px 14px;
   margin-bottom: 10px;
   border: 1px solid @border_medium;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.15); /* 그림자 농도만 다름 */
+  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
 }
 
-/* 4. Title 위젯 */
+/* 3. Title & Clear Button */
 .widget-title {
   padding: 4px 8px 12px 8px;
   margin-bottom: 4px;
 }
 .widget-title > label {
-  font-size: 16px;
+  font-size: 20px;
   font-weight: 700;
-  color: @theme_fg;
+  color: #ffffff;
 }
+
 .widget-title > button {
   background-color: @button_bg;
   color: @theme_fg;
   border: 1px solid @border_medium;
   border-radius: 12px;
 }
+.widget-title > button label {
+  font-size: 14px;
+}
 .widget-title > button:hover {
+  background-color: rgba(255, 56, 60, 0.7);
+}
+.widget-title > button:hover label {
+  color: white;
+}
+
+/* 4. Menubar widget */
+.widget-menubar button {
+  background-color: @button_bg;
+  color: @theme_fg;
+  border: 1px solid @border_medium;
+  border-radius: 999px;
+  min-height: 40px;
+}
+
+.widget-menubar > box button label { /* Button Icons */
+  font-size: 16px;
+}
+
+.widget-menubar button:hover {
   background-color: @button_hover_bg;
 }
 
-/* 6. MPRIS */
+.widget-menubar button.toggle:checked,
+.widget-menubar button.active {
+  background-color: rgba(0, 136, 255, 0.7);
+}
+
+.widget-menubar button.toggle:checked:hover,
+.widget-menubar button.active:hover {
+  background-color: rgba(0, 136, 255, 0.35);
+}
+
+.widget-menubar button.toggle:checked label,
+.widget-menubar button.active label {
+  color: white;
+}
+
+/* 5. MPRIS */
 .widget-mpris {
   background-color: @module_bg;
   border: 1px solid @border_medium;
+  padding: 10px;
 }
+
+.widget-mpris .widget-mpris-player button { /* 이전/다음/셔플/반복 버튼 */
+  min-width: 35px;
+  min-height: 35px;
+  margin: 8px;
+  background-color: rgba(255,255,255,0.5);
+}
+
+.widget-mpris .widget-mpris-player button:hover {
+  background-color: rgba(255,255,255,0.25);
+}
+
 .widget-mpris .widget-mpris-title {
   font-size: 13px;
   font-weight: 700;
-  color: @theme_fg;
+  color: #ffffff;
 }
 .widget-mpris .widget-mpris-subtitle {
-  color: @theme_fg_secondary;
+  color: rgba(255,255,255,0.60);
+}
+.widget-mpris > box > button { /* 좌우 버튼 */
+  min-width: 0px;
 }
 
-/* 7. 볼륨 / 백라이트 */
+/* 6. Volume / Backlight */
+.widget-volume,
+.widget-backlight {
+  padding: 10px;
+}
+
 .widget-volume label,
 .widget-backlight label {
   color: @icon_primary;
+  font-size: 20px;
+  min-width: 24px;
 }
 scale trough {
   background-color: @slider_trough_bg;
@@ -102,90 +166,133 @@ scale trough progress {
 }
 scale slider {
   background-color: #ffffff;
-  border: none;
+  border: @border_light;
   box-shadow: 0 1px 3px rgba(0,0,0,0.3);
 }
 
-/* 8. 알림 리스트 */
-.control-center .notification-background {
-  background-color: @module_bg;
-  border-radius: 16px;
-  border: 1px solid @border_medium;
-  padding: 12px;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.15);
-}
-.control-center .notification-row:hover .notification-background {
-  background-color: @module_hover_bg;
-}
-.control-center .notification .summary {
-  color: @theme_fg;
-  font-weight: 700;
-}
-.control-center .notification .body {
-  color: @theme_fg_secondary;
-}
-.control-center .notification .time {
-  color: rgba(255,255,255,0.4);
+tooltip {
+  background-color: rgba(30,30,30,0.9);
+  border-radius: 15px;
+  border: @border_medium;
 }
 
-/* 알림 액션 버튼 */
-.control-center .notification .notification-action button {
-  background-color: @button_bg;
-  border: 1px solid @border_medium;
-  color: @theme_fg;
-}
-.control-center .notification .notification-action button:hover {
-  background-color: @button_hover_bg;
+tooltip label {
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 12px;
+  padding: 4px 8px;
 }
 
-/* 9. 팝업 알림 */
-.floating-notifications .notification-background {
-  background-color: @popup_bg;
-  border-radius: 18px;
-  border: 1px solid @border_medium;
-  box-shadow: none; 
-  padding: 12px;
-}
-
-.floating-notifications .notification {
-  background-color: rgba(0,0,0,0.03);
-  border-radius: 12px;
+/* 7. Notifications in Control Center */
+.notification {
+  background: @theme_bg;
+  backdrop-filter: blur(40px);
+  -webkit-backdrop-filter: blur(40px);
+  border-radius: 20px;
+  border: 1px solid @border_light;
   padding: 10px;
   box-shadow: none;
 }
 
-.floating-notifications .notification .summary { color: @theme_fg; }
-.floating-notifications .notification .body { color: @theme_fg_secondary; }
-
-/* 12. 토글 버튼 그리드 (Light와 100% 동일 구조) */
-.widget-buttons-grid {
-  padding: 8px;
+.notification.critical {
+  background: rgba(42, 40, 40, 0.85);
+  border: 1px solid rgba(255, 100, 100, 0.2);
 }
 
-.widget-buttons-grid > flowbox > flowboxchild > button {
-  background-color: @button_bg;
-  border: none;
-  border-radius: 50%;
-  min-height: 50px;    /* 높이 고정 */
-  min-width: 50px;      /* 너비 꽉 차게 */
+.notification-group {
+  background: transparent;
   padding: 0;
-  margin: 4px;
-  color: @theme_fg;
-  font-size: 16px;
+  margin: 5px 0;
 }
 
-.widget-buttons-grid > flowbox > flowboxchild > button:hover {
-  background-color: @button_hover_bg;
+.notification-group-headers {
+  background: transparent;
+  padding: 12px 0;
+  margin: 0;
 }
 
-/* 토글 ON 상태 */
-.widget-buttons-grid > flowbox > flowboxchild > button.toggle:checked,
-.widget-buttons-grid > flowbox > flowboxchild > button.active {
-  background-color: @accent_color;
-  color: #ffffff;
-  box-shadow: 0 2px 8px rgba(10, 132, 255, 0.3);
+.notification-row {
+  background: transparent;
+  margin: 0 0 5px 0;
+  padding: 0;
 }
-.widget-buttons-grid > flowbox > flowboxchild > button.toggle:checked label,
-.widget-buttons-grid > flowbox > flowboxchild > button.active label {
-  color: #ffffff;
+
+.notification-row .notification-background {
+  background: @module_bg;
+  border: 1px solid @border_light;
+  border-radius: 20px;
+  padding: 5px;
+  transition: all 0.2s;
+}
+
+.notification-row .notification-background:hover {
+  background: @popup_bg;
+  border-color: @border_medium;
+}
+
+/* Notification Content */
+.notification-content {
+  background: transparent;
+  padding: 0;
+}
+
+.notification-default-action {
+  background: transparent;
+  padding: 0;
+}
+
+.summary {
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.body {
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 13px;
+  font-weight: 400;
+}
+
+.time {
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 11px;
+  font-weight: 400;
+  margin-top: 6px;
+}
+
+/* Notification Actions */
+/* .notification-action {
+  background: rgba(230, 235, 242, 0.6);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 8px;
+  color: rgba(0, 0, 0, 0.85);
+  padding: 6px 12px;
+  margin: 4px 2px;
+  font-size: 12px;
+  transition: all 0.2s;
+}
+
+.notification-action:hover {
+  background: @module_hover_bg;
+  border-color: @border_medium;
+} */
+
+.notification .notification-content .image {
+  border-radius: 10px;
+  margin: 0 15px 0 0;          /* 상 우 하 좌 */
+  min-width: 44px;
+  min-height: 44px;
+  max-width: 44px;             /* 최대 크기도 고정 */
+  max-height: 44px;
+}
+
+/* 닫기 버튼 */
+.close-button {
+  background-color: rgba(80, 80, 80, 0.3);
+  text-shadow: none;
+  box-shadow: none;
+  border: 1px solid @border_medium;
+}
+.close-button:hover {
+  background-color: rgba(255, 56, 60, 0.7);
 }
