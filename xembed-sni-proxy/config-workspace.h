@@ -1,0 +1,1 @@
+#define WORKSPACE_VERSION_STRING "6.0.0"
