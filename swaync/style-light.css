@@ -303,3 +303,8 @@ tooltip label {
 .close-button:hover {
   background-color: rgba(255, 56, 60, 0.7);
 }
+
+.floating-notifications {
+  padding-top: 10px;
+  padding-right: 10px;
+}
