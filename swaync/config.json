@@ -144,8 +144,7 @@
   "notification-visibility": {
     "swaync-system": {
       "state": "transient",
-      "app-name": "swaync-system",
-      "override-urgency": "normal"
+      "app-name": "swaync-system"
     }
   }
 
