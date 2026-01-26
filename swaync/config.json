@@ -114,15 +114,15 @@
           },
           {
             "label": "Hibernate",
-            "command": "systemctl hibernate"
+            "command": "~/.config/swaync/scripts/power.sh hibernate"
           },
           {
             "label": "Shutdown",
-            "command": "systemctl poweroff"
+            "command": "~/.config/swaync/scripts/power.sh shutdown"
           },
           {
             "label": "Reboot",
-            "command": "systemctl reboot"
+            "command": "~/.config/swaync/scripts/power.sh reboot"
           }
         ]
       }
