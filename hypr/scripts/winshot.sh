@@ -20,9 +20,9 @@ WF_PID=$!
 sleep 0.1   # 레이어 올라올 시간 조금만 줌
 
 # grimblast가 끝나는 순간 wayfreeze 해제되도록 그룹으로 묶어서 파이프
-if { 
-  grimblast save area -   # 영역 선택 후 PNG를 stdout으로
-  kill "$WF_PID" 2>/dev/null || true   # grimblast 끝난 직후 freeze 해제
+if {
+  grimblast save area - 
+  kill "$WF_PID" 2>/dev/null || true
 } | magick png:- \
     \( +clone -background black -shadow 100x30+0+0 \) \
     +swap -background none -layers merge +repage \
@@ -32,6 +32,11 @@ if {
     "$FINAL_PATH"
 then
   wl-copy < "$FINAL_PATH"
-  notify-send -i "$FINAL_PATH" "Screenshot" "\"$FILENAME\" saved to $OUT_DIR"
+  (
+    ACTION=$(notify-send -i "$FINAL_PATH" "Screenshot" "\"$FILENAME\" saved to $OUT_DIR" \
+      --action="open=Open in Files" \
+      --wait)
+    
+    [ "$ACTION" = "open" ] && nautilus --select "$FINAL_PATH"
+  ) &
 fi
-

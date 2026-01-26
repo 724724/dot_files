@@ -30,8 +30,14 @@ case "$MODE" in
     ;;
 esac
 
-# [수정됨] 파일이 실제로 존재할 때만 알림 전송
+# 파일이 실제로 존재할 때만 알림 전송
 # grimblast는 ESC로 취소하면 파일을 생성하지 않고 종료 코드 1을 반환합니다.
 if [ -f "$TARGET" ]; then
-  notify-send -i "$TARGET" "Screenshot" "\"$FILENAME\" saved to $OUT_DIR"
+  (
+    ACTION=$(notify-send -i "$TARGET" "Screenshot" "\"$FILENAME\" saved to $OUT_DIR" \
+      --action="open=Open in Files" \
+      --wait)
+    
+    [ "$ACTION" = "open" ] && nautilus --select "$TARGET"
+  ) &
 fi
