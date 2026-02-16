@@ -87,13 +87,38 @@ app.start({
     instanceName: "osd",
     css: css,
     requestHandler(argv, response) {
-        const cmd = argv[0]
-        if (cmd === "volume" || cmd === "brightness") {
-            triggerOsd(cmd)
-            response("ok")
-        } else {
-            response("unknown")
-        }
+    	const cmd = argv[0]
+    	if (cmd.startsWith("volume:")) {
+        	const raw = cmd.substring(7) // "Volume: 0.55 [MUTED]" 등
+        	const isMuted = raw.includes("[MUTED]")
+        	const match = raw.match(/([\d\.]+)/)
+        	const p = match ? Math.round(parseFloat(match[1]) * 100) : 0
+
+        	setMode("volume")
+        	setPercent(p)
+        	setMuted(isMuted)
+        	setShow(true)
+
+        	if (hideTimer) hideTimer.cancel()
+        	hideTimer = timeout(2000, () => setShow(false))
+        	response("ok")
+    	} else if (cmd.startsWith("brightness:")) {
+        	const p = parseInt(cmd.substring(11)) || 0
+
+        	setMode("brightness")
+        	setPercent(p)
+        	setMuted(false)
+        	setShow(true)
+
+        	if (hideTimer) hideTimer.cancel()
+        	hideTimer = timeout(2000, () => setShow(false))
+        	response("ok")
+    	} else if (cmd.startsWith("power:")) {
+        	triggerPowerOsd(cmd.split(":")[1])
+        	response("ok")
+    	} else {
+        	response("unknown")
+    	}
     },
     main() {
         OsdWindow()
