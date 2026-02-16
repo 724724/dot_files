@@ -9,7 +9,7 @@ if hyprctl monitors | grep -qE '\s(DP-|HDMI-|DVI-|VGA-)'; then
     elif [ "$1" = "open" ]; then
         # lid 열림 → eDP-1을 외부 모니터 바로 아래 중앙에 배치
         # (지금 쓰는 레이아웃에 맞춰 320x1440, scale 2)
-        hyprctl keyword monitor "eDP-1,3840x2160@60,320x1440,2"
+        hyprctl keyword monitor "eDP-1,3840x2400@60,320x1440,2"
     fi
 else
     # === 외부 모니터가 없을 때: 우리가 직접 suspend ===

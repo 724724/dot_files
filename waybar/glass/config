@@ -1,12 +1,13 @@
 {
   "layer": "top",
   "position": "top",
+  "height": 40,
   "spacing": 8,
   //"margin-top": 10,
   //"margin-left": 10,
   //"margin-right": 10,
 
-  "modules-left": ["clock", "hyprland/workspaces", "hyprland/window"],
+  "modules-left": ["clock", "hyprland/window", "hyprland/workspaces"],
   "modules-center": [],
   "modules-right": ["custom/magic", "tray", "pulseaudio", "battery", "network", "custom/swaync"],
 
@@ -27,30 +28,29 @@
         "today": "<span color='#ff6699'><b><u>{}</u></b></span>"
       }
     },
-    "on-click": "gnome-clocks"
+    "on-click": "gnome-clocks",
+    "on-click-right": "gnome-calendar"
   },
 
   "hyprland/window": {
     "format": "{}",
-    "max-length": 20,
+    "max-length": 40,
     "separate-outputs": true
   },
-  
+
   "hyprland/workspaces": {
-    "format": "{name}{icon}",
-    "format-icons": {
-        "active": " *",
-        "default": ""
-    },
+    "format": "{name}",
+    "format-active": "{name} *",
     "on-click": "activate",
     "all-outputs": false,
-    "sort-by-number": true
+    "sort-by-number": true,
+    "format-icons": {}
   },
 
   "custom/magic": {
     "interval": 1,
     "return-type": "json",
-    "exec": "hyprctl clients -j | jq -e \".[] | select(.workspace.name == \\\"special:magic\\\")\" > /dev/null && echo '{\"text\":\"󰘔\", \"class\":\"active\"}' || echo '{\"text\":\"\"}'",
+    "exec": "hyprctl clients -j | jq -e \".[] | select(.workspace.name == \\\"special:magic\\\")\" > /dev/null&& echo '{\"text\":\"󰘔\", \"class\":\"active\"}' || echo '{\"text\":\"\"}'",
     "on-click": "hyprctl dispatch togglespecialworkspace magic",
     "tooltip": false
   },
@@ -83,7 +83,7 @@
     },
     "format": "{icon}  {capacity}%",
     "format-charging": "󰂄  {capacity}%",
-    "format-plugged": "󰂄  {capacity}%",                                                                            
+    "format-plugged": "󰂄  {capacity}%",
     "format-icons": ["󰂃", "󰁺", "󰁻", "󰁼", "󰁽", "󰁾", "󰁿", "󰂀", "󰂁", "󰂂", "󰁹"],
     "tooltip-format": "{timeTo}"
   },
@@ -109,7 +109,7 @@
       "inhibited-none": "󰂚",
       "dnd-inhibited-notification": "<span foreground='#ff6b9d'><sup></sup></span>󰂛",
       "dnd-inhibited-none": "󰂛"
-    },                                                                                                             
+    },
     "return-type": "json",
     "exec-if": "which swaync-client",
     "exec": "swaync-client -swb",

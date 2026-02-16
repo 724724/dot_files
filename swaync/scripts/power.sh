@@ -21,6 +21,7 @@ if [ -n "$RUNNING_APPS" ]; then
     shutdown)  ACTION_LABEL="Shutdown" ;;
     reboot)    ACTION_LABEL="Reboot" ;;
     hibernate) ACTION_LABEL="Hibernate" ;;
+    logout)    ACTION_LABEL="Logout" ;;
   esac
 
   CONFIRM=$(echo -e "Cancel\n$ACTION_LABEL" | rofi -dmenu \
@@ -38,4 +39,5 @@ case "$ACTION" in
   shutdown)  systemctl poweroff ;;
   reboot)    systemctl reboot ;;
   hibernate) systemctl hibernate ;;
+  logout)    hyprctl dispatch exit ;;
 esac

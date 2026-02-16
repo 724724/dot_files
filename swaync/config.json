@@ -112,6 +112,10 @@
             "label": "Lock",
             "command": "hyprlock"
           },
+	  {
+	    "label": "Log out",
+	    "command": "~/.config/swaync/scripts/power.sh logout"
+	  },
           {
             "label": "Hibernate",
             "command": "~/.config/swaync/scripts/power.sh hibernate"
