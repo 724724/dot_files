@@ -1,30 +1,17 @@
-/* ============================================
-   macOS-style Waybar Theme
-   ============================================ */
-
 * {
-    font-family: "SF Pro Display", "Noto Sans CJK KR", "JetBrainsMono Nerd Font Propo", "Font Awesome 6 Free", monospace;
-    font-size: 12px;
-    font-weight: 500;
-    min-height: 0;
-    margin: 0;
-    padding: 0;
+  font-family: "SF Pro Display", "Noto Sans CJK KR", "JetBrainsMono Nerd Font Propo", "Font Awesome 6 Free", monospace;
+  font-size: 11px;
+  font-weight: 500;
+  min-height: 0;
 }
 
 window#waybar {
-    background: alpha(#ffffff, 0.5);
-    border-bottom: 0.5px solid alpha(#8f8f8f, 0.4);
-    color: #000000;
+  background: transparent;
 }
 
-window#waybar.hidden {
-    opacity: 0.2;
-}
-
-/* ── 공통 모듈 스타일 ── */
-
-#clock,
+/* Glassmorphism pill containers */
 #workspaces,
+#clock,
 #window,
 #custom-magic,
 #tray,
@@ -32,143 +19,135 @@ window#waybar.hidden {
 #battery,
 #network,
 #custom-swaync {
-    padding: 10px 8px;
-    color: #000000;
+  background: linear-gradient(135deg, rgba(100, 210, 180, 0.35), rgba(70, 160, 150, 0.35));
+  border: 1px solid rgba(100, 210, 180, 0.3);
+  border-radius: 999px;
+  padding: 0 12px;
+  margin: 0 3px;
+  color: #d4f1e8;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-/* ── 왼쪽: Clock ── */
+/* Hover effects */
+#workspaces:hover,
+#clock:hover,
+#window:hover,
+#custom-magic:hover,
+#pulseaudio:hover,
+#battery:hover,
+#network:hover,
+#custom-swaync:hover {
+  background: linear-gradient(135deg, rgba(100, 210, 180, 0.45), rgba(70, 160, 150, 0.45));
+  border-color: rgba(100, 210, 180, 0.4);
+}
 
+/* Clock styling */
 #clock {
-    font-weight: 600;
-    padding-left: 16px;
+  font-weight: 600;
 }
 
-/* ── 왼쪽: Window ── */
-
-#window {
-    font-weight: 500;
-    color: #000000;
-    padding: 0 8px;
-}
-
-/* ── 왼쪽: Workspaces ── */
-
+/* Workspace styling */
 #workspaces {
-    padding: 0 4px;
+  padding: 0;
 }
 
 #workspaces button {
-    padding: 0 5px;
-    margin: 0 1px;
-    color: #000000;
-    background: transparent;
-    border: none;
-    border-radius: 3px;
-    font-weight: 500;
-    min-width: 18px;
-    transition: all 0.15s ease;
+  padding: 0 12px;
+  margin: 0;
+  border-radius: 999px;
+  color: #8ba3b8;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  outline: none;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  min-width: 18px;
+  min-height: 0;
+}
+
+#workspaces button + button {
+  margin-left: 2px;
 }
 
 #workspaces button:hover {
-    background: alpha(#8f8f8f, 0.15);
-    color: #000000;
+  color: #b8d4e8;
+  background: rgba(255, 255, 255, 0.08);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.10);
+  border-radius: 999px;
 }
 
 #workspaces button.active {
-    color: #000000;
-    font-weight: 700;
-    background: transparent;
+  background: linear-gradient(135deg, rgba(255, 140, 130, 0.4), rgba(255, 110, 120, 0.4));
+  color: #ffd4d0;
+  border: 1px solid rgba(255, 140, 130, 0.5);
+  border-radius: 999px;
 }
 
 #workspaces button.urgent {
-    color: #000000;
-    font-weight: 700;
+  background: rgba(255, 100, 100, 0.5);
+  color: #ffffff;
+  border-radius: 999px;
 }
 
-/* ── 오른쪽: Custom Magic ── */
-
-#custom-magic {
-    font-size: 14px;
-    color: #000000;
-}
-
+/* Magic workspace indicator */
 #custom-magic.active {
-    color: #000000;
+  background: linear-gradient(135deg, rgba(180, 140, 255, 0.45), rgba(150, 100, 255, 0.45));
+  border-color: rgba(180, 140, 255, 0.6);
+  color: #ffffff;
 }
 
-/* ── 오른쪽: Tray ── */
-
-#tray {
-    padding: 0 6px;
-}
-
+/* System tray */
 #tray > .passive {
-    -gtk-icon-effect: dim;
+  -gtk-icon-effect: dim;
 }
 
 #tray > .needs-attention {
-    -gtk-icon-effect: highlight;
+  -gtk-icon-effect: highlight;
+  background-color: rgba(255, 107, 157, 0.3);
+  border-radius: 16px;
 }
 
-/* ── 오른쪽: PulseAudio ── */
-
-#pulseaudio {
-    font-weight: 500;
-    color: #000000;
-}
-
+/* Audio styling */
 #pulseaudio.muted {
-    color: #000000;
+  background: rgba(150, 150, 150, 0.25);
+  color: #b0b0b0;
 }
 
-/* ── 오른쪽: Battery ── */
-
-#battery {
-    font-weight: 500;
-    color: #000000;
-}
-
+/* Battery styling */
 #battery.charging,
 #battery.plugged {
-    color: #000000;
+  background: linear-gradient(135deg, rgba(100, 210, 180, 0.35), rgba(120, 230, 190, 0.35));
+  border-color: rgba(120, 230, 190, 0.4);
+  color: #d0f8e8;
 }
 
 #battery.warning:not(.charging) {
-    color: #000000;
+  background: rgba(255, 200, 100, 0.35);
+  border-color: rgba(255, 200, 100, 0.4);
+  color: #ffe8c0;
 }
 
 #battery.critical:not(.charging) {
-    color: #000000;
+  background: rgba(255, 107, 107, 0.35);
+  border-color: rgba(255, 107, 107, 0.4);
+  color: #ffd0d0;
 }
 
-/* ── 오른쪽: Network ── */
-
-#network {
-    font-weight: 500;
-    color: #000000;
-}
-
+/* Network styling */
 #network.disconnected {
-    color: #000000;
+  background: rgba(150, 150, 150, 0.25);
+  color: #b0b0b0;
 }
 
-/* ── 오른쪽: SwayNC ── */
-
-#custom-swaync {
-    font-size: 14px;
-    padding-right: 16px;
-    color: #000000;
-}
-
+/* Additional polish */
 tooltip {
-    background: #333333;
-    border: 1px solid #555555;
-    border-radius: 6px;
-    color: #ffffff;
-    text-shadow: none;
+  background: rgba(30, 40, 50, 0.95);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 10px;
+  padding: 6px 10px;
+  color: #e0e0e0;
 }
+
 tooltip label {
-    padding: 4px 8px;
-    color: #ffffff;
-    text-shadow: none;
+  color: #e0e0e0;
 }

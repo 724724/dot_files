@@ -10,6 +10,7 @@ window {
     background-color: rgba(30, 30, 30, 0.85);
     border: 1px solid rgba(255, 255, 255, 0.15);
     padding: 0 20px;
+    transition: opacity 200ms ease;
 }
 
 .osd-icon {
@@ -46,4 +47,10 @@ levelbar block.empty {
     font-weight: 600;
     margin-left: 12px;
     min-width: 42px;
+}
+
+.osd-mic {
+    min-width: unset;
+    padding: 0 24px;
+    gap: 10px;
 }

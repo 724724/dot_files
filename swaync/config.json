@@ -113,7 +113,7 @@
             "command": "hyprlock"
           },
 	  {
-	    "label": "Log out",
+	    "label": "Logout",
 	    "command": "~/.config/swaync/scripts/power.sh logout"
 	  },
           {
