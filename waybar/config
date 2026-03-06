@@ -6,11 +6,9 @@
   "margin-top": 10,
   "margin-left": 10,
   "margin-right": 10,
-
   "modules-left": ["clock", "hyprland/workspaces"],
   "modules-center": [],
-  "modules-right": ["custom/magic", "tray", "pulseaudio", "battery", "network", "custom/swaync"],
-
+  "modules-right": ["custom/media", "custom/magic", "tray", "pulseaudio", "battery", "network", "custom/swaync"],
   "clock": {
     "format": "󰥔  {:%H:%M:%S   %a %d %b}",
     "interval": 1,
@@ -30,13 +28,11 @@
     },
     "on-click": "gnome-clocks"
   },
-
   "hyprland/window": {
     "format": "{}",
     "max-length": 25,
     "separate-outputs": true
   },
-
   "hyprland/workspaces": {
     "format": "{name}",
     "format-active": "{name} *",
@@ -45,7 +41,12 @@
     "sort-by-number": true,
     "format-icons": {}
   },
-
+  "custom/media": {
+    "interval": 1,
+    "return-type": "json",
+    "exec": "~/.config/waybar/scripts/media-detect.sh",
+    "tooltip": true
+  },
   "custom/magic": {
     "interval": 1,
     "return-type": "json",
@@ -53,12 +54,10 @@
     "on-click": "hyprctl dispatch togglespecialworkspace magic",
     "tooltip": false
   },
-
   "tray": {
     "icon-size": 14,
     "spacing": 6
   },
-
   "pulseaudio": {
     "format": "{icon}  {volume}%",
     "format-muted": "󰝟  Muted",
@@ -74,7 +73,6 @@
     "on-click": "pavucontrol",
     "tooltip-format": "{desc}"
   },
-
   "battery": {
     "states": {
       "warning": 30,
@@ -87,7 +85,6 @@
     "tooltip-format": "{timeTo}",
     "tooltip-format-discharging": "{timeTo}\n{power:.1f}W"
   },
-
   "network": {
     "format-wifi": "󰤨  {essid}",
     "format-ethernet": "󰈀  Connected",
@@ -96,7 +93,6 @@
     "tooltip-format-wifi": "{essid} ({signalStrength}%)\n󰈀 {ipaddr}/{cidr}",
     "on-click": "nm-connection-editor"
   },
-
   "custom/swaync": {
     "tooltip": false,
     "format": "{icon}",

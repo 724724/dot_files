@@ -4,11 +4,9 @@
   font-weight: 500;
   min-height: 0;
 }
-
 window#waybar {
   background: transparent;
 }
-
 /* Glassmorphism pill containers */
 #workspaces,
 #clock,
@@ -27,7 +25,36 @@ window#waybar {
   color: #d4f1e8;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
-
+/* ── Media indicator (Camera + Mic combined) ── */
+#custom-media {
+  border-radius: 999px;
+  margin: 0 3px;
+  color: #ffffff;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+#custom-media.inactive {
+  background: transparent;
+  border: none;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+  font-size: 0;
+}
+#custom-media.active {
+  background: linear-gradient(135deg, rgba(255, 160, 50, 0.7), rgba(255, 120, 30, 0.7));
+  border: 1px solid rgba(255, 170, 70, 0.6);
+  color: #ffffff;
+  font-size: 11px;
+  padding: 0 10px;
+}
+#custom-media.active label {
+  margin: 0;
+  padding: 0;
+}
+#custom-media.active:hover {
+  background: linear-gradient(135deg, rgba(255, 180, 70, 0.8), rgba(255, 140, 50, 0.8));
+  border-color: rgba(255, 190, 90, 0.7);
+}
 /* Hover effects */
 #workspaces:hover,
 #clock:hover,
@@ -40,17 +67,14 @@ window#waybar {
   background: linear-gradient(135deg, rgba(100, 210, 180, 0.45), rgba(70, 160, 150, 0.45));
   border-color: rgba(100, 210, 180, 0.4);
 }
-
 /* Clock styling */
 #clock {
   font-weight: 600;
 }
-
 /* Workspace styling */
 #workspaces {
   padding: 0;
 }
-
 #workspaces button {
   padding: 0 12px;
   margin: 0;
@@ -64,55 +88,46 @@ window#waybar {
   min-width: 18px;
   min-height: 0;
 }
-
 #workspaces button + button {
   margin-left: 2px;
 }
-
 #workspaces button:hover {
   color: #b8d4e8;
   background: rgba(255, 255, 255, 0.08);
   box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.10);
   border-radius: 999px;
 }
-
 #workspaces button.active {
   background: linear-gradient(135deg, rgba(255, 140, 130, 0.4), rgba(255, 110, 120, 0.4));
   color: #ffd4d0;
   border: 1px solid rgba(255, 140, 130, 0.5);
   border-radius: 999px;
 }
-
 #workspaces button.urgent {
   background: rgba(255, 100, 100, 0.5);
   color: #ffffff;
   border-radius: 999px;
 }
-
 /* Magic workspace indicator */
 #custom-magic.active {
   background: linear-gradient(135deg, rgba(180, 140, 255, 0.45), rgba(150, 100, 255, 0.45));
   border-color: rgba(180, 140, 255, 0.6);
   color: #ffffff;
 }
-
 /* System tray */
 #tray > .passive {
   -gtk-icon-effect: dim;
 }
-
 #tray > .needs-attention {
   -gtk-icon-effect: highlight;
   background-color: rgba(255, 107, 157, 0.3);
   border-radius: 16px;
 }
-
 /* Audio styling */
 #pulseaudio.muted {
   background: rgba(150, 150, 150, 0.25);
   color: #b0b0b0;
 }
-
 /* Battery styling */
 #battery.charging,
 #battery.plugged {
@@ -120,25 +135,21 @@ window#waybar {
   border-color: rgba(120, 230, 190, 0.4);
   color: #d0f8e8;
 }
-
 #battery.warning:not(.charging) {
   background: rgba(255, 200, 100, 0.35);
   border-color: rgba(255, 200, 100, 0.4);
   color: #ffe8c0;
 }
-
 #battery.critical:not(.charging) {
   background: rgba(255, 107, 107, 0.35);
   border-color: rgba(255, 107, 107, 0.4);
   color: #ffd0d0;
 }
-
 /* Network styling */
 #network.disconnected {
   background: rgba(150, 150, 150, 0.25);
   color: #b0b0b0;
 }
-
 /* Additional polish */
 tooltip {
   background: rgba(30, 40, 50, 0.95);
@@ -147,7 +158,6 @@ tooltip {
   padding: 6px 10px;
   color: #e0e0e0;
 }
-
 tooltip label {
   color: #e0e0e0;
 }

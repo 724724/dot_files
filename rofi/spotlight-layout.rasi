@@ -3,43 +3,36 @@
  *******************************************************************************/
 
 configuration {
-    modi:                       "drun,run,filebrowser";
+    modi:                       "drun,web:~/.config/rofi/scripts/web-search.sh,calc";
     show-icons:                 true;
+
+    /* 모드 이름 = prompt 아이콘+텍스트 역할 (entry placeholder 제거했으므로) */
     display-drun:               "";
-    display-run:                "";
-    display-filebrowser:        "";
-    display-window:             "";
+    display-web:                "󰖟";
+    display-calc:               "󰃬";
+    display-window:             "";
     drun-display-format:        "{name}";
     window-format:              "{w} · {c} · {t}";
-    
-    /* 폰트 크기 10 유지 */
-    font:                       "SF Pro Display 10, JetBrainsMono Nerd Font 10"; 
+
+    kb-mode-next:               "Tab";
+    kb-mode-previous:           "ISO_Left_Tab";
+    kb-element-next:            "";
+    kb-element-prev:            "";
+
+    font:                       "SF Pro Display 20, JetBrainsMono Nerd Font 20"; 
 }
 
 window {
     transparency:               "real";
-    
-    /* [위치 수정 핵심] */
-    /* 1. 화면의 상단 중앙(north)을 기준으로 잡습니다. */
     location:                   north;
-    
-    /* 2. 윈도우의 기준점도 상단(north)으로 맞춥니다. */
     anchor:                     north;
-    
-    /* 3. 상단에서 화면 높이의 30%만큼 아래로 내려오게 합니다. 
-       (macOS Spotlight가 보통 상단 30~35% 지점에 위치합니다) 
-       너무 높으면 35%, 너무 낮으면 25%로 숫자를 조절하세요. */
     y-offset:                   30%;
-    
-    /* x축은 그대로 중앙 */
     x-offset:                   0px;
-
     fullscreen:                 false;
-    width:                      800px;
-    
+    width:                      1600px;
     enabled:                    true;
-    border-radius:              20px;
-    border:                     1px;
+    border-radius:              40px;
+    border:                     2px;
     cursor:                     "default";
     background-color:           @background-col;
     border-color:               @border-col;
@@ -50,14 +43,14 @@ mainbox {
     spacing:                    0px;
     background-color:           transparent;
     orientation:                vertical;
-    children:                   [ "inputbar", "listview" ];
+    children:                   [ "inputbar", "message", "listview" ];
 }
 
 inputbar {
     enabled:                    true;
-    spacing:                    10px;
+    spacing:                    20px;
     margin:                     0px;
-    padding:                    12px;
+    padding:                    24px;
     background-color:           transparent;
     text-color:                 @foreground-col;
     children:                   [ "prompt", "entry" ];
@@ -67,8 +60,8 @@ prompt {
     enabled:                    true;
     background-color:           inherit;
     text-color:                 inherit;
-    font:                       "JetBrainsMono Nerd Font 20"; 
-    padding:                    0px 10px 0px 5px;
+    font:                       "JetBrainsMono Nerd Font 40"; 
+    padding:                    0px 20px 0px 10px;
     vertical-align:             0.5;
 }
 
@@ -80,7 +73,7 @@ entry {
     placeholder:                "Search";
     placeholder-color:          inherit;
     vertical-align:             0.5;
-    font:                       "SF Pro Display 10";
+    font:                       "SF Pro Display 20";
 }
 
 listview {
@@ -94,21 +87,21 @@ listview {
     reverse:                    false;
     fixed-height:               true;
     fixed-columns:              true;
-    spacing:                    5px;
+    spacing:                    10px;
     margin:                     0px;
-    padding:                    10px;
+    padding:                    20px;
     background-color:           transparent;
-    border:                     1px solid 0px 0px ;
+    border:                     2px solid 0px 0px ;
     border-color:               @border-col;
 }
 
 element {
     enabled:                    true;
-    spacing:                    15px;
+    spacing:                    30px;
     margin:                     0px;
-    padding:                    10px;
+    padding:                    20px;
     border:                     0px;
-    border-radius:              12px;
+    border-radius:              24px;
     background-color:           transparent;
     text-color:                 @foreground-col;
     cursor:                     pointer;
@@ -128,7 +121,7 @@ element selected.normal {
 element-icon {
     background-color:           transparent;
     text-color:                 inherit;
-    size:                       32px;
+    size:                       64px;
     cursor:                     inherit;
 }
 
@@ -139,7 +132,7 @@ element-text {
     cursor:                     inherit;
     vertical-align:             0.5;
     horizontal-align:           0.0;
-    font:                       "SF Pro Display 10";
+    font:                       "SF Pro Display 20";
 }
 
 message {
@@ -148,14 +141,19 @@ message {
 }
 
 textbox {
-    padding:                    12px;
+    padding:                    24px;
     background-color:           @background-col;
     text-color:                 @foreground-col;
     vertical-align:             0.5;
 }
 
 error-message {
-    padding:                    12px;
+    padding:                    24px;
     background-color:           @background-col;
     text-color:                 @foreground-col;
 }
+
+drun {
+    DBusActivatable: false;
+}
+
