@@ -4,45 +4,38 @@ if [ "$1" != "--run" ]; then
     exit 0
 fi
 
-# === 설정 ===
 LIGHT_THEME="Adwaita"
 DARK_THEME="Adwaita-dark"
-#WALL_LIGHT="$HOME/junk/wallpaper/wallpaper_light.jpg"
-#WALL_DARK="$HOME/junk/wallpaper/wallpaper_dark.jpg"
+
 SWAYNC_DIR="$HOME/.config/swaync"
 SWAYNC_STYLE="$SWAYNC_DIR/style.css"
 STYLE_LIGHT="$SWAYNC_DIR/style-light.css"
 STYLE_DARK="$SWAYNC_DIR/style-dark.css"
-AGS_DIR="$HOME/.config/ags-osd"
-AGS_STYLE="$AGS_DIR/style.css"
-AGS_STYLE_LIGHT="$AGS_DIR/style-light.css"
-AGS_STYLE_DARK="$AGS_DIR/style-dark.css"
 
-# 1) AGS 종료
-ags quit -i osd 2>/dev/null
+SWAYOSD_DIR="$HOME/.config/swayosd"
+SWAYOSD_STYLE="$SWAYOSD_DIR/style.css"
+SWAYOSD_STYLE_LIGHT="$SWAYOSD_DIR/style-light.css"
+SWAYOSD_STYLE_DARK="$SWAYOSD_DIR/style-dark.css"
 
-# 3) 테마 전환
 CUR_THEME="$(gsettings get org.gnome.desktop.interface gtk-theme 2>/dev/null | tr -d "'")"
 
 if [ "$CUR_THEME" = "$DARK_THEME" ]; then
-    gsettings set org.gnome.desktop.interface gtk-theme "$LIGHT_THEME" >/dev/null 2>&1
-    gsettings set org.gnome.desktop.interface color-scheme 'prefer-light' >/dev/null 2>&1
+    gsettings set org.gnome.desktop.interface gtk-theme "$LIGHT_THEME"
+    gsettings set org.gnome.desktop.interface color-scheme 'prefer-light'
     cp "$STYLE_LIGHT" "$SWAYNC_STYLE"
-    cp "$AGS_STYLE_LIGHT" "$AGS_STYLE"
-    #swww img "$WALL_LIGHT" --resize crop --transition-type grow --transition-pos 0.9,0.9 --transition-step 90 --transition-duration 2
+    cp "$SWAYOSD_STYLE_LIGHT" "$SWAYOSD_STYLE"
 else
-    gsettings set org.gnome.desktop.interface gtk-theme "$DARK_THEME" >/dev/null 2>&1
-    gsettings set org.gnome.desktop.interface color-scheme 'prefer-dark' >/dev/null 2>&1
+    gsettings set org.gnome.desktop.interface gtk-theme "$DARK_THEME"
+    gsettings set org.gnome.desktop.interface color-scheme 'prefer-dark'
     cp "$STYLE_DARK" "$SWAYNC_STYLE"
-    cp "$AGS_STYLE_DARK" "$AGS_STYLE"
-    #swww img "$WALL_DARK" --resize crop --transition-type grow --transition-pos 0.9,0.9 --transition-step 90 --transition-duration 2
+    cp "$SWAYOSD_STYLE_DARK" "$SWAYOSD_STYLE"
 fi
 
-# 4) swaync CSS 리로드
 swaync-client --reload-css
-
-# 5) AGS 재시작
-ags run -d "$AGS_DIR" &
+# swayosd는 GTK 테마를 자동으로 따라가지만, CSS를 강제 적용하려면 재시작
+pkill swayosd-server 2>/dev/null
+sleep 0.2
+swayosd-server &
 disown
 
 exit 0
