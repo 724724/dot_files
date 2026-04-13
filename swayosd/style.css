@@ -1,7 +1,7 @@
 window#osd {
     border-radius: 30px;
     border: none;
-    background: rgba(30, 30, 30, 0.85);
+    background: rgba(255, 255, 255, 0.85);
 }
 
 window#osd #container {
@@ -10,12 +10,12 @@ window#osd #container {
 }
 
 window#osd image {
-    color: #ffffff;
+    color: #333333;
     margin-right: 14px;
 }
 
 window#osd label {
-    color: #ffffff;
+    color: #333333;
     font-family: "SF Pro Display", sans-serif;
     font-size: 14px;
     font-weight: 600;
@@ -24,6 +24,7 @@ window#osd label {
 window#osd progressbar,
 window#osd segmentedprogress {
     min-height: 10px;
+    min-width: 2px;
     border-radius: 9px;
     background: transparent;
     border: none;
@@ -34,7 +35,7 @@ window#osd segment {
     min-height: inherit;
     border-radius: inherit;
     border: none;
-    background: rgba(255, 255, 255, 0.15);
+    background: rgba(0, 0, 0, 0.1);
 }
 
 window#osd progress,
@@ -42,7 +43,7 @@ window#osd segment.active {
     min-height: inherit;
     border-radius: inherit;
     border: none;
-    background: #0A84FF;
+    background: #007AFF;
 }
 
 window#osd progressbar:disabled,

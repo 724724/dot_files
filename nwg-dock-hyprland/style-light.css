@@ -1,0 +1,32 @@
+window {
+    background-color: transparent;
+}
+
+#box {
+    background-color: rgba(255, 255, 255, 0.65);
+    border: 1px solid rgba(0, 0, 0, 0.125);
+    border-radius: 20px;
+    padding: 6px 12px;
+    margin-bottom: 4px;
+}
+
+button {
+    background: transparent;
+    border: none;
+    border-radius: 12px;
+    padding: 4px;
+    margin: 2px;
+    color: #333333;
+}
+
+button:hover {
+    background-color: rgba(0, 0, 0, 0.08);
+}
+
+#launcher {
+    background: transparent;
+    border: none;
+    border-radius: 12px;
+    padding: 4px;
+    margin: 2px;
+}

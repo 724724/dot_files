@@ -10,7 +10,7 @@ export QT_IM_MODULE=fcitx
 fcitx5-remote -r 2>/dev/null  # IME 상태 리셋
 
 if [[ "$THEME_MODE" == *"prefer-dark"* ]]; then
-    rofi -x11 -show drun -theme ~/.config/rofi/spotlight-dark.rasi -calc-command "$CALC_CMD" -m "$MONITOR"
+    rofi -show drun -theme ~/.config/rofi/spotlight-dark.rasi -calc-command "$CALC_CMD" -m "$MONITOR"
 else
-    rofi -x11 -show drun -theme ~/.config/rofi/spotlight-light.rasi -calc-command "$CALC_CMD" -m "$MONITOR"
+    rofi -show drun -theme ~/.config/rofi/spotlight-light.rasi -calc-command "$CALC_CMD" -m "$MONITOR"
 fi

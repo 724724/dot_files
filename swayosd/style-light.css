@@ -10,7 +10,7 @@ window#osd #container {
 }
 
 window#osd image {
-    color: #ffffff;
+    color: #333333;
     margin-right: 14px;
 }
 
@@ -24,6 +24,7 @@ window#osd label {
 window#osd progressbar,
 window#osd segmentedprogress {
     min-height: 10px;
+    min-width: 2px;
     border-radius: 9px;
     background: transparent;
     border: none;

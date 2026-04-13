@@ -3,12 +3,11 @@
  *******************************************************************************/
 
 configuration {
-    modi:                       "drun,web:~/.config/rofi/scripts/web-search.sh,calc";
+    modi:                       "drun,calc";
     show-icons:                 true;
 
     /* 모드 이름 = prompt 아이콘+텍스트 역할 (entry placeholder 제거했으므로) */
     display-drun:               "";
-    display-web:                "󰖟";
     display-calc:               "󰃬";
     display-window:             "";
     drun-display-format:        "{name}";
@@ -19,7 +18,7 @@ configuration {
     kb-element-next:            "";
     kb-element-prev:            "";
 
-    font:                       "SF Pro Display 20, JetBrainsMono Nerd Font 20"; 
+    font:                       "SF Pro Display 10, JetBrainsMono Nerd Font 10"; 
 }
 
 window {
@@ -29,10 +28,10 @@ window {
     y-offset:                   30%;
     x-offset:                   0px;
     fullscreen:                 false;
-    width:                      1600px;
+    width:                      800px;
     enabled:                    true;
-    border-radius:              40px;
-    border:                     2px;
+    border-radius:              20px;
+    border:                     1px;
     cursor:                     "default";
     background-color:           @background-col;
     border-color:               @border-col;
@@ -48,9 +47,9 @@ mainbox {
 
 inputbar {
     enabled:                    true;
-    spacing:                    20px;
+    spacing:                    10px;
     margin:                     0px;
-    padding:                    24px;
+    padding:                    12px;
     background-color:           transparent;
     text-color:                 @foreground-col;
     children:                   [ "prompt", "entry" ];
@@ -60,8 +59,8 @@ prompt {
     enabled:                    true;
     background-color:           inherit;
     text-color:                 inherit;
-    font:                       "JetBrainsMono Nerd Font 40"; 
-    padding:                    0px 20px 0px 10px;
+    font:                       "JetBrainsMono Nerd Font 20"; 
+    padding:                    0px 10px 0px 5px;
     vertical-align:             0.5;
 }
 
@@ -73,7 +72,7 @@ entry {
     placeholder:                "Search";
     placeholder-color:          inherit;
     vertical-align:             0.5;
-    font:                       "SF Pro Display 20";
+    font:                       "SF Pro Display 10";
 }
 
 listview {
@@ -87,21 +86,21 @@ listview {
     reverse:                    false;
     fixed-height:               true;
     fixed-columns:              true;
-    spacing:                    10px;
+    spacing:                    5px;
     margin:                     0px;
-    padding:                    20px;
+    padding:                    10px;
     background-color:           transparent;
-    border:                     2px solid 0px 0px ;
+    border:                     1px solid 0px 0px ;
     border-color:               @border-col;
 }
 
 element {
     enabled:                    true;
-    spacing:                    30px;
+    spacing:                    15px;
     margin:                     0px;
-    padding:                    20px;
+    padding:                    10px;
     border:                     0px;
-    border-radius:              24px;
+    border-radius:              12px;
     background-color:           transparent;
     text-color:                 @foreground-col;
     cursor:                     pointer;
@@ -121,7 +120,7 @@ element selected.normal {
 element-icon {
     background-color:           transparent;
     text-color:                 inherit;
-    size:                       64px;
+    size:                       32px;
     cursor:                     inherit;
 }
 
@@ -132,7 +131,7 @@ element-text {
     cursor:                     inherit;
     vertical-align:             0.5;
     horizontal-align:           0.0;
-    font:                       "SF Pro Display 20";
+    font:                       "SF Pro Display 10";
 }
 
 message {
@@ -141,14 +140,14 @@ message {
 }
 
 textbox {
-    padding:                    24px;
+    padding:                    12px;
     background-color:           @background-col;
     text-color:                 @foreground-col;
     vertical-align:             0.5;
 }
 
 error-message {
-    padding:                    24px;
+    padding:                    12px;
     background-color:           @background-col;
     text-color:                 @foreground-col;
 }
