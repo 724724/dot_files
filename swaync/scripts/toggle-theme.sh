@@ -3,6 +3,7 @@ if [ "$1" != "--run" ]; then
     nohup "$0" --run &>/dev/null &
     exit 0
 fi
+
 LIGHT_THEME="Adwaita"
 DARK_THEME="Adwaita-dark"
 
@@ -38,19 +39,13 @@ else
 fi
 
 swaync-client --reload-css
+systemctl --user restart swayosd.service
 
-pkill swayosd-server 2>/dev/null
-while pgrep -x swayosd-server >/dev/null; do
+pkill -f nwg-dock-hyprland 2>/dev/null
+while pgrep -f nwg-dock-hyprland >/dev/null; do
     sleep 0.1
 done
-swayosd-server -s "$SWAYOSD_STYLE" &
-disown
-
-pkill -x nwg-dock-hyprland 2>/dev/null
-while pgrep -x nwg-dock-hyprland >/dev/null; do
-    sleep 0.1
-done
-nwg-dock-hyprland -d -hd 0 -mb 6 -i 42 -nolauncher &
+nwg-dock-hyprland -d -hd 0 -mb 6 -i 42 -nolauncher -g "xembedsniproxy" &
 disown
 
 exit 0

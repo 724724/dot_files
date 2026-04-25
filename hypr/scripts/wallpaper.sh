@@ -9,4 +9,4 @@ fi
 # 배경화면 설정 (기존 contain 옵션 -> --resize fit)
 # [possible values: no, crop, fit, stretch]
 # 특정 모니터만 지정하고 싶다면 --outputs "eDP-1" 등을 추가하면 됩니다.
-awww img /home/sejunlee/junk/wallpaper/wallpaper.jpg --resize crop --transition-type none
+awww img /home/sejunlee/junk/wallpaper/wallpaper.png --resize crop --transition-type none
