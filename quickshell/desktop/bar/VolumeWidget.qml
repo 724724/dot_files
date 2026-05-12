@@ -1,0 +1,51 @@
+import Quickshell.Io
+import QtQuick
+import QtQuick.Layouts
+
+PillContainer {
+    id: root
+    implicitHeight: 33
+    implicitWidth: row.implicitWidth + 24
+
+    color: hovered
+        ? Qt.rgba(40/255, 50/255, 60/255, 0.4)
+        : VolumeService.muted
+            ? Qt.rgba(150/255, 150/255, 150/255, 0.25)
+            : Qt.rgba(30/255, 40/255, 50/255, 0.25)
+
+    // Direct Process avoids the QML→Hyprland.dispatch IPC roundtrip; the
+    // launch script handles workspace pinning and reuses an existing window
+    // if one's already open (instant on subsequent clicks).
+    Process {
+        id: launchProc
+        command: ["/home/sejunlee/.config/hypr/scripts/pavucontrol-launch.sh"]
+    }
+
+    TapHandler {
+        onTapped: launchProc.running = true
+    }
+
+    RowLayout {
+        id: row
+        anchors.centerIn: parent
+        spacing: 7
+
+        Text {
+            text: {
+                if (VolumeService.muted || VolumeService.vol <= 0) return "󰝟"
+                if (VolumeService.vol <= 50) return "󰖀"
+                return "󰕾"
+            }
+            color: VolumeService.muted ? "#b0b0b0" : "#d4f1e8"
+            font.family: "JetBrainsMono Nerd Font Propo"
+            font.pixelSize: 12
+        }
+
+        Text {
+            text: VolumeService.muted ? "Muted" : VolumeService.vol + "%"
+            color: VolumeService.muted ? "#b0b0b0" : "#d4f1e8"
+            font.family: "SF Pro Display"
+            font.pixelSize: 11
+        }
+    }
+}

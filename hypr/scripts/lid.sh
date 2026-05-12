@@ -12,31 +12,26 @@ if [[ -z "$ACTION" || "$ACTION" == "init" ]]; then
     fi
 fi
 
-# Waybar를 재시작할지 결정하는 플래그
-RESTART_WAYBAR=false
-
 # 3. 외부 모니터 연결 여부 확인
 if hyprctl monitors all | grep -qE '\s(DP-|HDMI-|DVI-|VGA-)'; then
+    # [클램쉘 모드] 외부 모니터가 있을 때
     if [ "$ACTION" = "close" ]; then
         hyprctl keyword monitor "eDP-1,disable"
-        RESTART_WAYBAR=true
     elif [ "$ACTION" = "open" ]; then
         hyprctl keyword monitor "eDP-1,3840x2400@60,320x1440,2"
-        RESTART_WAYBAR=true
     fi
 else
+    # [일반 모드] 외부 모니터가 없을 때
     if [ "$ACTION" = "close" ]; then
         systemctl suspend
-        # suspend 진입 시에는 어차피 깨어날 때 hypridle이 처리하므로 패스
     elif [ "$ACTION" = "open" ]; then
-        hyprctl keyword monitor "eDP-1,3840x2400@60,0x0,2"
-        RESTART_WAYBAR=true
+        # 🚨 핵심 수정: 여기서 강제로 keyword monitor를 다시 먹이지 마세요!
+        # 그래픽 드라이버가 깨어나기도 전에 모니터를 재설정하면 렌더링이 멈춥니다.
+        # 대신 화면(DPMS)만 확실히 켜지도록 명령합니다.
+        hyprctl dispatch dpms on
     fi
 fi
 
-# 4. 모니터 상태가 변경되었다면 아주 잠깐(0.5초) 대기 후 Waybar 재시작
-if [ "$RESTART_WAYBAR" = true ]; then
-    sleep 0.5
-    pkill waybar
-    hyprctl dispatch exec waybar
-fi
+# Quickshell bar 재표시 (절전 복귀 시 타이밍 확보를 위해 sleep을 살짝 늘리는 것을 권장)
+sleep 1
+qs ipc -c desktop call bar reload 2>/dev/null || true

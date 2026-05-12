@@ -30,4 +30,8 @@ else
     brightnessctl -d 'platform::micmute' set 1
 fi
 
-swayosd-client --input-volume 0 2>/dev/null || true
+if [ "$IS_MUTED" = "1" ]; then
+    qs ipc -c desktop call osd micmute 0
+else
+    qs ipc -c desktop call osd micmute 1
+fi

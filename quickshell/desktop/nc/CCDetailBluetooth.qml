@@ -1,0 +1,326 @@
+import Quickshell
+import Quickshell.Io
+import QtQuick
+import QtQuick.Controls
+
+Item {
+    id: root
+
+    // Seeded from parent on Loader.onLoaded
+    property bool btOn: false
+
+    signal back()
+    signal pollRequest()  // ask parent to refresh its own btOn
+
+    readonly property bool dark: ThemeService.isDark
+    implicitHeight: column.implicitHeight
+
+    // Devices: [{mac, name, paired, connected}]
+    property var devices: []
+    property bool scanning: false
+
+    // ── PROCESSES ─────────────────────────────────────────────────────────────
+    // Inline flip — the swaync helper required $SWAYNC_TOGGLE_STATE, which
+    // we don't pass, so it always powered off.
+    Process {
+        id: toggleProc
+        command: ["bash", "-c",
+            "if bluetoothctl show 2>/dev/null | grep -q 'Powered: yes';" +
+            " then bluetoothctl power off >/dev/null 2>&1;" +
+            " else bluetoothctl power on  >/dev/null 2>&1; fi"]
+        onRunningChanged: {
+            if (!running) {
+                root.pollRequest()
+                listProc.running = true
+            }
+        }
+    }
+
+    Process { id: settingsProc; command: ["blueman-manager"] }
+
+    Process { id: actProc; command: ["true"]
+        onRunningChanged: if (!running) listProc.running = true
+    }
+
+    // 30-sec discovery scan. bluetoothctl --timeout exits after the duration.
+    Process {
+        id: scanProc
+        command: ["bash", "-c", "bluetoothctl --timeout 30 scan on >/dev/null 2>&1"]
+        onRunningChanged: if (!running) root.scanning = false
+    }
+
+    // List ALL known devices (paired and recently discovered) and mark which
+    // are paired / connected — single nmcli-style output for parsing.
+    Process {
+        id: listProc
+        command: ["bash", "-c",
+            "all=$(bluetoothctl devices 2>/dev/null);" +
+            "paired=$(bluetoothctl devices Paired 2>/dev/null | awk '{print $2}');" +
+            "connected=$(bluetoothctl devices Connected 2>/dev/null | awk '{print $2}');" +
+            "echo \"$all\" | while read -r line; do " +
+            "  [ -z \"$line\" ] && continue;" +
+            "  mac=$(echo \"$line\" | awk '{print $2}');" +
+            "  name=$(echo \"$line\" | cut -d' ' -f3-);" +
+            "  p=no; c=no;" +
+            "  if echo \"$paired\"    | grep -q \"$mac\"; then p=yes; fi;" +
+            "  if echo \"$connected\" | grep -q \"$mac\"; then c=yes; fi;" +
+            "  echo \"$p|$c|$mac|$name\";" +
+            "done"]
+        stdout: StdioCollector {
+            onStreamFinished: {
+                let arr = []
+                for (let line of text.trim().split("\n")) {
+                    if (!line) continue
+                    let p = line.split("|")
+                    if (p.length < 4) continue
+                    arr.push({
+                        paired:   p[0] === "yes",
+                        connected: p[1] === "yes",
+                        mac:      p[2],
+                        name:     p[3]
+                    })
+                }
+                arr.sort((a,b) =>
+                    (b.connected - a.connected) ||
+                    (b.paired - a.paired) ||
+                    a.name.localeCompare(b.name))
+                root.devices = arr
+            }
+        }
+    }
+
+    function startScan() {
+        if (root.scanning) return
+        root.scanning = true
+        scanProc.running = true
+        // Poll the device list more aggressively while scanning
+        scanRefreshTimer.start()
+    }
+
+    function deviceClicked(d) {
+        let cmd
+        if (d.connected) {
+            cmd = "bluetoothctl disconnect " + d.mac
+        } else if (d.paired) {
+            cmd = "bluetoothctl connect " + d.mac
+        } else {
+            // Pair, trust, then connect — typical for a fresh device
+            cmd = "bluetoothctl pair " + d.mac +
+                "; bluetoothctl trust " + d.mac +
+                "; bluetoothctl connect " + d.mac
+        }
+        actProc.command = ["bash", "-c", cmd]
+        actProc.running = true
+    }
+
+    Timer {
+        id: scanRefreshTimer
+        interval: 1500
+        repeat: true
+        running: root.scanning
+        onTriggered: listProc.running = true
+        onRunningChanged: if (!running) listProc.running = true
+    }
+
+    Component.onCompleted: listProc.running = true
+
+    // Light periodic refresh while open
+    Timer {
+        interval: 5000
+        running: root.visible && !root.scanning
+        repeat: true
+        onTriggered: listProc.running = true
+    }
+
+    // ── LAYOUT ────────────────────────────────────────────────────────────────
+    Column {
+        id: column
+        anchors { top: parent.top; left: parent.left; right: parent.right }
+        spacing: 8
+
+        CCDetailHeader {
+            width: parent.width
+            title: "Bluetooth"
+            toggleVisible: true
+            toggleChecked: root.btOn
+            actionIcon: "󰐕"
+            actionBusy: root.scanning
+            onBack: root.back()
+            onToggled: toggleProc.running = true
+            onActionClicked: root.startScan()
+        }
+
+        Text {
+            text: root.scanning ? "Scanning…" : "Devices"
+            color: dark ? Qt.rgba(1,1,1,0.55) : Qt.rgba(0,0,0,0.55)
+            font.family: "SF Pro Display"
+            font.pixelSize: 11
+            font.weight: Font.DemiBold
+            visible: root.btOn
+        }
+
+        Flickable {
+            id: btFlick
+            width: parent.width
+            height: Math.min(dCol.implicitHeight, 280)
+            contentHeight: dCol.implicitHeight
+            clip: true
+            visible: root.btOn && root.devices.length > 0
+            interactive: contentHeight > height
+            boundsBehavior: Flickable.StopAtBounds
+            flickDeceleration: 6000
+            maximumFlickVelocity: 6000
+
+            WheelHandler {
+                target: null
+                acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
+                onWheel: function(event) {
+                    let dy = event.pixelDelta.y !== 0
+                        ? event.pixelDelta.y * 8
+                        : (event.angleDelta.y / 120) * 180
+                    let max = Math.max(0, btFlick.contentHeight - btFlick.height)
+                    btFlick.contentY = Math.max(0, Math.min(max, btFlick.contentY - dy))
+                    event.accepted = true
+                }
+            }
+
+            Behavior on contentY {
+                enabled: !btFlick.dragging && !btFlick.flicking
+                NumberAnimation { duration: 90; easing.type: Easing.OutCubic }
+            }
+
+            ScrollBar.vertical: ScrollBar {
+                id: btBar
+                policy: btFlick.contentHeight > btFlick.height
+                    ? ScrollBar.AsNeeded : ScrollBar.AlwaysOff
+                contentItem: Rectangle {
+                    implicitWidth: 3
+                    radius: 1.5
+                    color: dark ? "#ffffff" : "#000000"
+                    opacity: btBar.pressed ? 0.45 : (btBar.active ? 0.30 : 0.15)
+                    Behavior on opacity { NumberAnimation { duration: 150 } }
+                }
+            }
+
+            Column {
+                id: dCol
+                width: parent.width
+                spacing: 0
+
+                Repeater {
+                    model: root.btOn ? root.devices : []
+                    delegate: Item {
+                        required property var modelData
+                        width: dCol.width
+                        height: 42
+
+                        Rectangle {
+                            anchors.fill: parent
+                            radius: 6
+                            color: dRowMa.containsMouse
+                                ? (dark ? Qt.rgba(1,1,1,0.06) : Qt.rgba(0,0,0,0.04))
+                                : "transparent"
+                            Behavior on color { ColorAnimation { duration: 100 } }
+                        }
+
+                        Rectangle {
+                            id: dot
+                            anchors {
+                                left: parent.left
+                                leftMargin: 12
+                                verticalCenter: parent.verticalCenter
+                            }
+                            width: 8; height: 8; radius: 4
+                            color: modelData.connected
+                                ? "#34C759"
+                                : (modelData.paired
+                                    ? "#0A84FF"
+                                    : (dark ? Qt.rgba(1,1,1,0.25) : Qt.rgba(0,0,0,0.20)))
+                        }
+
+                        Text {
+                            anchors {
+                                left: dot.right
+                                leftMargin: 10
+                                right: stat.left
+                                rightMargin: 6
+                                verticalCenter: parent.verticalCenter
+                            }
+                            text: modelData.name
+                            color: dark ? "#f0f3f6" : "#1c1c1e"
+                            font.family: "SF Pro Display"
+                            font.pixelSize: 12
+                            elide: Text.ElideRight
+                        }
+
+                        Text {
+                            id: stat
+                            anchors {
+                                right: parent.right
+                                rightMargin: 12
+                                verticalCenter: parent.verticalCenter
+                            }
+                            text: modelData.connected
+                                ? "Connected"
+                                : (modelData.paired ? "Paired" : "Tap to pair")
+                            color: dark ? Qt.rgba(1,1,1,0.5) : Qt.rgba(0,0,0,0.50)
+                            font.family: "SF Pro Display"
+                            font.pixelSize: 11
+                        }
+
+                        MouseArea {
+                            id: dRowMa
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: root.deviceClicked(modelData)
+                        }
+                    }
+                }
+            }
+        }
+
+        // Empty state
+        Text {
+            visible: root.btOn && root.devices.length === 0
+            text: root.scanning ? "Searching for devices…" : "No devices. Tap + to scan."
+            color: dark ? Qt.rgba(1,1,1,0.4) : Qt.rgba(0,0,0,0.40)
+            font.family: "SF Pro Display"
+            font.pixelSize: 11
+            leftPadding: 8
+            topPadding: 4
+            bottomPadding: 4
+        }
+
+        Rectangle {
+            width: parent.width
+            height: 36
+            radius: 8
+            color: bSetMa.containsMouse
+                ? (dark ? Qt.rgba(1,1,1,0.06) : Qt.rgba(0,0,0,0.04))
+                : "transparent"
+            Behavior on color { ColorAnimation { duration: 100 } }
+
+            Text {
+                anchors {
+                    left: parent.left
+                    leftMargin: 8
+                    verticalCenter: parent.verticalCenter
+                }
+                text: "Bluetooth Settings…"
+                color: dark ? "#60b8ff" : "#007AFF"
+                font.family: "SF Pro Display"
+                font.pixelSize: 12
+                font.weight: Font.Medium
+            }
+
+            MouseArea {
+                id: bSetMa
+                anchors.fill: parent
+                hoverEnabled: true
+                cursorShape: Qt.PointingHandCursor
+                onClicked: settingsProc.running = true
+            }
+        }
+    }
+}
