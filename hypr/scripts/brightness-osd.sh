@@ -7,7 +7,7 @@
 #     and applies the keypress normally (so 0% + raise → 5%).
 
 DPMS=$(hyprctl monitors -j 2>/dev/null | jq -r '.[0].dpmsStatus')
-[ "$DPMS" = "false" ] && hyprctl dispatch dpms on
+[ "$DPMS" = "false" ] && hyprctl dispatch 'hl.dsp.dpms({ action = "on" })'
 
 case "$1" in
     raise)  brightnessctl set +5%   >/dev/null ;;
@@ -21,7 +21,7 @@ CUR=$(brightnessctl get)
 PCT=$((CUR * 100 / MAX))
 
 if [ "$PCT" -le 0 ]; then
-    hyprctl dispatch dpms off
+    hyprctl dispatch 'hl.dsp.dpms({ action = "off" })'
 else
     qs ipc -c desktop call osd brightness "$PCT"
 fi

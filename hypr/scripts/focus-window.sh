@@ -15,7 +15,7 @@ INFO=$(hyprctl clients -j 2>/dev/null \
 
 if [ -z "$INFO" ] || [ "$INFO" = "null" ]; then
     # Window not found — fall back to a plain focus dispatch.
-    exec hyprctl dispatch focuswindow "address:$ADDR"
+    exec hyprctl dispatch "hl.dsp.focus({ window = \"address:$ADDR\" })"
 fi
 
 X=$(echo "$INFO" | jq -r '.at[0]')
@@ -26,6 +26,6 @@ H=$(echo "$INFO" | jq -r '.size[1]')
 CX=$((X + W / 2))
 CY=$((Y + H / 2))
 
-# Single batched dispatch so the focus + cursor move land on the same frame —
+# Single eval so the focus + cursor move land on the same frame —
 # avoids any visible flicker or ordering races with `follow_mouse`.
-hyprctl --batch "dispatch focuswindow address:$ADDR ; dispatch movecursor $CX $CY" >/dev/null
+hyprctl eval "hl.dispatch(hl.dsp.focus({ window = \"address:$ADDR\" })); hl.dispatch(hl.dsp.cursor.move({ x = $CX, y = $CY }))" >/dev/null

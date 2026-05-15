@@ -1,0 +1,225 @@
+------------------------------
+--- WINDOWS AND WORKSPACES ---
+------------------------------
+-- See https://wiki.hypr.land/Configuring/Basics/Window-Rules/
+-- Rules are evaluated top to bottom — order matters.
+
+-- -----------------------------------------------------
+-- Opacity Rules
+-- -----------------------------------------------------
+hl.window_rule({ match = { title = ".*(YouTube|HBO|Prime Video|Netflix|Disney|Twitch|Kick).*" }, opacity = "1.0 override" })
+hl.window_rule({ match = { class = "^(google-chrome)$" },      opacity = "1.0 override" })
+hl.window_rule({ match = { class = "^(firefox)$" },            opacity = "1.0 override" })
+hl.window_rule({ match = { class = "^(org.gnome.Showtime)$" }, opacity = "1.0 override" })
+hl.window_rule({ match = { class = "^(virt-manager)$" },       opacity = "1.0 override" })
+hl.window_rule({ match = { class = "^(org.gnome.Loupe)$" },    opacity = "1.0 override" })
+hl.window_rule({ match = { class = "^(resolve)$" },            opacity = "1.0 override" })
+hl.window_rule({ match = { class = "^(Notion)$" },             opacity = "1.0 override" })
+hl.window_rule({ match = { class = "^(mpv)$" },                opacity = "1.0 override" })
+
+-- -----------------------------------------------------
+-- Floating & PIP
+-- -----------------------------------------------------
+
+-- Notion Command Search (Spotlight style)
+hl.window_rule({ match = { title = "^(Notion - Command Search)$" }, float = true })
+hl.window_rule({
+    match = { title = "^(Notion - Command Search)$" },
+    move  = { "cursor_x-(window_w*0.95)", "cursor_y+(window_h*0.05)" },
+})
+
+-- Picture-in-Picture
+hl.window_rule({
+    match              = { title = "^(Picture-in-Picture|Picture in picture)$" },
+    float              = true,
+    pin                = true,
+    keep_aspect_ratio  = true,
+    opacity            = "1.0 override",
+})
+
+-- Sticky Notes
+hl.window_rule({ match = { class = "^(com.vixalien.sticky)$" }, float = true, size = { 400, 300 } })
+
+-- Spotify Premium
+hl.window_rule({ match = { class = "^(Spotify)$" }, float = true, size = { 1000, 600 } })
+-- Cider (Apple Music)
+hl.window_rule({ match = { class = "^(Cider)$", title = "^(Cider)$" }, float = true, size = { 1000, 600 } })
+-- Loupe
+hl.window_rule({ match = { class = "^(org.gnome.Loupe)$" }, float = true })
+-- Nautilus
+hl.window_rule({ match = { class = "^(org.gnome.NautilusPreviewer)$" }, float = true })
+
+-- Center on cursor
+hl.window_rule({
+    match = { class = "^(spotify)$", title = "^(Spotify Premium)$" },
+    move  = { "cursor_x-(window_w*0.5)", "cursor_y-(window_h*0.5)" },
+})
+
+-- -----------------------------------------------------
+-- Dialogs & Popups (Center on Cursor)
+-- -----------------------------------------------------
+hl.window_rule({ match = { class = "^(org.gnome.clocks)$",   title = "^(Clocks)$" },           float = true })
+hl.window_rule({ match = { class = "^(blueman-manager)$",    title = "^(Bluetooth Devices)$" }, float = true })
+
+hl.window_rule({ match = { class = "org.gnome.Nautilus" }, float = true, size = { 1000, 600 } })
+hl.window_rule({
+    match = { class = "^(org.gnome.Nautilus)$" },
+    move  = { "cursor_x-(window_w*0.5)", "cursor_y-(window_h*0.5)" },
+})
+
+hl.window_rule({ match = { class = "^(org.gnome.Calculator)$", title = "^(Calculator)$" }, float = true })
+hl.window_rule({
+    match = { class = "^(org.gnome.Calculator)$", title = "^(Calculator)$" },
+    move  = { "cursor_x-(window_w*0.5)", "cursor_y-(window_h*0.5)" },
+})
+
+hl.window_rule({ match = { title = "^(Open Folder)$" },              float = true })
+hl.window_rule({ match = { class = "^(xdg-desktop-portal-gtk)$" },   float = true })
+
+hl.window_rule({ match = { class = "^(org.gnome.SystemMonitor)$", title = "^(System Monitor)$" }, float = true })
+hl.window_rule({
+    match = { class = "^(org.gnome.SystemMonitor)$", title = "^(System Monitor)$" },
+    move  = { "cursor_x-(window_w*0.5)", "cursor_y-(window_h*0.5)" },
+})
+
+hl.window_rule({ match = { class = "^(me.kavishdevar.librepods)$", title = "^(LibrePods)$" }, float = true })
+hl.window_rule({
+    match = { class = "^(me.kavishdevar.librepods)$", title = "^(LibrePods)$" },
+    move  = { "cursor_x-(window_w*0.5)", "cursor_y-(window_h*0.5)" },
+})
+
+hl.window_rule({ match = { class = "^(anki)$" },      float = true })
+hl.window_rule({ match = { class = "^(GStreamer)$" }, float = true })
+
+hl.window_rule({ match = { class = "^(org.gnome.Solanum)$" }, float = true })
+hl.window_rule({
+    match = { class = "^(org.gnome.Solanum)$" },
+    move  = { "cursor_x-(window_w*0.5)", "cursor_y-(window_h*0.5)" },
+})
+
+hl.window_rule({ match = { class = "^(vesktop)$" }, float = true })
+hl.window_rule({
+    match = { class = "^(vesktop)$" },
+    move  = { "cursor_x-(window_w*0.5)", "cursor_y-(window_h*0.5)" },
+})
+
+hl.window_rule({ match = { class = "^(it.mijorus.smile)$" }, float = true, size = { 320, 400 } })
+hl.window_rule({
+    match = { class = "^(it.mijorus.smile)$" },
+    move  = { "cursor_x", "cursor_y-(window_h)" },
+})
+
+hl.window_rule({ match = { class = "^(org.pulseaudio.pavucontrol)$" }, float = true, size = { 800, 700 } })
+hl.window_rule({
+    match = { class = "^(org.pulseaudio.pavucontrol)$" },
+    move  = { "cursor_x-(window_w*1.15)", "cursor_y+(window_h*0.06)" },
+})
+
+hl.window_rule({
+    match = { class = "^(explorer.exe)$" },
+    float = true,
+    move  = { "cursor_x-(window_w*1.15)", "cursor_y+(window_h*0.06)" },
+})
+
+-- -----------------------------------------------------
+-- Fixes & Hacks
+-- -----------------------------------------------------
+
+-- It Takes Two
+hl.window_rule({ match = { class = "^()$", title = "^(It Takes Two)$" }, stay_focused = true })
+
+-- xembedsniproxy 컨테이너 숨기기
+hl.window_rule({
+    match     = { class = "^(xembedsniproxy)$" },
+    float     = true,
+    no_focus  = true,
+    no_shadow = true,
+    no_blur   = true,
+    opacity   = "0.0 override",
+})
+
+-- Ableton
+hl.window_rule({ match = { title = "^(WineDesktop - Wine Desktop)$" }, fullscreen = true })
+
+-- KakaoTalk
+hl.window_rule({ match = { class = "^(kakaotalk.exe)$" }, float = true })
+hl.window_rule({ match = { class = "^(kakaotalk.exe)$", title = "^()$" }, stay_focused = true })
+hl.window_rule({ match = { class = "^(kakaotalk.exe)$" }, opacity = "1.0 override" })
+hl.window_rule({
+    match             = { class = "^(kakaotalk.exe)$", title = "^(KakaoTalkShadowWnd)$" },
+    opacity           = "0.0 override 0.0 override",
+    no_shadow         = true,
+    no_blur           = true,
+    no_focus          = true,
+    no_initial_focus  = true,
+})
+hl.window_rule({
+    match             = { class = "^(kakaotalk.exe)$", title = "^(KakaoTalkEdgeWnd)$" },
+    opacity           = "0.0 override 0.0 override",
+    no_shadow         = true,
+    no_blur           = true,
+    no_focus          = true,
+    no_initial_focus  = true,
+})
+
+-- "Winboat" / Office Apps
+hl.window_rule({
+    match          = { class = "^(Microsoft Word|Microsoft Excel|Microsoft PowerPoint|Photoshop|File Explorer)$" },
+    suppress_event = "fullscreen maximize activate activatefocus",
+})
+hl.window_rule({
+    match            = { class = "^(Microsoft Word|Microsoft Excel|Microsoft PowerPoint|Photoshop|File Explorer)$" },
+    no_initial_focus = true,
+    fullscreen       = true,
+    no_anim          = true,
+    rounding         = 0,
+    border_size      = 0,
+    no_shadow        = true,
+    no_blur          = true,
+    xray             = false,
+    opaque           = true,
+})
+
+hl.window_rule({ match = { class = "^(wlfreerdp)$" }, opaque = true, xray = false })
+
+-- -----------------------------------------------------
+-- Layer Rules
+-- -----------------------------------------------------
+hl.layer_rule({ match = { namespace = "hyprpicker" }, no_anim = true })
+hl.layer_rule({ match = { namespace = "selection" },  no_anim = true })
+
+-- Waybar & Notifications
+hl.layer_rule({ match = { namespace = "waybar" }, blur = true, ignore_alpha = 0.25 })
+hl.layer_rule({ match = { namespace = "swaync-control-center" }, animation = "slide top", blur = true, ignore_alpha = 0.5 })
+
+-- Rofi
+hl.layer_rule({ match = { namespace = "rofi" }, blur = true, ignore_alpha = 0.5 })
+
+-- Quickshell OSD Pop-up
+hl.layer_rule({ match = { namespace = "quickshell" }, animation = "slide top", blur = true, ignore_alpha = 0.5 })
+
+-- Quickshell dock — dedicated namespace so its panel can resize (preview open/close)
+-- without retriggering the slide-top animation. Blur kept for the glass look.
+hl.layer_rule({ match = { namespace = "qs-dock" }, no_anim = true, blur = true, ignore_alpha = 0.5 })
+
+-- Quickshell OSD — separate namespace; QML handles its own fade animation.
+hl.layer_rule({ match = { namespace = "qs-osd" }, no_anim = true, blur = true, ignore_alpha = 0.5 })
+
+-- Quickshell Spotlight — fade animation via QML; blur for the macOS look.
+hl.layer_rule({ match = { namespace = "qs-spotlight" }, blur = true, ignore_alpha = 0.5 })
+
+-- Quickshell Launchpad — fullscreen overlay, fade via QML.
+-- Lowered ignore_alpha so the very-translucent backdrop (~0.45) still triggers
+-- the blur (Hyprland skips blur for pixels with alpha below the threshold).
+hl.layer_rule({ match = { namespace = "qs-launchpad" }, no_anim = true, blur = true, ignore_alpha = 0.1 })
+
+-- Quickshell App Switcher (macOS Cmd+Tab style)
+hl.layer_rule({ match = { namespace = "qs-switcher" }, no_anim = true, blur = true, ignore_alpha = 0.4 })
+
+hl.layer_rule({ match = { namespace = "qs-cc" }, blur = true, ignore_alpha = 0.5 })
+
+-- Notification popups (transient toasts at top-right when CC closed)
+hl.layer_rule({ match = { namespace = "qs-notif" }, blur = true, ignore_alpha = 0.5 })
+
+-- nwg-dock
+hl.layer_rule({ match = { namespace = "nwg-dock" }, blur = true, ignore_alpha = 0.5 })

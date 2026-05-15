@@ -9,7 +9,7 @@ ADDR=$(hyprctl clients -j 2>/dev/null \
     | jq -r '[.[] | select(.class=="org.pulseaudio.pavucontrol")] | first | .address // empty')
 
 if [ -n "$ADDR" ]; then
-    hyprctl --batch "dispatch movetoworkspace $WS,address:$ADDR ; dispatch focuswindow address:$ADDR" >/dev/null
+    hyprctl eval "hl.dispatch(hl.dsp.window.move({ workspace = $WS, window = \"address:$ADDR\" })); hl.dispatch(hl.dsp.focus({ window = \"address:$ADDR\" }))" >/dev/null
 else
-    hyprctl dispatch exec "[workspace $WS] pavucontrol" >/dev/null
+    hyprctl dispatch "hl.dsp.exec_cmd(\"pavucontrol\", { workspace = \"$WS\" })" >/dev/null
 fi
