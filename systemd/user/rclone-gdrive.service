@@ -1,0 +1,27 @@
+[Unit]
+Description=Rclone Mount for Google Drive
+AssertPathIsDirectory=/mnt/gdrive
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=notify
+# rclone 환경 변수 충돌을 막기 위해 설정 파일 경로를 명시하는 것이 좋습니다.
+# 자신의 계정명에 맞게 경로를 수정하세요. (예: /home/myusername/.config/rclone/rclone.conf)
+Environment=RCLONE_CONFIG=%h/.config/rclone/rclone.conf
+
+ExecStart=/usr/bin/rclone mount gdrive: /mnt/gdrive \
+    --vfs-cache-mode full \
+    --vfs-cache-max-size 50G \
+    --vfs-cache-max-age 72h \
+    --dir-cache-time 72h \
+    --buffer-size 128M \
+    --vfs-read-chunk-size 128M \
+    --vfs-fast-fingerprint
+
+ExecStop=/usr/bin/fusermount3 -u /mnt/gdrive
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=default.target

@@ -25,13 +25,7 @@ else
     if [ "$ACTION" = "close" ]; then
         systemctl suspend
     elif [ "$ACTION" = "open" ]; then
-        # 🚨 핵심 수정: 여기서 강제로 keyword monitor를 다시 먹이지 마세요!
-        # 그래픽 드라이버가 깨어나기도 전에 모니터를 재설정하면 렌더링이 멈춥니다.
-        # 대신 화면(DPMS)만 확실히 켜지도록 명령합니다.
+        # 화면만 즉시 켬 (Quickshell은 알아서 잘 살아남으므로 리로드 불필요!)
         hyprctl dispatch dpms on
     fi
 fi
-
-# Quickshell bar 재표시 (절전 복귀 시 타이밍 확보를 위해 sleep을 살짝 늘리는 것을 권장)
-sleep 1
-qs ipc -c desktop call bar reload 2>/dev/null || true
