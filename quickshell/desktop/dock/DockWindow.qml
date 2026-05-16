@@ -363,6 +363,7 @@ PanelWindow {
     Process {
         id: focusAddrProc
         property string addr: ""
-        command: ["hyprctl", "dispatch", "focuswindow", "address:" + addr]
+        command: ["hyprctl", "dispatch",
+                  'hl.dsp.focus({ window = "address:' + addr + '" })']
     }
 }

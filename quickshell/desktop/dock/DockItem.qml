@@ -90,7 +90,13 @@ Item {
         }
     }
 
-    Process { id: focusProc;  command: ["hyprctl", "dispatch", "focuswindow", "class:" + item.wmClass] }
+    // Hyprland's new dispatcher API takes Lua, so the old
+    // `dispatch focuswindow class:X` form errors with "')' expected near 'class'".
+    Process {
+        id: focusProc
+        command: ["hyprctl", "dispatch",
+                  'hl.dsp.focus({ window = "class:' + item.wmClass + '" })']
+    }
     Process { id: launchProc; command: item.execCmd.length > 0 ? item.execCmd : ["true"] }
 
     MouseArea {
@@ -98,13 +104,17 @@ Item {
         cursorShape: Qt.PointingHandCursor
         onClicked: {
             let wins = item.windows
-            if (wins.length > 1 && item.isRunning) {
+            // Guard on wins.length, not isRunning. DockService polls every 500ms
+            // and sets clientsByClass + runningClasses sequentially, so isRunning
+            // can lag while windows has already updated — leading to a spurious
+            // bounce + relaunch when the user clicks a clearly-running icon.
+            if (wins.length > 1) {
                 // Multiple windows → toggle preview, anchored to this icon's center
                 if (item.dockWin) {
                     let p = item.mapToItem(item.dockWin.contentItem, item.width / 2, 0)
                     item.dockWin.togglePreview(item.wmClass, item.iconName, p.x)
                 }
-            } else if (item.isRunning) {
+            } else if (wins.length === 1 || item.isRunning) {
                 if (item.dockWin) item.dockWin.previewOpen = false
                 focusProc.running = true
             } else if (item.execCmd.length > 0) {

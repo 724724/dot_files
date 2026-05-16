@@ -25,3 +25,10 @@ if [ "$PCT" -le 0 ]; then
 else
     qs ipc -c desktop call osd brightness "$PCT"
 fi
+
+# Persist for restore on next boot (Hyprland autostart + SDDM service).
+# World-readable so root-owned SDDM service can pick it up.
+STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}"
+mkdir -p "$STATE_DIR"
+printf '%s\n' "$PCT" > "$STATE_DIR/brightness"
+chmod 644 "$STATE_DIR/brightness" 2>/dev/null || true

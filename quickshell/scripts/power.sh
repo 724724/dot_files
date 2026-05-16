@@ -14,7 +14,7 @@ graceful_close() {
         local addrs
         addrs=$(hyprctl clients -j 2>/dev/null | jq -r '.[].address' 2>/dev/null)
         for addr in $addrs; do
-            [ -n "$addr" ] && hyprctl dispatch closewindow "address:$addr" >/dev/null 2>&1
+            [ -n "$addr" ] && hyprctl dispatch "hl.dsp.window.close({ window = \"address:$addr\" })" >/dev/null 2>&1
         done
     fi
 }
@@ -37,7 +37,7 @@ case "$ACTION" in
     logout)
         graceful_close
         sleep 1.2
-        hyprctl dispatch exit
+        hyprctl dispatch 'hl.dsp.exit()'
         ;;
     lock)
         # Direct invocation — loginctl lock-session relies on hypridle's

@@ -138,6 +138,9 @@ end)
 hl.bind(mainMod .. " + SHIFT + XF86MonBrightnessUp",   hl.dsp.exec_cmd('hyprctl hyprsunset temperature 4500 && qs ipc -c desktop call osd custom "󰃟" "Blue Light Filter ON"'),  { locked = true })
 hl.bind(mainMod .. " + SHIFT + XF86MonBrightnessDown", hl.dsp.exec_cmd('hyprctl hyprsunset identity && qs ipc -c desktop call osd custom "󰃠" "Blue Light Filter OFF"'),         { locked = true })
 
--- ── Lid Switch ──────────────────────────────────────────────────────────
+-- ── Lid Switch (macOS clamshell mode) ─────────────────────────────────
+-- logind은 ignore — Hyprland가 lid.sh로 분기 처리한다.
+--   외부 모니터 연결 시: eDP만 비활성화, 시스템은 계속 동작 (클램쉘)
+--   외부 모니터 없을 시: eDP 비활성화 후 systemctl suspend
 hl.bind("switch:on:Lid Switch",  hl.dsp.exec_cmd("~/.config/hypr/scripts/lid.sh close"), { locked = true })
 hl.bind("switch:off:Lid Switch", hl.dsp.exec_cmd("~/.config/hypr/scripts/lid.sh open"),  { locked = true })

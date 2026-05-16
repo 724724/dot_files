@@ -1,0 +1,13 @@
+[Unit]
+Description=Restore screen brightness from saved value before display manager
+After=systemd-backlight@backlight:intel_backlight.service
+Before=display-manager.service
+ConditionPathExists=/sys/class/backlight/intel_backlight
+ConditionPathExists=/home/sejunlee/.local/state/brightness
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/sddm-brightness-restore
+
+[Install]
+WantedBy=multi-user.target

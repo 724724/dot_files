@@ -20,7 +20,7 @@ PillContainer {
         : Qt.rgba(100/255, 210/255, 180/255, 0.3)
 
     TapHandler {
-        onTapped: Hyprland.dispatch("togglespecialworkspace magic")
+        onTapped: Hyprland.dispatch('hl.dsp.workspace.toggle_special("magic")')
     }
 
     RowLayout {

@@ -6,6 +6,7 @@
 
 -- Runs once, on Hyprland start (old `exec-once`).
 hl.on("hyprland.start", function()
+    hl.exec_cmd("~/.config/hypr/scripts/brightness-restore.sh")
     hl.exec_cmd("nm-applet")
     hl.exec_cmd("blueman-applet")
     hl.exec_cmd("fcitx5")
