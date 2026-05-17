@@ -22,9 +22,12 @@ PillContainer {
                 workspace: modelData
                 visible: {
                     if (modelData.name.startsWith("special:")) return false
-                    let monitor = Hyprland.monitorFor(root.screen)
-                    if (!monitor || !modelData.monitor) return true
-                    return modelData.monitor.name === monitor.name
+                    if (!modelData.monitor) return false
+                    // Compare monitor names directly. Hyprland.monitorFor()
+                    // can return null for the external screen in some setups,
+                    // which previously caused the widget to fall through to
+                    // "show all workspaces" on that bar.
+                    return modelData.monitor.name === root.screen.name
                 }
             }
         }

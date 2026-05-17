@@ -182,12 +182,14 @@ PanelWindow {
         // Selected app title
         Text {
             id: titleLabel
+            readonly property bool empty: win.count === 0
             anchors.horizontalCenter: parent.horizontalCenter
-            anchors.top: parent.top
-            anchors.topMargin: 14
+            anchors.top: empty ? undefined : parent.top
+            anchors.topMargin: empty ? 0 : 14
+            anchors.verticalCenter: empty ? parent.verticalCenter : undefined
             width: parent.width - 32
             text: {
-                if (win.count === 0) return "No windows"
+                if (empty) return "No windows"
                 let w = win.wins[Math.max(0, Math.min(win.selectedIndex, win.count - 1))]
                 if (!w) return ""
                 return w.title || w.class || ""
@@ -203,12 +205,12 @@ PanelWindow {
         // Icon row
         ListView {
             id: iconRow
-            anchors.left: parent.left
-            anchors.right: parent.right
+            readonly property real maxWidth: card.width - win.hPad * 2
+            readonly property real naturalWidth: win.count * win.cellW
+            anchors.horizontalCenter: parent.horizontalCenter
             anchors.bottom: parent.bottom
-            anchors.leftMargin: win.hPad
-            anchors.rightMargin: win.hPad
             anchors.bottomMargin: 16
+            width: Math.min(naturalWidth, maxWidth)
             height: win.cellH
             orientation: ListView.Horizontal
             interactive: false

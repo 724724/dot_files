@@ -103,36 +103,13 @@ hl.bind("XF86Favorites",  hl.dsp.exec_cmd("~/.config/hypr/scripts/media-osd.sh p
 hl.bind("XF86Launch7",    hl.dsp.exec_cmd("~/.config/hypr/scripts/media-osd.sh prev"),       { locked = true })
 
 -- ── Keyboard Lock ───────────────────────────────────────────────────────
--- XF86Display alone toggles. Brightness-down past 0% handles DPMS, so the
--- dedicated screen-dim binding is no longer needed.
---
--- The submap dispatcher must be the bind's direct dispatcher (not wrapped in
--- a Lua function) — Hyprland's keybind matching loop has a special `break`
--- on the "submap" handler, and wrapping it in a function changes that flow.
--- The OSD is fired by the keybinds.submap event handler below.
-hl.bind("XF86Display", hl.dsp.submap("locked"))
-
-hl.define_submap("locked", function()
-    -- XF86Display again -> unlock
-    hl.bind("XF86Display", hl.dsp.submap("reset"))
-    -- Swallow every other key. `catchall` matches any key; `ignore_mods`
-    -- makes it also swallow modifier combos (Shift+X, Ctrl+X, ...) — this
-    -- replaces the old 16-line per-modifier enumeration.
-    hl.bind("catchall", hl.dsp.no_op(), { locked = true, ignore_mods = true })
-end)
-
--- OSD on lock submap entry / exit. We track the previous submap so the
--- "Unlocked" toast only fires when leaving "locked" specifically, not on
--- arbitrary submap resets in the future.
-local prevSubmap = ""
-hl.on("keybinds.submap", function(name)
-    if name == "locked" then
-        hl.exec_cmd('qs ipc -c desktop call osd custom "󰌆" "Keyboard Locked"')
-    elseif name == "" and prevSubmap == "locked" then
-        hl.exec_cmd('qs ipc -c desktop call osd custom "󰌆" "Keyboard Unlocked"')
-    end
-    prevSubmap = name
-end)
+-- XF86Display toggles internal keyboard via device:enabled. The submap +
+-- catchall approach broke in 0.55 because hl.dsp.submap gets Lua-wrapped,
+-- losing the special "break on submap handler" semantics. Direct device
+-- disable is simpler and reliable. The XF86Display key lives on
+-- `thinkpad-extra-buttons` (not the main keyboard), so it still fires
+-- while the keyboard is locked, allowing unlock.
+hl.bind("XF86Display", hl.dsp.exec_cmd("~/.config/hypr/scripts/keyboard-lock.sh"), { locked = true })
 
 -- ── Night Shift — Hyprsunset toggle ─────────────────────────────────────
 hl.bind(mainMod .. " + SHIFT + XF86MonBrightnessUp",   hl.dsp.exec_cmd('hyprctl hyprsunset temperature 4500 && qs ipc -c desktop call osd custom "󰃟" "Blue Light Filter ON"'),  { locked = true })
