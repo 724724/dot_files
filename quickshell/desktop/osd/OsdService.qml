@@ -69,14 +69,17 @@ Singleton {
 
     Process {
         id: kbdReadProc
-        command: ["bash", "-c",
-            "echo \"$(cat /sys/class/leds/tpacpi::kbd_backlight/brightness 2>/dev/null) " +
-            "$(cat /sys/class/leds/tpacpi::kbd_backlight/max_brightness 2>/dev/null)\""]
+	command: ["bash", "-c",
+	    "b=$(cat /sys/class/leds/tpacpi::kbd_backlight/brightness 2>/dev/null); " +
+            "m=$(cat /sys/class/leds/tpacpi::kbd_backlight/max_brightness 2>/dev/null); " +
+            "s=$([ -f /tmp/kbd-osd-suppress ] && echo 1 || echo 0); " +
+            "echo \"$b $m $s\""]
         stdout: StdioCollector {
             onStreamFinished: {
                 let parts = text.trim().split(" ")
                 let cur = parseInt(parts[0])
-                let max = parseInt(parts[1])
+		let max = parseInt(parts[1])
+		let suppress = parseInt(parts[2]) === 1
                 if (isNaN(cur) || isNaN(max) || max <= 0) return
 
                 if (root._kbdLevel === -1) {
@@ -85,9 +88,10 @@ Singleton {
                     root._kbdMax   = max
                 } else if (cur !== root._kbdLevel) {
                     root._kbdLevel = cur
-                    root._kbdMax   = max
+		    root._kbdMax   = max
+		    // Skip OSD when change came from hypridle (flag present).
+                    if (suppress) return
                     let pct = Math.round(cur * 100 / max)
-                    // Font Awesome keyboard glyph (nf-fa-keyboard, U+F11C)
                     root.showOsd("", "", pct, true)
                 }
             }

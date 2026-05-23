@@ -48,11 +48,12 @@ PanelWindow {
     // frontend — Hangul composition is unreliable on dbus + layer-shell.
     WlrLayershell.keyboardFocus: WlrKeyboardFocus.OnDemand
 
+    // Full-screen overlay so the empty area outside the card receives clicks
+    // and the root MouseArea (below) can dismiss the spotlight.
     anchors.top: true
-    margins.top: Math.max(120, Math.round((screen ? screen.height : 1080) * 0.22))
-
-    implicitWidth: 720
-    implicitHeight: 64 + bodyHeight
+    anchors.bottom: true
+    anchors.left: true
+    anchors.right: true
     color: "transparent"
     exclusionMode: ExclusionMode.Ignore
 
@@ -89,12 +90,14 @@ PanelWindow {
         let q = query.trim()
         if (!q) return
         let url = "https://www.google.com/search?q=" + encodeURIComponent(q)
-        runProc.command = ["xdg-open", url]
-        runProc.running = true
+        // execDetached fully reparents the child to PID 1 so it survives even
+        // if Quickshell's Process plumbing is torn down. `runProc.running = true`
+        // kept the child tied to Quickshell, which silently killed slower-to-
+        // initialize GTK apps like nwg-look/nwg-displays after gtk-launch
+        // returned.
+        Quickshell.execDetached(["xdg-open", url])
         win.closeRequested()
     }
-
-    Process { id: runProc; command: ["true"] }
 
     // ── App search ───────────────────────────────────────────────────────
     readonly property var filtered: {
@@ -138,8 +141,7 @@ PanelWindow {
     function activateSelected() {
         if (isCalc) {
             if (calcResult === "") return
-            copyProc.command = ["bash", "-c", "printf %s '" + calcResult.replace(/'/g, "'\\''") + "' | wl-copy"]
-            copyProc.running = true
+            Quickshell.execDetached(["bash", "-c", "printf %s '" + calcResult.replace(/'/g, "'\\''") + "' | wl-copy"])
             win.closeRequested()
             return
         }
@@ -156,18 +158,22 @@ PanelWindow {
             // Exec line has \\\\ and escaped spaces for a Wine path and
             // simply doesn't launch. gtk-launch hands the entry to GIO
             // which parses the spec correctly, and matches the dock.
-            runProc.command = ["gtk-launch", app.id]
-            runProc.running = true
+            //
+            // Quickshell.execDetached fully reparents the child to PID 1, so
+            // slow-starting GTK apps (nwg-look, nwg-displays) aren't killed
+            // when the surrounding Process state is torn down.
+            Quickshell.execDetached(["gtk-launch", app.id])
         }
         win.closeRequested()
     }
 
-    Process { id: copyProc; command: ["true"] }
-
     // ── UI ───────────────────────────────────────────────────────────────
     Rectangle {
         id: card
-        anchors.fill: parent
+        width: 720
+        height: 64 + win.bodyHeight
+        anchors.horizontalCenter: parent.horizontalCenter
+        y: Math.max(120, Math.round((parent ? parent.height : 1080) * 0.22))
         radius: 18
         color: dark ? Qt.rgba(16/255, 16/255, 21/255, 0.78)
                     : Qt.rgba(255/255, 255/255, 255/255, 0.78)
@@ -418,11 +424,15 @@ PanelWindow {
                         anchors.verticalCenter: parent.verticalCenter
                         width: 32
                         height: 32
-                        source: modelData.icon ? "image://icon/" + modelData.icon : ""
+                        source: modelData.icon ? "image://icon/" + modelData.icon : "image://icon/application-x-executable"
                         smooth: true
                         mipmap: true
                         sourceSize.width: 32
                         sourceSize.height: 32
+                        onStatusChanged: {
+                            if (status === Image.Error)
+                                source = "image://icon/application-x-executable"
+                        }
                     }
 
                     Item {

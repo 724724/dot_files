@@ -88,13 +88,14 @@ PanelWindow {
             // gtk-launch hands the .desktop file to GIO which handles the
             // full spec quoting (Wine apps with backslash-escaped paths,
             // etc.). Quickshell's app.execute() trips on those.
-            runProc.command = ["gtk-launch", app.id]
-            runProc.running = true
+            //
+            // execDetached fully reparents the child to PID 1 so slower-to-
+            // initialize GTK apps (nwg-look, nwg-displays) aren't killed when
+            // Quickshell tears down a tracked Process after gtk-launch returns.
+            Quickshell.execDetached(["gtk-launch", app.id])
         }
         win.closeRequested()
     }
-
-    Process { id: runProc; command: ["true"] }
 
     function pageOfIndex(idx) { return Math.floor(idx / perPage) }
     function moveSelection(dx, dy) {
@@ -347,10 +348,16 @@ PanelWindow {
                                             height: 56
                                             sourceSize.width: 56
                                             sourceSize.height: 56
-                                            source: cell.app && cell.app.icon ? "image://icon/" + cell.app.icon : ""
+                                            source: cell.app && cell.app.icon
+                                                ? "image://icon/" + cell.app.icon
+                                                : "image://icon/application-x-executable"
                                             smooth: true
                                             mipmap: true
                                             fillMode: Image.PreserveAspectFit
+                                            onStatusChanged: {
+                                                if (status === Image.Error)
+                                                    source = "image://icon/application-x-executable"
+                                            }
                                         }
 
                                         Text {

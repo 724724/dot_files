@@ -36,8 +36,53 @@ Singleton {
     }
     readonly property int count: notifications ? notifications.length : 0
 
-    // id → Date.now() arrival timestamp, used for live "now / 2m / 1h" labels
+    // id → Date.now() arrival timestamp, used for live "now / 2m / 1h" labels.
+    // Persisted to disk (see timeStore) so the labels survive a config reload
+    // or restart instead of every card snapping back to "now".
     property var receivedAt: ({})
+
+    // Restore arrival times before any card binds relativeTime(). Notifications
+    // themselves come back via NotificationServer.keepOnReload, but their ids
+    // stay stable, so the persisted id→timestamp map lines straight back up.
+    Component.onCompleted: root._loadReceivedAt()
+
+    FileView {
+        id: timeStore
+        path: Quickshell.stateDir + "/nc-received-at.json"
+        blockLoading: true   // synchronous read so data is ready in onCompleted
+        printErrors: false   // a missing file on first run is expected
+    }
+
+    function _loadReceivedAt() {
+        let raw = timeStore.text()
+        if (!raw) return
+        try {
+            let parsed = JSON.parse(raw)
+            if (parsed && typeof parsed === "object") root.receivedAt = parsed
+        } catch (e) { /* empty or corrupt file — start fresh */ }
+    }
+
+    function _persistReceivedAt() {
+        timeStore.setText(JSON.stringify(root.receivedAt))
+    }
+
+    // Drop timestamps whose notifications are gone so the file stays bounded.
+    // Guarded on count so a transient empty model never wipes live entries.
+    function _pruneReceivedAt() {
+        if (root.count === 0) return
+        let live = ({})
+        for (let i = 0; i < notifications.length; ++i) live[notifications[i].id] = true
+        let next = ({})
+        let changed = false
+        for (let k in root.receivedAt) {
+            if (live[k]) next[k] = root.receivedAt[k]
+            else changed = true
+        }
+        if (changed) {
+            root.receivedAt = next
+            root._persistReceivedAt()
+        }
+    }
 
     // Ticked every 30 s so timestamp bindings refresh without polling per card
     property int _tick: 0
@@ -45,7 +90,10 @@ Singleton {
         interval: 30000
         running: true
         repeat: true
-        onTriggered: root._tick++
+        onTriggered: {
+            root._tick++
+            root._pruneReceivedAt()
+        }
     }
 
     function relativeTime(id) {
@@ -91,6 +139,7 @@ Singleton {
             notifications[i].dismiss()
         popupSeen = ({})
         receivedAt = ({})
+        _persistReceivedAt()
     }
 
     NotificationServer {
@@ -106,9 +155,18 @@ Singleton {
                 return
             }
             n.tracked = true
-            let copy = Object.assign({}, root.receivedAt)
-            copy[n.id] = Date.now()
-            root.receivedAt = copy
+            // A config reload re-emits kept notifications (keepOnReload) with
+            // lastGeneration === true. Their arrival time is already restored
+            // from disk by _loadReceivedAt — stamping Date.now() here is what
+            // reset every card to "now". Only stamp genuinely new arrivals;
+            // those always have lastGeneration === false (including after a
+            // full process restart, where stale ids must be re-stamped).
+            if (!n.lastGeneration) {
+                let copy = Object.assign({}, root.receivedAt)
+                copy[n.id] = Date.now()
+                root.receivedAt = copy
+                root._persistReceivedAt()
+            }
             root._revision++
         }
     }

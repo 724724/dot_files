@@ -1,4 +1,5 @@
 //@ pragma UseQApplication
+//@ pragma IconTheme Papirus
 // Unified shell — combines bar / dock / osd / nc / spotlight / launchpad /
 // switcher into a single qs process so the Qt + QML + OpenGL runtime is
 // loaded once instead of six times. Memory drop: ~1.4GB → ~300–400MB.
