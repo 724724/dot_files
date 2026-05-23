@@ -38,6 +38,21 @@ Scope {
             implicitHeight: 33
             color: "transparent"
 
+            // Confine pointer input to the actual widget pills so the gaps
+            // between them — above all the wide center gap on either side of
+            // the media pill — stay click-through to the windows below.
+            mask: Region {
+                Region { item: clockW }
+                Region { item: workspacesW }
+                Region { item: mediaW }
+                Region { item: magicW }
+                Region { item: trayW }
+                Region { item: volumeW }
+                Region { item: batteryW }
+                Region { item: networkW }
+                Region { item: swayncW }
+            }
+
             RowLayout {
                 anchors {
                     left: parent.left
@@ -49,17 +64,17 @@ Scope {
                 height: parent.height
                 spacing: 8
 
-                ClockWidget {}
-                WorkspacesWidget { screen: win.modelData }
+                ClockWidget { id: clockW }
+                WorkspacesWidget { id: workspacesW; screen: win.modelData }
 
                 Item { Layout.fillWidth: true }
 
-                MagicWidget {}
-                TrayWidget { window: win }
-                VolumeWidget {}
-                BatteryWidget {}
-                NetworkWidget {}
-                SwayncWidget {}
+                MagicWidget { id: magicW }
+                TrayWidget { id: trayW; window: win }
+                VolumeWidget { id: volumeW }
+                BatteryWidget { id: batteryW }
+                NetworkWidget { id: networkW }
+                SwayncWidget { id: swayncW }
             }
 
             // MediaWidget is positioned independently from the RowLayout so it
@@ -67,6 +82,7 @@ Scope {
             // widget groups are. (Equal-fill spacers don't center it when the
             // two groups have different widths.)
             MediaWidget {
+                id: mediaW
                 anchors.horizontalCenter: parent.horizontalCenter
                 anchors.verticalCenter: parent.verticalCenter
             }

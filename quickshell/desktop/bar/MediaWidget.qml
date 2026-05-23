@@ -28,13 +28,8 @@ PillContainer {
 
     RowLayout {
         id: content
-        anchors {
-            left: parent.left
-            right: parent.right
-            verticalCenter: parent.verticalCenter
-            leftMargin: 11
-            rightMargin: 11
-        }
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.verticalCenter: parent.verticalCenter
         spacing: 8
 
         // ── Album art (rounded) ───────────────────────────────────────────
@@ -96,6 +91,9 @@ PillContainer {
         // ── Artist · Title (marquee when too long) ─────────────────────────
         Item {
             id: marquee
+            // No title/artist → drop this item entirely (visible:false also
+            // collapses the RowLayout spacing) so the album art stays centred.
+            visible: marquee.fullText !== ""
             // Cap the visible window at 360px; if title fits we shrink to it.
             Layout.preferredWidth: Math.min(360, label.implicitWidth)
             Layout.preferredHeight: label.implicitHeight
