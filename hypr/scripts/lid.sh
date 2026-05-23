@@ -1,32 +1,69 @@
 #!/usr/bin/env bash
-ACTION="$1"
-if [[ -z "$ACTION" || "$ACTION" == "init" ]]; then
-    if grep -q "closed" /proc/acpi/button/lid/*/state; then
-        ACTION="close"
-    else
-        ACTION="open"
-    fi
-fi
+# MacBook-style clamshell mode for Hyprland.
+# Usage: lid.sh close | open
 
-if hyprctl monitors all | grep -qE '\s(DP-|HDMI-|DVI-|VGA-)'; then
-    # 클램쉘 모드
-    if [ "$ACTION" = "close" ]; then
-        hyprctl eval 'hl.monitor({ output = "eDP-1", disabled = true })'
-    elif [ "$ACTION" = "open" ]; then
-        # disabled=false를 명시해야 mode만으로는 재활성화 안 됨
-        hyprctl eval 'hl.monitor({ output = "eDP-1", disabled = false, mode = "3840x2400@60", position = "320x1440", scale = 2 })'
-        hyprctl dispatch 'hl.dsp.dpms({ action = "on" })'
+set -euo pipefail
+
+INTERNAL="eDP-1"
+OVERRIDE="$HOME/.config/hypr/monitors.override.conf"
+PIDFILE="/tmp/hypr-clamshell.pid"
+LOG="/tmp/hypr-lid.log"
+
+log() { printf '[%s] %s\n' "$(date '+%F %T')" "$*" >>"$LOG"; }
+
+is_power_connected() {
+    local f
+    for f in /sys/class/power_supply/A{C,DP}*/online; do
+        [[ -r "$f" ]] && [[ "$(cat "$f")" == "1" ]] && return 0
+    done
+    return 1
+}
+
+external_monitor() {
+    hyprctl monitors -j | jq -r --arg int "$INTERNAL" \
+        'first(.[] | select(.name != $int and (.disabled // false) == false) | .name) // empty'
+}
+
+stop_inhibitor() {
+    if [[ -f "$PIDFILE" ]]; then
+        kill "$(cat "$PIDFILE")" 2>/dev/null || true
+        rm -f "$PIDFILE"
     fi
-else
-    # 일반 모드
-    if [ "$ACTION" = "close" ]; then
-        # ★ suspend 전 eDP를 명시적으로 비활성화 (xe가 정리할 시간)
-        hyprctl eval 'hl.monitor({ output = "eDP-1", disabled = true })'
-        sleep 0.3
+}
+
+start_inhibitor() {
+    stop_inhibitor
+    systemd-inhibit --what=sleep:idle --mode=block \
+        --who="hypr-clamshell" --why="Clamshell mode active" \
+        sleep infinity >/dev/null 2>&1 &
+    echo $! >"$PIDFILE"
+}
+
+case "${1:-}" in
+close)
+    log "lid closed"
+    ext=$(external_monitor)
+    if is_power_connected && [[ -n "$ext" ]]; then
+        log "clamshell: AC + external ($ext); disabling $INTERNAL"
+        printf 'monitor=%s,disable\n' "$INTERNAL" >"$OVERRIDE"
+        hyprctl reload >/dev/null
+        hyprctl dispatch focusmonitor "$ext" >/dev/null
+        start_inhibitor
+    else
+        log "no clamshell conditions; suspending"
         systemctl suspend
-    elif [ "$ACTION" = "open" ]; then
-        # ★ eDP를 다시 활성화 (resume 후 mode 재설정)
-        hyprctl eval 'hl.monitor({ output = "eDP-1", disabled = false, mode = "preferred", position = "auto", scale = 2 })'
-        hyprctl dispatch 'hl.dsp.dpms({ action = "on" })'
     fi
-fi
+    ;;
+open)
+    log "lid opened"
+    stop_inhibitor
+    if [[ -f "$OVERRIDE" ]]; then
+        rm -f "$OVERRIDE"
+        hyprctl reload >/dev/null
+    fi
+    ;;
+*)
+    echo "Usage: $0 close|open" >&2
+    exit 1
+    ;;
+esac

@@ -1,33 +1,66 @@
 #!/bin/bash
 # Usage: brightness-osd.sh raise | lower | +2 | -2
 #
-# Brightness control with integrated DPMS:
-#   - Lowering past 0% silently turns the display off (no OSD).
-#   - Pressing any brightness key while DPMS is off wakes the display
-#     and applies the keypress normally (so 0% + raise → 5%).
+# Acceleration:
+#   - Single press / slow tapping → 1% steps (precise)
+#   - Holding → step grows: 1 → 2 → 3 → ... → 15 (capped)
+#   - Direction/mode change → streak resets
+#   - Pause > 700ms → streak resets
 
-DPMS=$(hyprctl monitors -j 2>/dev/null | jq -r '.[0].dpmsStatus')
-[ "$DPMS" = "false" ] && hyprctl dispatch 'hl.dsp.dpms({ action = "on" })'
+RAMP_STATE="/tmp/brightness-ramp.state"
+DPMS_STATE="/tmp/brightness-dpms.state"
 
+NOW_MS=$(( $(date +%s%N) / 1000000 ))
+
+# ── Streak (방향 변경 시 리셋) ────────────────────────────────────────────
+LAST_MS=0; STREAK=0; LAST_ACTION=""
+if [ -s "$RAMP_STATE" ]; then
+    read -r LAST_MS STREAK LAST_ACTION < "$RAMP_STATE"
+    [[ "$LAST_MS" =~ ^[0-9]+$ ]] || LAST_MS=0
+    [[ "$STREAK" =~ ^[0-9]+$ ]] || STREAK=0
+fi
+DELTA=$((NOW_MS - LAST_MS))
+
+if [ "$1" != "$LAST_ACTION" ]; then
+    STREAK=1
+elif [ "$DELTA" -lt 700 ]; then
+    STREAK=$((STREAK + 1))
+else
+    STREAK=1
+fi
+
+echo "$NOW_MS $STREAK $1" > "$RAMP_STATE"
+
+STEP=$(( 1 + STREAK / 2 ))
+[ "$STEP" -gt 15 ] && STEP=15
+
+# ── DPMS wake ─────────────────────────────────────────────────────────────
+if [ "$(cat "$DPMS_STATE" 2>/dev/null)" = "off" ]; then
+    hyprctl dispatch 'hl.dsp.dpms({ action = "enable" })' >/dev/null 2>&1
+    echo "on" > "$DPMS_STATE"
+fi
+
+# ── Apply ─────────────────────────────────────────────────────────────────
 case "$1" in
-    raise)  brightnessctl set +5%   >/dev/null ;;
-    lower)  brightnessctl set 5%-   >/dev/null ;;
+    raise)  brightnessctl set "+${STEP}%" >/dev/null ;;
+    lower)  brightnessctl set "${STEP}%-" >/dev/null ;;
     +*)     brightnessctl set "${1:1}%+" >/dev/null ;;
     -*)     brightnessctl set "${1:1}%-" >/dev/null ;;
 esac
 
-MAX=$(brightnessctl max)
-CUR=$(brightnessctl get)
+CUR=$(< /sys/class/backlight/intel_backlight/brightness)
+MAX=$(< /sys/class/backlight/intel_backlight/max_brightness)
 PCT=$((CUR * 100 / MAX))
 
 if [ "$PCT" -le 0 ]; then
-    hyprctl dispatch 'hl.dsp.dpms({ action = "off" })'
+    hyprctl dispatch 'hl.dsp.dpms({ action = "disable" })' >/dev/null 2>&1
+    echo "off" > "$DPMS_STATE"
 else
-    qs ipc -c desktop call osd brightness "$PCT"
+    qs ipc -c desktop call osd brightness "$PCT" 2>/dev/null &
+    disown
 fi
 
-# Persist for restore on next boot (Hyprland autostart + SDDM service).
-# World-readable so root-owned SDDM service can pick it up.
+# Persist for restore on next boot
 STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}"
 mkdir -p "$STATE_DIR"
 printf '%s\n' "$PCT" > "$STATE_DIR/brightness"

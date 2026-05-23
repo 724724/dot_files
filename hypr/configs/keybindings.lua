@@ -13,8 +13,7 @@ hl.bind(mainMod .. " + E",            hl.dsp.exec_cmd(fileManager))
 hl.bind(mainMod .. " + SPACE",        hl.dsp.exec_cmd("qs ipc -c desktop call spotlight toggle"))
 hl.bind("ALT + SPACE",                hl.dsp.exec_cmd("qs ipc -c desktop call launchpad toggle"))
 hl.bind(mainMod .. " + B",            hl.dsp.exec_cmd("qs ipc -c desktop call bar toggle"))
-hl.bind(mainMod .. " + CTRL + SPACE", hl.dsp.exec_cmd("/usr/bin/smile"))
-hl.bind(mainMod .. " + SHIFT + W",    hl.dsp.exec_cmd("looking-glass-client"))
+--hl.bind(mainMod .. " + CTRL + SPACE", hl.dsp.exec_cmd("/usr/bin/smile"))
 
 -- ── System ──────────────────────────────────────────────────────────────
 hl.bind(mainMod .. " + Q",         hl.dsp.window.close())
@@ -24,14 +23,8 @@ hl.bind("XF86PowerOff",            hl.dsp.exec_cmd("hyprlock"))
 hl.bind(mainMod .. " + F",         hl.dsp.window.fullscreen({ mode = "maximized" }))
 hl.bind(mainMod .. " + SHIFT + F", hl.dsp.window.fullscreen({ mode = "fullscreen" }))
 hl.bind(mainMod .. " + P",         hl.dsp.window.float({ action = "toggle" }))
--- Overview moved off Super+Tab so the switcher can use it (macOS Cmd+Tab style)
-hl.bind(mainMod .. " + grave",     hl.dsp.exec_cmd("qs ipc -c overview call overview toggle"))
 
 -- ── App Switcher (macOS Cmd+Tab style) ──────────────────────────────────
--- Routes to Quickshell's GlobalShortcut (defined in switcher/shell.qml). This
--- avoids the bindr/submap fragility — once the switcher window is open it grabs
--- keyboard focus via HyprlandFocusGrab + WlrLayershell, so Tab cycles, Esc
--- cancels, Enter confirms, and releasing Super confirms — all handled in QML.
 hl.bind(mainMod .. " + TAB",         hl.dsp.global("switcher:next"))
 hl.bind(mainMod .. " + SHIFT + TAB", hl.dsp.global("switcher:prev"))
 
@@ -39,7 +32,6 @@ hl.bind(mainMod .. " + SHIFT + TAB", hl.dsp.global("switcher:prev"))
 hl.bind(mainMod .. " + SHIFT + 3", hl.dsp.exec_cmd("~/.config/hypr/scripts/shot.sh output"))
 hl.bind(mainMod .. " + SHIFT + 4", hl.dsp.exec_cmd("~/.config/hypr/scripts/shot.sh region"))
 hl.bind(mainMod .. " + SHIFT + 5", hl.dsp.exec_cmd("~/.config/hypr/scripts/winshot.sh"))
-
 hl.bind("Print", hl.dsp.exec_cmd('grim - | wl-copy && qs ipc -c desktop call osd custom "󰹑" "Screenshot copied to clipboard"'), { locked = true })
 
 -- ── Special Workspace (Magic) ───────────────────────────────────────────
@@ -103,21 +95,12 @@ hl.bind("XF86Favorites",  hl.dsp.exec_cmd("~/.config/hypr/scripts/media-osd.sh p
 hl.bind("XF86Launch7",    hl.dsp.exec_cmd("~/.config/hypr/scripts/media-osd.sh prev"),       { locked = true })
 
 -- ── Keyboard Lock ───────────────────────────────────────────────────────
--- XF86Display toggles internal keyboard via device:enabled. The submap +
--- catchall approach broke in 0.55 because hl.dsp.submap gets Lua-wrapped,
--- losing the special "break on submap handler" semantics. Direct device
--- disable is simpler and reliable. The XF86Display key lives on
--- `thinkpad-extra-buttons` (not the main keyboard), so it still fires
--- while the keyboard is locked, allowing unlock.
 hl.bind("XF86Display", hl.dsp.exec_cmd("~/.config/hypr/scripts/keyboard-lock.sh"), { locked = true })
 
 -- ── Night Shift — Hyprsunset toggle ─────────────────────────────────────
 hl.bind(mainMod .. " + SHIFT + XF86MonBrightnessUp",   hl.dsp.exec_cmd('hyprctl hyprsunset temperature 4500 && qs ipc -c desktop call osd custom "󰃟" "Blue Light Filter ON"'),  { locked = true })
 hl.bind(mainMod .. " + SHIFT + XF86MonBrightnessDown", hl.dsp.exec_cmd('hyprctl hyprsunset identity && qs ipc -c desktop call osd custom "󰃠" "Blue Light Filter OFF"'),         { locked = true })
 
--- ── Lid Switch (macOS clamshell mode) ─────────────────────────────────
--- logind은 ignore — Hyprland가 lid.sh로 분기 처리한다.
---   외부 모니터 연결 시: eDP만 비활성화, 시스템은 계속 동작 (클램쉘)
---   외부 모니터 없을 시: eDP 비활성화 후 systemctl suspend
+-- ── Lid Switch (MacBook clamshell behavior) ─────────────────────────────
 hl.bind("switch:on:Lid Switch",  hl.dsp.exec_cmd("~/.config/hypr/scripts/lid.sh close"), { locked = true })
 hl.bind("switch:off:Lid Switch", hl.dsp.exec_cmd("~/.config/hypr/scripts/lid.sh open"),  { locked = true })
