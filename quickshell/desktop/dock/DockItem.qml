@@ -12,8 +12,14 @@ Item {
     // Direct reference to DockWindow — avoids signals with complex var types
     property var dockWin: null
 
-    implicitWidth: 58
+    // Magnify on hover, macOS-style. hoverScale drives both the visual Scale
+    // (below) and the layout width here, so the widened slot shoves neighbouring
+    // icons aside in the Row instead of overlapping them. +16 keeps the icon's
+    // 8px side padding constant at any zoom (42 + 16 = 58 when idle).
+    readonly property real hoverScale: 1.75
+    implicitWidth: 42 * (hover.hovered ? hoverScale : 1) + 16
     implicitHeight: 66
+    Behavior on implicitWidth { NumberAnimation { duration: 130; easing.type: Easing.OutQuad } }
 
     readonly property bool isRunning: DockService.runningClasses.indexOf(wmClass.toLowerCase()) >= 0
     readonly property bool isFocused: DockService.focusedClass === wmClass.toLowerCase()
@@ -33,16 +39,6 @@ Item {
 
     HoverHandler { id: hover }
 
-    Rectangle {
-        anchors.horizontalCenter: parent.horizontalCenter
-        anchors.top: parent.top; anchors.topMargin: 6
-        width: 52; height: 52; radius: 13
-        color: hover.hovered
-            ? (dark ? Qt.rgba(1,1,1,0.12) : Qt.rgba(0,0,0,0.08))
-            : "transparent"
-        Behavior on color { ColorAnimation { duration: 100 } }
-    }
-
     Image {
         id: iconImg
         anchors.horizontalCenter: parent.horizontalCenter
@@ -53,13 +49,48 @@ Item {
         transform: [
             Translate { y: item.bounceY },
             Scale {
-                origin.x: iconImg.width / 2; origin.y: iconImg.height / 2
-                xScale: hover.hovered ? 1.12 : 1.0
-                yScale: hover.hovered ? 1.12 : 1.0
-                Behavior on xScale { NumberAnimation { duration: 120; easing.type: Easing.OutQuad } }
-                Behavior on yScale { NumberAnimation { duration: 120; easing.type: Easing.OutQuad } }
+                // Grow upward from the icon's base (not its center), macOS-style,
+                // so the icon lifts out of the dock on hover instead of bloating
+                // in place. The running dot below is anchored separately and stays.
+                origin.x: iconImg.width / 2; origin.y: iconImg.height
+                xScale: hover.hovered ? item.hoverScale : 1.0
+                yScale: hover.hovered ? item.hoverScale : 1.0
+                Behavior on xScale { NumberAnimation { duration: 130; easing.type: Easing.OutQuad } }
+                Behavior on yScale { NumberAnimation { duration: 130; easing.type: Easing.OutQuad } }
             }
         ]
+    }
+
+    // App-name tooltip — small label that floats above the magnified icon on
+    // hover, macOS-style. Anchored above parent.top so it sits in the dock
+    // window's headroom (DockWindow's non-preview height was raised to make
+    // room). z keeps it above neighbouring icons.
+    Rectangle {
+        id: tooltip
+        z: 200
+        visible: opacity > 0
+        opacity: hover.hovered ? 1 : 0
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.bottom: parent.top
+        anchors.bottomMargin: 24
+        width: tipLabel.implicitWidth + 16
+        height: tipLabel.implicitHeight + 8
+        radius: 7
+        color: dark ? Qt.rgba(28/255, 28/255, 33/255, 0.96)
+                    : Qt.rgba(250/255, 250/255, 250/255, 0.96)
+        border.color: dark ? Qt.rgba(1,1,1,0.13) : Qt.rgba(0,0,0,0.11)
+        border.width: 1
+        Behavior on opacity { NumberAnimation { duration: 120; easing.type: Easing.OutQuad } }
+
+        Text {
+            id: tipLabel
+            anchors.centerIn: parent
+            text: item.name
+            color: dark ? Qt.rgba(1,1,1,0.95) : Qt.rgba(0,0,0,0.85)
+            font.family: "SF Pro Display"
+            font.pixelSize: 12
+            font.weight: Font.Medium
+        }
     }
 
     // Running indicator — macOS-style dot below icon

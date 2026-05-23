@@ -25,6 +25,15 @@ PanelWindow {
     exclusionMode: ExclusionMode.Ignore
     color: "transparent"
 
+    // Confine pointer input to the dock's own column (see triggerColumn): the
+    // dock then reveals only when the cursor is over where it sits — not the
+    // entire bottom edge — and the empty space to its left/right stays
+    // click-through to the windows below. A preview grows the window and needs
+    // its full surface (popup + click-outside-to-dismiss), so drop the mask
+    // while one is open.
+    mask: win.previewOpen ? null : dockRegion
+    Region { id: dockRegion; item: triggerColumn }
+
     readonly property bool dark: ThemeService.isDark
 
     // ── Preview state ──────────────────────────────────────────────────────
@@ -69,7 +78,7 @@ PanelWindow {
     // Panel grows upward when preview is open: popup + gap + pointer + dock card area
     implicitHeight: previewOpen
         ? (previewRows * cardH + (previewRows - 1) * cardSpacing + previewPadding * 2 + 100)
-        : 80
+        : 128
 
     // Smooth the layer-surface resize. Without this, Hyprland's no_anim
     // rule made the preview pop in by snapping the surface from 80 → 250+
@@ -86,11 +95,29 @@ PanelWindow {
     // ── Auto-hide ──────────────────────────────────────────────────────────
 
     property bool showDock: false
-    margins.bottom: (showDock || previewOpen) ? 8 : -(80 - 4)
+    margins.bottom: (showDock || previewOpen) ? 8 : -(128 - 4)
     Behavior on margins.bottom {
         NumberAnimation { duration: 220; easing.type: Easing.OutCubic }
     }
 
+    // Invisible column matching the dock card's footprint. The window mask is
+    // bound to this (see top of file), so all pointer input — clicks AND hover —
+    // is confined to the dock's horizontal span: the strip to either side stays
+    // click-through, and the reveal only triggers over the dock itself.
+    Item {
+        id: triggerColumn
+        anchors.top: parent.top
+        anchors.bottom: parent.bottom
+        anchors.horizontalCenter: parent.horizontalCenter
+        width: dockCard.implicitWidth
+    }
+
+    // Reveal / keep-open hover. Lives at the window level so it's an ancestor of
+    // the dock card: ancestor handlers stay hovered while the cursor is over any
+    // descendant, so the dock no longer retracts when you move onto the icons —
+    // and the per-icon HoverHandlers beneath still fire, driving the hover zoom.
+    // The mask already limits hover delivery to the dock column, so targeting the
+    // whole window doesn't re-introduce the "reveal anywhere on the edge" bug.
     HoverHandler {
         id: hoverHandler
         onHoveredChanged: {
@@ -110,7 +137,7 @@ PanelWindow {
     readonly property var pinnedApps: [
         { name: "Files",     wmClass: "org.gnome.Nautilus", iconName: "org.gnome.Nautilus", execCmd: ["gtk-launch", "org.gnome.Nautilus"] },
         { name: "Chrome",    wmClass: "google-chrome",      iconName: "google-chrome",      execCmd: ["gtk-launch", "google-chrome"] },
-        { name: "KakaoTalk", wmClass: "kakaotalk.exe",      iconName: "DDB7_KakaoTalk.0",   execCmd: ["gtk-launch", "kakaotalk.exe"] },
+        { name: "KakaoTalk", wmClass: "kakaotalk.exe",      iconName: "KakaoTalk",          execCmd: ["gtk-launch", "wine-Programs-KakaoTalk"] },
         { name: "Spotify",   wmClass: "spotify",            iconName: "spotify-client",     execCmd: ["gtk-launch", "spotify"] }
     ]
 
@@ -124,7 +151,8 @@ PanelWindow {
     function _remapClass(cls) {
         let lc = cls.toLowerCase()
         if (lc === "explorer.exe") return { name: "Ableton", iconName: "ableton" }
-        if (lc === "kakaotalk.exe") return { name: "KakaoTalk", iconName: "DDB7_KakaoTalk.0" }
+        if (lc === "kakaotalk.exe") return { name: "KakaoTalk", iconName: "KakaoTalk" }
+        if (lc === "code") return { name: "VS Code", iconName: "vscode" }
         let m = cls.match(/^(.+?)_\d+_\d+$/)
         let base = m ? m[1] : cls
         let baseLc = base.toLowerCase()
