@@ -44,11 +44,34 @@ Item {
         ctlProc.running = true
     }
 
+    // Raises the currently-playing app's window (Spotify, browser, …). Resolves
+    // the active player's process via D-Bus and maps it to a Hyprland window by
+    // PID — see focus-media-player.sh.
+    Process {
+        id: focusProc
+        command: ["/home/sejunlee/.config/hypr/scripts/focus-media-player.sh"]
+    }
+
     Timer {
         interval: 1500
         running: true
         repeat: true
         onTriggered: if (!mediaProc.running) mediaProc.running = true
+    }
+
+    // Whole-panel click target — raises the playing app's window and closes the
+    // control center. Declared before the art/text/controls so it sits beneath
+    // them: the transport buttons' own MouseAreas grab their clicks first,
+    // leaving the art, title and empty space to focus the app. Disabled when
+    // nothing is playing so there's no window to raise (and no pointer cursor).
+    MouseArea {
+        anchors.fill: parent
+        enabled: root.hasMedia
+        cursorShape: Qt.PointingHandCursor
+        onClicked: {
+            focusProc.running = true
+            NcServer.controlCenterVisible = false
+        }
     }
 
     // Album art — ClippingRectangle so the cover image's corners are

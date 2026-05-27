@@ -100,8 +100,12 @@ PanelWindow {
     readonly property int vPad:     56
     readonly property int maxCardW: Math.min(1280, screen ? screen.width - 80 : 1200)
 
-    readonly property int cardW: Math.max(280, Math.min(maxCardW, count * cellW + hPad * 2))
-    readonly property int cardH: cellH + vPad
+    // Up to 9 icons per row; overflow wraps onto new rows below.
+    readonly property int maxPerRow: 9
+    readonly property int columns:   Math.min(count, maxPerRow)
+    readonly property int rowCount:  Math.ceil(count / maxPerRow)
+    readonly property int cardW: Math.max(280, Math.min(maxCardW, columns * cellW + hPad * 2))
+    readonly property int cardH: Math.max(1, rowCount) * cellH + vPad
 
     // Emitted when the selection moves due to user input (Tab / Shift+Tab /
     // arrow keys / global shortcut). Lets the controlling Scope distinguish
@@ -203,90 +207,106 @@ PanelWindow {
             elide: Text.ElideRight
         }
 
-        // Icon row
-        ListView {
-            id: iconRow
-            readonly property real maxWidth: card.width - win.hPad * 2
-            readonly property real naturalWidth: win.count * win.cellW
+        // Icon grid — up to win.maxPerRow icons per row, wrapping onto new
+        // rows below. The card grows in height and stays centered via its own
+        // anchors.centerIn. Each row is centered so a partial last row stays
+        // balanced under the full rows above it.
+        Column {
+            id: iconGrid
             anchors.horizontalCenter: parent.horizontalCenter
             anchors.bottom: parent.bottom
             anchors.bottomMargin: 16
-            width: Math.min(naturalWidth, maxWidth)
-            height: win.cellH
-            orientation: ListView.Horizontal
-            interactive: false
+            width: win.columns * win.cellW
             spacing: 0
-            model: win.wins
-            currentIndex: win.selectedIndex
-            highlightFollowsCurrentItem: false
 
-            preferredHighlightBegin: width / 2 - win.cellW / 2
-            preferredHighlightEnd:   width / 2 + win.cellW / 2
+            Repeater {
+                model: win.rowCount
 
-            delegate: Item {
-                id: cell
-                required property var modelData
-                required property int index
-                width: win.cellW
-                height: win.cellH
+                // One row of cells.
+                Item {
+                    id: gridRow
+                    required property int index
+                    width: iconGrid.width
+                    height: win.cellH
+                    readonly property int startIdx: index * win.maxPerRow
+                    readonly property int rowLen: Math.min(win.maxPerRow, win.count - startIdx)
 
-                readonly property bool selected: win.selectedIndex === index
+                    Row {
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        spacing: 0
 
-                Rectangle {
-                    anchors.fill: parent
-                    anchors.margins: 4
-                    radius: 14
-                    color: cell.selected
-                        ? (dark ? Qt.rgba(1, 1, 1, 0.16) : Qt.rgba(0, 0, 0, 0.10))
-                        : "transparent"
-                    border.color: cell.selected
-                        ? (dark ? Qt.rgba(1, 1, 1, 0.32) : Qt.rgba(0, 0, 0, 0.22))
-                        : "transparent"
-                    border.width: cell.selected ? 1 : 0
+                        Repeater {
+                            model: gridRow.rowLen
 
-                    Behavior on color        { ColorAnimation { duration: 110 } }
-                    Behavior on border.color { ColorAnimation { duration: 110 } }
-                }
+                            Item {
+                                id: cell
+                                required property int index
+                                readonly property int globalIndex: gridRow.startIdx + index
+                                readonly property var winData: win.wins[globalIndex]
+                                width: win.cellW
+                                height: win.cellH
 
-                Image {
-                    id: iconImg
-                    anchors.centerIn: parent
-                    width: win.iconSize
-                    height: win.iconSize
-                    sourceSize.width: win.iconSize * 2
-                    sourceSize.height: win.iconSize * 2
-                    smooth: true
-                    mipmap: true
-                    asynchronous: true
-                    fillMode: Image.PreserveAspectFit
-                    source: cell.modelData && cell.modelData.class
-                        ? "image://icon/" + win._iconNameFor(cell.modelData.class)
-                        : ""
+                                readonly property bool selected: win.selectedIndex === globalIndex
 
-                    onStatusChanged: {
-                        if (status === Image.Error) {
-                            // Try the original class as a fallback before
-                            // showing the generic exec icon.
-                            let orig = cell.modelData.class
-                            let mapped = win._iconNameFor(orig)
-                            if (source.toString().endsWith(mapped) && mapped !== orig.toLowerCase())
-                                source = "image://icon/" + orig.toLowerCase()
-                            else if (source.toString().endsWith(orig.toLowerCase()))
-                                source = "image://icon/" + orig
-                            else
-                                source = "image://icon/application-x-executable"
+                                Rectangle {
+                                    anchors.fill: parent
+                                    anchors.margins: 4
+                                    radius: 14
+                                    color: cell.selected
+                                        ? (dark ? Qt.rgba(1, 1, 1, 0.16) : Qt.rgba(0, 0, 0, 0.10))
+                                        : "transparent"
+                                    border.color: cell.selected
+                                        ? (dark ? Qt.rgba(1, 1, 1, 0.32) : Qt.rgba(0, 0, 0, 0.22))
+                                        : "transparent"
+                                    border.width: cell.selected ? 1 : 0
+
+                                    Behavior on color        { ColorAnimation { duration: 110 } }
+                                    Behavior on border.color { ColorAnimation { duration: 110 } }
+                                }
+
+                                Image {
+                                    id: iconImg
+                                    anchors.centerIn: parent
+                                    width: win.iconSize
+                                    height: win.iconSize
+                                    sourceSize.width: win.iconSize * 2
+                                    sourceSize.height: win.iconSize * 2
+                                    smooth: true
+                                    mipmap: true
+                                    asynchronous: true
+                                    fillMode: Image.PreserveAspectFit
+                                    source: cell.winData && cell.winData.class
+                                        ? "image://icon/" + win._iconNameFor(cell.winData.class)
+                                        : ""
+
+                                    onStatusChanged: {
+                                        if (status === Image.Error) {
+                                            // Try the original class as a fallback before
+                                            // showing the generic exec icon.
+                                            let orig = cell.winData.class
+                                            let mapped = win._iconNameFor(orig)
+                                            if (source.toString().endsWith(mapped) && mapped !== orig.toLowerCase())
+                                                source = "image://icon/" + orig.toLowerCase()
+                                            else if (source.toString().endsWith(orig.toLowerCase()))
+                                                source = "image://icon/" + orig
+                                            else
+                                                source = "image://icon/application-x-executable"
+                                        }
+                                    }
+                                }
+
+                                MouseArea {
+                                    anchors.fill: parent
+                                    cursorShape: Qt.PointingHandCursor
+                                    hoverEnabled: true
+                                    onPositionChanged: win.selectedIndex = cell.globalIndex
+                                    onClicked: {
+                                        win.selectedIndex = cell.globalIndex
+                                        win.confirmRequested()
+                                    }
+                                }
+                            }
                         }
-                    }
-                }
-
-                MouseArea {
-                    anchors.fill: parent
-                    cursorShape: Qt.PointingHandCursor
-                    hoverEnabled: true
-                    onPositionChanged: win.selectedIndex = index
-                    onClicked: {
-                        win.selectedIndex = index
-                        win.confirmRequested()
                     }
                 }
             }

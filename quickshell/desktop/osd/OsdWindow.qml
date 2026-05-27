@@ -58,9 +58,15 @@ PanelWindow {
         Behavior on opacity { NumberAnimation { duration: 180; easing.type: Easing.InOutQuad } }
 
         RowLayout {
-            // Center in card; width matches card minus horizontal padding
             anchors.centerIn: parent
-            width: parent.width - 48
+            // Progress mode: fill the fixed-width card so the bar can stretch.
+            // Otherwise hug the content (capped at maxOsdWidth) and let
+            // anchors.centerIn split the leftover evenly — that keeps the
+            // icon's left padding and the label's right padding equal so the
+            // group sits dead-center instead of being pushed left.
+            width: OsdService.showProgress
+                ? parent.width - 48
+                : Math.min(maxOsdWidth - 48, implicitWidth)
             spacing: 10
 
             Text {
@@ -73,26 +79,11 @@ PanelWindow {
                 Behavior on color { ColorAnimation { duration: 200 } }
             }
 
-            Text {
-                id: labelText
-                text: OsdService.label
-                color: dark ? "#c0ccd8" : "#444444"
-                font.family: "SF Pro Display"
-                font.pixelSize: 13
-                font.weight: Font.Medium
-                visible: OsdService.label !== ""
-                // When there's no progress bar (e.g. media title), claim the
-                // remaining row width and elide with "..." if too long. With a
-                // progress bar present (volume/brightness), the label is short
-                // ("50%") and the bar wants the fill space instead.
-                Layout.fillWidth: !OsdService.showProgress
-                elide: Text.ElideRight
-                Behavior on color { ColorAnimation { duration: 200 } }
-            }
-
+            // Progress bar sits between the icon and the label so
+            // volume/brightness read icon → bar → percentage. Invisible items
+            // are ignored by RowLayout, so it adds no space in non-progress OSDs.
             Rectangle {
                 Layout.fillWidth: true
-                // Invisible items are ignored by RowLayout, so no extra space when hidden
                 visible: OsdService.showProgress
                 height: 6
                 radius: 3
@@ -105,6 +96,23 @@ PanelWindow {
                     color: dark ? "#0A84FF" : "#007AFF"
                     Behavior on width { NumberAnimation { duration: 100 } }
                 }
+            }
+
+            Text {
+                id: labelText
+                text: OsdService.label
+                color: dark ? "#c0ccd8" : "#444444"
+                font.family: "SF Pro Display"
+                font.pixelSize: 13
+                font.weight: Font.Medium
+                visible: OsdService.label !== ""
+                // No progress bar (e.g. media title): claim the remaining row
+                // width and elide with "..." if too long. With a progress bar
+                // (volume/brightness) the label is the short trailing "50%" and
+                // the bar takes the fill space instead.
+                Layout.fillWidth: !OsdService.showProgress
+                elide: Text.ElideRight
+                Behavior on color { ColorAnimation { duration: 200 } }
             }
         }
     }
