@@ -52,6 +52,12 @@ PanelWindow {
     readonly property bool dark: ThemeService.isDark
 
     property string detail: ""
+
+    // Kick the screen-time tracker at shell startup. The singleton is lazy, so
+    // without this it wouldn't begin counting until the Battery detail is first
+    // opened — touching a property here forces it to instantiate now.
+    Component.onCompleted: void ScreenTimeService.day
+
     onVisibleChanged: {
         if (!visible) detail = ""
         // Grab keyboard focus so Esc is delivered (layer keyboardFocus is

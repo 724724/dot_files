@@ -28,7 +28,6 @@ Item {
     readonly property var actions: [
         { id: "lock",      label: "Lock",      icon: "󰌾", color: "#0A84FF", needsConfirm: false },
         { id: "logout",    label: "Logout",    icon: "󰍃", color: "#5E5CE6", needsConfirm: true },
-        { id: "hibernate", label: "Hibernate", icon: "󰒲", color: "#BF5AF2", needsConfirm: true },
         { id: "reboot",    label: "Reboot",    icon: "󰜉", color: "#FF9F0A", needsConfirm: true },
         { id: "shutdown",  label: "Shutdown",  icon: "󰐥", color: "#FF453A", needsConfirm: true }
     ]
@@ -37,8 +36,8 @@ Item {
     // setsid -f forks a fresh session and detaches the script before this
     // qs-owned Process object can be torn down by the control-center close.
     // Earlier we tried `systemd-run --user --no-block`, but routing the
-    // systemctl calls through a transient user unit caused shutdown/reboot/
-    // hibernate to silently no-op (only logout / lock worked). Forking with
+    // systemctl calls through a transient user unit caused shutdown/reboot
+    // to silently no-op (only logout / lock worked). Forking with
     // setsid keeps the script's session intact and lets it complete its
     // graceful-close + systemctl call without parent supervision.
     Process {
