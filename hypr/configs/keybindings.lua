@@ -90,9 +90,9 @@ hl.bind("SHIFT + XF86MonBrightnessUp", hl.dsp.exec_cmd("~/.config/hypr/scripts/b
 hl.bind("XF86MonBrightnessDown",         hl.dsp.exec_cmd("~/.config/hypr/scripts/brightness-osd.sh lower"), { locked = true, repeating = true })
 hl.bind("SHIFT + XF86MonBrightnessDown", hl.dsp.exec_cmd("~/.config/hypr/scripts/brightness-osd.sh -2"),    { locked = true, repeating = true })
 
-hl.bind("F23",            hl.dsp.exec_cmd("~/.config/hypr/scripts/media-osd.sh next"),       { locked = true })
+hl.bind("XF86LinkPhone",            hl.dsp.exec_cmd("~/.config/hypr/scripts/media-osd.sh next"),       { locked = true })
 hl.bind("XF86Favorites",  hl.dsp.exec_cmd("~/.config/hypr/scripts/media-osd.sh play-pause"), { locked = true })
-hl.bind("XF86Launch7",    hl.dsp.exec_cmd("~/.config/hypr/scripts/media-osd.sh prev"),       { locked = true })
+hl.bind("XF86SelectiveScreenshot",    hl.dsp.exec_cmd("~/.config/hypr/scripts/media-osd.sh prev"),       { locked = true })
 
 -- ── Keyboard Lock ───────────────────────────────────────────────────────
 hl.bind("XF86Display", hl.dsp.exec_cmd("~/.config/hypr/scripts/keyboard-lock.sh"), { locked = true })

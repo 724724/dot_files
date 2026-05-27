@@ -19,7 +19,7 @@ hl.on("hyprland.start", function()
     hl.exec_cmd("/usr/lib/polkit-gnome/polkit-gnome-authentication-agent-1")
     hl.exec_cmd("env QT_FONT_DPI=80 qs -c desktop")
     hl.exec_cmd("hyprsunset")
-    --hl.exec_cmd("systemctl --user start graphical-session.target")
+    hl.exec_cmd("systemctl --user start hyprpolkitagent")
 
 end)
 

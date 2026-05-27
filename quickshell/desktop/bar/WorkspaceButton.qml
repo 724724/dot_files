@@ -6,7 +6,10 @@ Rectangle {
     id: btn
     required property var workspace
 
-    implicitWidth: Math.max(label.implicitWidth + 24, 36)
+    // Icon names of the apps open on this workspace (one per distinct class).
+    readonly property var apps: WorkspaceWindows.appsByWorkspace[String(workspace.id)] || []
+
+    implicitWidth: Math.max(content.implicitWidth + 24, 36)
     implicitHeight: 33
 
     color: workspace.focused
@@ -26,15 +29,54 @@ Rectangle {
 
     HoverHandler { id: hover }
 
-    Text {
-        id: label
+    RowLayout {
+        id: content
         anchors.centerIn: parent
-        text: workspace.name
-        color: workspace.focused ? "#ffd4d0" : workspace.urgent ? "#ffffff" : "#8ba3b8"
-        font.family: "SF Pro Display"
-        font.pixelSize: 11
+        spacing: 0
 
-        Behavior on color { ColorAnimation { duration: 200 } }
+        Text {
+            id: label
+            Layout.alignment: Qt.AlignVCenter
+            text: workspace.name
+            color: workspace.focused ? "#ffd4d0" : workspace.urgent ? "#ffffff" : "#8ba3b8"
+            font.family: "SF Pro Display"
+            font.pixelSize: 11
+
+            Behavior on color { ColorAnimation { duration: 200 } }
+        }
+
+        // Small app icons for whatever is open on this workspace. Grouped in a
+        // Row with its own tight spacing and a left margin, so the gap from the
+        // workspace number is a bit wider than the gap between icons.
+        Row {
+            Layout.alignment: Qt.AlignVCenter
+            Layout.leftMargin: 7
+            spacing: 3
+            visible: btn.apps.length > 0
+            // The number's text box reserves descent space below the digit, so
+            // its visual centre sits ~1px above the box centre that the layout
+            // aligns to. Nudge the icons up the same amount (render-only, no
+            // layout impact) so they read as centred against the number.
+            transform: Translate { y: -1 }
+
+            Repeater {
+                model: btn.apps
+                delegate: Image {
+                    required property var modelData
+                    width: 11
+                    height: 11
+                    sourceSize.width: 11
+                    sourceSize.height: 11
+                    smooth: true
+                    mipmap: true
+                    source: "image://icon/" + modelData
+                    onStatusChanged: {
+                        if (status === Image.Error)
+                            source = "image://icon/application-x-executable"
+                    }
+                }
+            }
+        }
     }
 
     MouseArea {

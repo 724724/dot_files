@@ -24,6 +24,17 @@ PanelWindow {
     // inside it, so suppress the duplicate transient popups.
     visible: !NcServer.controlCenterVisible
 
+    // ScriptModel diffs popupActive against its previous contents and emits
+    // granular row inserts/removes, so removing one popup destroys only that
+    // delegate. Binding the Repeater straight to the JS array made every
+    // change a full model reset — every surviving card was torn down and
+    // recreated, replaying its slide-in and flickering the whole stack.
+    ScriptModel {
+        id: popupModel
+        objectProp: "id"
+        values: NcServer.popupActive
+    }
+
     Column {
         id: popupCol
         anchors { top: parent.top; right: parent.right; topMargin: 4; rightMargin: 4 }
@@ -32,7 +43,7 @@ PanelWindow {
 
         Repeater {
             // Only notifications that haven't yet finished their popup window
-            model: NcServer.popupActive
+            model: popupModel
 
             delegate: Item {
                 id: wrap

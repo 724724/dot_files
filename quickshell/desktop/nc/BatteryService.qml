@@ -13,10 +13,13 @@ Singleton {
 
     function refresh() { batProc.running = true; modeProc.running = true }
     function setMode(m) {
-        // Updates immediately so UI reflects the choice; tlp run reconciles
+        // Updates immediately so UI reflects the choice; the daemon reconciles.
+        // power-profiles-daemon's profile names (performance | balanced |
+        // power-saver) match our mode values exactly, and powerprofilesctl
+        // talks to it over D-Bus/polkit so no sudo is needed.
         root.mode = m
         setProc.command = ["bash", "-c",
-            "sudo -n /usr/bin/tlp " + m + " >/dev/null 2>&1 && " +
+            "powerprofilesctl set " + m + " >/dev/null 2>&1 && " +
             "notify-send -a power 'Power Mode' '" + m.charAt(0).toUpperCase() + m.slice(1) + "'"]
         setProc.running = true
     }
@@ -38,9 +41,9 @@ Singleton {
 
     Process {
         id: modeProc
-        // tlp-stat -s shows: "TLP profile    = balanced/BAT"
-        command: ["bash", "-c",
-            "tlp-stat -s 2>/dev/null | awk -F'=' '/TLP profile/{gsub(/ /,\"\",$2); split($2,a,\"/\"); print a[1]}'"]
+        // powerprofilesctl get prints just the active profile name, which
+        // already matches our mode values (performance | balanced | power-saver).
+        command: ["powerprofilesctl", "get"]
         stdout: StdioCollector {
             onStreamFinished: {
                 let m = text.trim()

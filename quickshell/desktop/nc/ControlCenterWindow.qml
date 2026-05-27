@@ -8,9 +8,9 @@ import QtQuick.Controls
 PanelWindow {
     id: win
 
-    anchors { top: true; right: true }
-    margins { top: 50; right: 10 }
-    implicitWidth: 440
+    // Full-screen overlay so clicks outside the card can be caught to dismiss
+    // it. The card itself is positioned top-right inside escScope below.
+    anchors { top: true; bottom: true; left: true; right: true }
 
     // Tall by default — extend toward the bottom of the screen so the
     // notification list has room. Detail panels shrink to fit their own
@@ -22,7 +22,7 @@ PanelWindow {
     // Bottom buffer so the dock doesn't fight with the panel surface.
     readonly property int bottomGap: 60
 
-    implicitHeight: {
+    readonly property int cardHeight: {
         if (win.detail !== "") {
             let d = win.detail, h = 600
             if (d === "wifi"       && detailWifi.item)       h = detailWifi.item.implicitHeight + 28
@@ -52,7 +52,12 @@ PanelWindow {
     readonly property bool dark: ThemeService.isDark
 
     property string detail: ""
-    onVisibleChanged: if (!visible) detail = ""
+    onVisibleChanged: {
+        if (!visible) detail = ""
+        // Grab keyboard focus so Esc is delivered (layer keyboardFocus is
+        // OnDemand and only acquires the keyboard when an item is focused).
+        else escScope.forceActiveFocus()
+    }
 
     // Connectivity pollers
     property bool wifiOn: false
@@ -117,8 +122,29 @@ PanelWindow {
         onTriggered: { wifiPoll.running = true; btPoll.running = true }
     }
 
-    Rectangle {
+    // Esc-to-dismiss. The FocusScope spans the whole overlay and holds keyboard
+    // focus while open (forced in onVisibleChanged); the inline Wi-Fi field can
+    // still take focus on click, and an unhandled Esc bubbles back up to here.
+    FocusScope {
+        id: escScope
         anchors.fill: parent
+        focus: true
+        Keys.onEscapePressed: NcServer.controlCenterVisible = false
+
+        // Click anywhere outside the card dismisses the panel.
+        MouseArea {
+            anchors.fill: parent
+            onClicked: NcServer.controlCenterVisible = false
+        }
+
+        Rectangle {
+        id: card
+        width: 440
+        height: win.cardHeight
+        anchors.top: parent.top
+        anchors.right: parent.right
+        anchors.topMargin: 50
+        anchors.rightMargin: 10
         radius: 18
         color: dark ? Qt.rgba(28/255, 28/255, 32/255, 0.92)
                     : Qt.rgba(245/255, 245/255, 247/255, 0.92)
@@ -522,6 +548,13 @@ PanelWindow {
                                 width: parent.width
                                 y: stackDelegate.topPad
                                 z: 2
+                                // Collapsed group → × clears the whole app.
+                                // Expanded, or a lone notification → × removes
+                                // just this card (null falls back to dismiss()).
+                                closeAction:
+                                    (!stackDelegate.expanded && stackDelegate.notifs.length > 1)
+                                        ? (function() { NcServer.dismissGroup(stackDelegate.appKey) })
+                                        : null
                             }
 
                             // Expanded list — rest of the group below the top
@@ -603,6 +636,7 @@ PanelWindow {
                     }
                 }
             }
+        }
         }
     }
 }

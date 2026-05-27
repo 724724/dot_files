@@ -82,9 +82,118 @@ PanelWindow {
         } catch (e) { return "" }
     }
 
+    // ── Currency conversion ──────────────────────────────────────────────
+    // Live rates from open.er-api.com (free, no API key), cached as code → rate
+    // per 1 USD and refreshed at most once an hour. Recognises e.g.
+    // "230 usd to krw", "50 eur in jpy", "10 dollars to won".
+    property var fxRates: ({})
+    property double fxTimestamp: 0
+    property bool fxLoading: false
+    property bool fxError: false
+
+    // Currencies conventionally written without decimal places.
+    function _fxDecimals(code) {
+        return ["KRW","JPY","VND","IDR","HUF","CLP","ISK","TWD"].indexOf(code) >= 0 ? 0 : 2
+    }
+
+    // Normalise a token ("usd", "dollars", "won") to an ISO-4217 code, or "".
+    function _fxCode(tok) {
+        let t = tok.toLowerCase()
+        let alias = {
+            "dollar":"USD","dollars":"USD","buck":"USD","bucks":"USD","usd":"USD",
+            "won":"KRW","krw":"KRW",
+            "euro":"EUR","euros":"EUR","eur":"EUR",
+            "yen":"JPY","jpy":"JPY",
+            "pound":"GBP","pounds":"GBP","sterling":"GBP","gbp":"GBP",
+            "yuan":"CNY","rmb":"CNY","cny":"CNY",
+            "rupee":"INR","rupees":"INR","inr":"INR",
+            "franc":"CHF","francs":"CHF","chf":"CHF",
+            "peso":"MXN","pesos":"MXN"
+        }
+        if (alias[t]) return alias[t]
+        if (/^[a-z]{3}$/.test(t)) return t.toUpperCase()
+        return ""
+    }
+
+    function _fmtNum(n, dec) {
+        let neg = n < 0
+        let s = Math.abs(n).toFixed(dec)
+        let parts = s.split(".")
+        parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ",")
+        return (neg ? "-" : "") + parts.join(".")
+    }
+
+    // Parse "<amount> <from> to|in <to>" → { ok, amount, from, to }.
+    readonly property var curParsed: {
+        let m = query.trim().match(/^([\d.,]+)\s*([a-zA-Z]{2,})\s+(?:to|in|into|=|->|>)\s+([a-zA-Z]{2,})$/i)
+        if (!m) return { ok: false }
+        let from = _fxCode(m[2])
+        let to = _fxCode(m[3])
+        let amt = parseFloat(m[1].replace(/,/g, ""))
+        if (!from || !to || !Number.isFinite(amt)) return { ok: false }
+        return { ok: true, amount: amt, from: from, to: to }
+    }
+    readonly property bool isCurrency: curParsed.ok
+
+    // Pretty result, e.g. "312,398 KRW" ("" until rates for both codes load).
+    readonly property string currencyResult: {
+        let p = curParsed
+        let r = fxRates
+        if (!p.ok || !r || !r[p.from] || !r[p.to]) return ""
+        let v = p.amount * (r[p.to] / r[p.from])
+        return Number.isFinite(v) ? _fmtNum(v, _fxDecimals(p.to)) + " " + p.to : ""
+    }
+    // Bare value (no separators) for copying to the clipboard.
+    readonly property string currencyValue: {
+        let p = curParsed
+        let r = fxRates
+        if (!p.ok || !r || !r[p.from] || !r[p.to]) return ""
+        let v = p.amount * (r[p.to] / r[p.from])
+        return Number.isFinite(v) ? _fmtNum(v, _fxDecimals(p.to)).replace(/,/g, "") : ""
+    }
+
+    function ensureFxRates() {
+        if (Object.keys(fxRates).length > 0 && (Date.now() - fxTimestamp) < 3600000) return
+        if (fxLoading) return
+        fxLoading = true
+        fxError = false
+        fxProc.running = true
+    }
+    onIsCurrencyChanged: if (isCurrency) ensureFxRates()
+
+    function _applyFxData(text) {
+        try {
+            let j = JSON.parse(text)
+            if (j && j.rates && j.rates.USD) {
+                fxRates = j.rates
+                fxTimestamp = Date.now()
+                fxError = false
+            } else {
+                fxError = true
+            }
+        } catch (e) {
+            fxError = true
+        }
+    }
+
+    // curl keeps SSL/proxy handling out of the QML engine and matches how the
+    // rest of the shell shells out. --max-time guards against a hung request.
+    Process {
+        id: fxProc
+        command: ["curl", "-fsS", "--max-time", "6", "https://open.er-api.com/v6/latest/USD"]
+        stdout: StdioCollector { id: fxOut; onStreamFinished: win._applyFxData(fxOut.text) }
+        onRunningChanged: {
+            if (!running) {
+                win.fxLoading = false
+                if (exitCode !== 0 && Object.keys(win.fxRates).length === 0)
+                    win.fxError = true
+            }
+        }
+    }
+
     // ── Google search fallback ──────────────────────────────────────────
     readonly property bool showGoogleFallback:
-        query.trim() !== "" && !isCalc && filtered.length === 0
+        query.trim() !== "" && !isCalc && !isCurrency && filtered.length === 0
 
     function activateGoogleSearch() {
         let q = query.trim()
@@ -102,7 +211,7 @@ PanelWindow {
     // ── App search ───────────────────────────────────────────────────────
     readonly property var filtered: {
         let q = query.trim().toLowerCase()
-        if (!q || isCalc) return []
+        if (!q || isCalc || isCurrency) return []
         let apps = DesktopEntries.applications.values
         let out = []
         for (let i = 0; i < apps.length; i++) {
@@ -128,10 +237,15 @@ PanelWindow {
         return out.slice(0, 8).map(o => o.app)
     }
     readonly property int rowH: 52
+    // The divider sits ~1px above the first result row while the card leaves a
+    // larger gap below the last row. Pad the top of the body by the same amount
+    // so the result area's top and bottom paddings match.
+    readonly property int bodyTopPad: 11
     readonly property int bodyHeight: {
-        if (isCalc && calcResult !== "") return rowH + 8
-        if (filtered.length > 0) return Math.min(filtered.length, 8) * rowH + 8
-        if (showGoogleFallback) return rowH + 8
+        if (isCurrency) return rowH + 8 + bodyTopPad
+        if (isCalc && calcResult !== "") return rowH + 8 + bodyTopPad
+        if (filtered.length > 0) return Math.min(filtered.length, 8) * rowH + 8 + bodyTopPad
+        if (showGoogleFallback) return rowH + 8 + bodyTopPad
         return 0
     }
 
@@ -139,6 +253,12 @@ PanelWindow {
     onFilteredChanged: selectedIndex = 0
 
     function activateSelected() {
+        if (isCurrency) {
+            if (currencyValue === "") return
+            Quickshell.execDetached(["bash", "-c", "printf %s '" + currencyValue.replace(/'/g, "'\\''") + "' | wl-copy"])
+            win.closeRequested()
+            return
+        }
         if (isCalc) {
             if (calcResult === "") return
             Quickshell.execDetached(["bash", "-c", "printf %s '" + calcResult.replace(/'/g, "'\\''") + "' | wl-copy"])
@@ -271,7 +391,7 @@ PanelWindow {
             anchors.leftMargin: 8
             anchors.rightMargin: 8
             anchors.top: inputRow.bottom
-            anchors.topMargin: 10
+            anchors.topMargin: 10 + win.bodyTopPad
             height: win.rowH - 4
             radius: 12
             color: Qt.rgba(10/255, 132/255, 255/255, 0.18)
@@ -311,6 +431,69 @@ PanelWindow {
             }
         }
 
+        // ── Currency conversion row ──────────────────────────────────────
+        Rectangle {
+            visible: win.isCurrency
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.leftMargin: 8
+            anchors.rightMargin: 8
+            anchors.top: inputRow.bottom
+            anchors.topMargin: 10 + win.bodyTopPad
+            height: win.rowH - 4
+            radius: 12
+            color: fxHover.hovered && win.currencyResult !== ""
+                ? (dark ? Qt.rgba(48/255, 209/255, 88/255, 0.26) : Qt.rgba(48/255, 209/255, 88/255, 0.22))
+                : Qt.rgba(48/255, 209/255, 88/255, 0.16)
+            Behavior on color { ColorAnimation { duration: 80 } }
+
+            HoverHandler { id: fxHover }
+
+            Row {
+                anchors.fill: parent
+                anchors.leftMargin: 14
+                anchors.rightMargin: 14
+                spacing: 14
+
+                Text {
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: "󰄔"
+                    color: dark ? "#ffffff" : "#222222"
+                    font.family: "JetBrainsMono Nerd Font Propo"
+                    font.pixelSize: 22
+                }
+
+                Text {
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: win.currencyResult !== ""
+                        ? (win._fmtNum(win.curParsed.amount, win._fxDecimals(win.curParsed.from)) + " " + win.curParsed.from + "  =  " + win.currencyResult)
+                        : (win.fxError ? "Rate unavailable" : "Fetching exchange rate…")
+                    color: dark ? "#ffffff" : "#222222"
+                    font.family: "SF Pro Display"
+                    font.pixelSize: 16
+                    font.weight: Font.DemiBold
+                }
+
+                Item { width: 6; height: 1 }
+
+                Text {
+                    anchors.verticalCenter: parent.verticalCenter
+                    visible: win.currencyResult !== ""
+                    text: "Enter to copy"
+                    color: dark ? Qt.rgba(1, 1, 1, 0.45) : Qt.rgba(0, 0, 0, 0.40)
+                    font.family: "SF Pro Display"
+                    font.pixelSize: 11
+                }
+            }
+
+            MouseArea {
+                anchors.fill: parent
+                enabled: win.currencyResult !== ""
+                cursorShape: Qt.PointingHandCursor
+                onClicked: win.activateSelected()
+            }
+        }
+
         // ── Google search fallback row ───────────────────────────────────
         Rectangle {
             visible: win.showGoogleFallback
@@ -319,7 +502,7 @@ PanelWindow {
             anchors.leftMargin: 8
             anchors.rightMargin: 8
             anchors.top: inputRow.bottom
-            anchors.topMargin: 10
+            anchors.topMargin: 10 + win.bodyTopPad
             height: win.rowH - 4
             radius: 12
             color: googleHover.hovered
@@ -397,7 +580,7 @@ PanelWindow {
             anchors.bottom: parent.bottom
             anchors.leftMargin: 8
             anchors.rightMargin: 8
-            anchors.topMargin: 8
+            anchors.topMargin: 8 + win.bodyTopPad
             anchors.bottomMargin: 8
             interactive: false
             currentIndex: win.selectedIndex

@@ -7,6 +7,11 @@ Rectangle {
     required property Notification notification
     property bool inControlCenter: false
 
+    // Invoked by the × button. When null, dismisses just this notification.
+    // The grouped stack overrides it so a collapsed group's × clears every
+    // notification from that app at once.
+    property var closeAction: null
+
     readonly property bool dark: ThemeService.isDark
     readonly property bool hasImage: notification.image && notification.image !== ""
 
@@ -79,7 +84,7 @@ Rectangle {
             anchors.margins: -2
             hoverEnabled: true
             cursorShape: Qt.PointingHandCursor
-            onClicked: card.notification.dismiss()
+            onClicked: card.closeAction ? card.closeAction() : card.notification.dismiss()
         }
     }
 

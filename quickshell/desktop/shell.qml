@@ -1,5 +1,7 @@
 //@ pragma UseQApplication
-//@ pragma IconTheme Papirus
+// No `pragma IconTheme` on purpose: let Qt follow the system icon theme
+// (gsettings/XDG, surfaced via QT_QPA_PLATFORMTHEME=gtk3). Hardcoding a theme
+// here breaks every icon whenever that theme isn't installed.
 // Unified shell — combines bar / dock / osd / nc / spotlight / launchpad /
 // switcher into a single qs process so the Qt + QML + OpenGL runtime is
 // loaded once instead of six times. Memory drop: ~1.4GB → ~300–400MB.

@@ -24,7 +24,7 @@ PanelWindow {
         let lc = cls.toLowerCase()
         if (lc === "explorer.exe") return "ableton"
         if (lc === "kakaotalk.exe") return "KakaoTalk"
-        if (lc === "code") return "vscode"
+        if (lc === "code") return "visual-studio-code"
         // Spotify reports class "Spotify" but its theme icon is "spotify-client".
         if (lc === "spotify") return "spotify-client"
         // Strip Qt instance suffix (transmission etc.).

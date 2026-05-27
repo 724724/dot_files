@@ -18,6 +18,15 @@ local function maybe_number(s)
     return tonumber(s) or s
 end
 
+-- nwg-displays writes the full spec as `NAME,RES,POS,SCALE[,key,val...]` but
+-- emits some keywords (notably transform) on their own continuation line as
+-- `NAME,key,val`. Tell them apart by whether the second field is a resolution.
+local function looks_like_mode(s)
+    if not s then return false end
+    if s:match("%d+x%d+") then return true end     -- e.g. 3840x2160@60.0
+    return s == "preferred" or s == "highres" or s == "highrr"
+end
+
 local function parse_monitor(value)
     local parts = split(value, ",")
     if not parts[1] then return nil end
@@ -28,11 +37,18 @@ local function parse_monitor(value)
         return spec
     end
 
-    if parts[2] then spec.mode     = parts[2] end
-    if parts[3] then spec.position = parts[3] end
-    if parts[4] then spec.scale    = maybe_number(parts[4]) end
+    local i
+    if looks_like_mode(parts[2]) then
+        if parts[2] then spec.mode     = parts[2] end
+        if parts[3] then spec.position = parts[3] end
+        if parts[4] then spec.scale    = maybe_number(parts[4]) end
+        i = 5
+    else
+        -- Continuation line (e.g. `DP-2,transform,1`): keyword/value pairs only,
+        -- not a full mode/position/scale spec.
+        i = 2
+    end
 
-    local i = 5
     while parts[i] and parts[i + 1] do
         spec[parts[i]] = maybe_number(parts[i + 1])
         i = i + 2
@@ -62,10 +78,17 @@ local monitor_order = {}
 local workspace_rules = {}
 
 local function add_monitor(spec)
-    if not monitor_specs[spec.output] then
-        table.insert(monitor_order, spec.output)
+    local existing = monitor_specs[spec.output]
+    -- A keyword continuation line (transform, bitdepth, …) carries no mode and
+    -- isn't a disable — merge it into the output's existing spec instead of
+    -- clobbering its mode/position/scale. Full specs (and disable) replace, so
+    -- later files (monitors.override.conf via lid.sh) still win per output.
+    if existing and not (spec.mode or spec.disabled) then
+        for k, v in pairs(spec) do existing[k] = v end
+    else
+        if not existing then table.insert(monitor_order, spec.output) end
+        monitor_specs[spec.output] = spec
     end
-    monitor_specs[spec.output] = spec
 end
 
 local function load(path)

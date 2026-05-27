@@ -142,6 +142,17 @@ Singleton {
         _persistReceivedAt()
     }
 
+    // Dismiss every notification from one app — used by the × on a collapsed
+    // group, which represents the whole stack. Snapshot via filter() first:
+    // dismiss() mutates the live model, and holding our own references lets us
+    // iterate safely while it shrinks underneath us.
+    function dismissGroup(appName) {
+        let key = appName || "?"
+        let targets = notifications.filter(n => (n.appName || "?") === key)
+        for (let i = 0; i < targets.length; i++)
+            targets[i].dismiss()
+    }
+
     NotificationServer {
         id: server
         keepOnReload: true
@@ -166,6 +177,13 @@ Singleton {
                 copy[n.id] = Date.now()
                 root.receivedAt = copy
                 root._persistReceivedAt()
+            } else {
+                // Kept notification re-emitted on reload — it already had its
+                // moment on screen. popupSeen lives only in memory and resets on
+                // reload, so without this every stored notification looks brand
+                // new and replays its popup one by one. Mark it seen up front so
+                // only genuine "now" arrivals pop.
+                root.markPopupSeen(n.id)
             }
             root._revision++
         }

@@ -17,13 +17,23 @@ Item {
     // icons aside in the Row instead of overlapping them. +16 keeps the icon's
     // 8px side padding constant at any zoom (42 + 16 = 58 when idle).
     readonly property real hoverScale: 1.75
-    implicitWidth: 42 * (hover.hovered ? hoverScale : 1) + 16
+    implicitWidth: 42 * (magnified ? hoverScale : 1) + 16
     implicitHeight: 66
     Behavior on implicitWidth { NumberAnimation { duration: 130; easing.type: Easing.OutQuad } }
 
     readonly property bool isRunning: DockService.runningClasses.indexOf(wmClass.toLowerCase()) >= 0
     readonly property bool isFocused: DockService.focusedClass === wmClass.toLowerCase()
     readonly property var windows: DockService.clientsByClass[wmClass.toLowerCase()] || []
+
+    // While the window-picker preview is open, the clicked app's icon stays
+    // magnified so the popup floats above a zoomed icon instead of the icon
+    // collapsing the instant the pointer leaves it for the popup. Other icons
+    // don't magnify (and no tooltips show) while a preview is open, so only the
+    // selected app is highlighted — everything returns to normal on close.
+    readonly property bool anyPreviewOpen: dockWin ? dockWin.previewOpen : false
+    readonly property bool previewActive: anyPreviewOpen
+        && dockWin.previewWmClass.toLowerCase() === wmClass.toLowerCase()
+    readonly property bool magnified: previewActive || (hover.hovered && !anyPreviewOpen)
 
     // Bounce animation (launch feedback)
     property real bounceY: 0
@@ -53,8 +63,8 @@ Item {
                 // so the icon lifts out of the dock on hover instead of bloating
                 // in place. The running dot below is anchored separately and stays.
                 origin.x: iconImg.width / 2; origin.y: iconImg.height
-                xScale: hover.hovered ? item.hoverScale : 1.0
-                yScale: hover.hovered ? item.hoverScale : 1.0
+                xScale: item.magnified ? item.hoverScale : 1.0
+                yScale: item.magnified ? item.hoverScale : 1.0
                 Behavior on xScale { NumberAnimation { duration: 130; easing.type: Easing.OutQuad } }
                 Behavior on yScale { NumberAnimation { duration: 130; easing.type: Easing.OutQuad } }
             }
@@ -69,7 +79,7 @@ Item {
         id: tooltip
         z: 200
         visible: opacity > 0
-        opacity: hover.hovered ? 1 : 0
+        opacity: (hover.hovered && !item.anyPreviewOpen) ? 1 : 0
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.bottom: parent.top
         anchors.bottomMargin: 24

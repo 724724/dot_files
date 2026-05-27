@@ -75,18 +75,21 @@ PanelWindow {
     readonly property int cardSpacing: 8
     readonly property int previewPadding: 12
 
+    // The clicked icon magnifies ~18px above the dock card's top edge while its
+    // preview is open (see DockItem: hoverScale 1.75, 42px icon growing upward).
+    // Lift the popup — and add matching headroom to the panel — so it sits just
+    // above the enlarged icon, the tail meeting its top rather than overlapping.
+    readonly property int previewIconLift: 20
+
     // Panel grows upward when preview is open: popup + gap + pointer + dock card area
     implicitHeight: previewOpen
-        ? (previewRows * cardH + (previewRows - 1) * cardSpacing + previewPadding * 2 + 100)
+        ? (previewRows * cardH + (previewRows - 1) * cardSpacing + previewPadding * 2 + 100 + previewIconLift)
         : 128
 
-    // Smooth the layer-surface resize. Without this, Hyprland's no_anim
-    // rule made the preview pop in by snapping the surface from 80 → 250+
-    // in a single frame; the inner scale/fade looked broken because there
-    // was no time to perceive it.
-    Behavior on implicitHeight {
-        NumberAnimation { duration: 180; easing.type: Easing.OutCubic }
-    }
+    // No height animation: the preview opens/closes instantly (the qs-dock
+    // layer has no_anim in Hyprland). Animating the surface grow here, combined
+    // with the popup's own fade/scale, read as an unwanted bounce of the whole
+    // dock — so the panel just snaps to size and the popup appears in place.
     implicitWidth: previewOpen
         ? Math.max(dockCard.implicitWidth,
                    previewCols * cardW + (previewCols - 1) * cardSpacing + previewPadding * 2 + 24)
@@ -150,22 +153,38 @@ PanelWindow {
     //    (transmission, etc.) — strip the suffix so the icon theme finds it
     function _remapClass(cls) {
         let lc = cls.toLowerCase()
-        if (lc === "explorer.exe") return { name: "Ableton", iconName: "ableton" }
-        if (lc === "kakaotalk.exe") return { name: "KakaoTalk", iconName: "KakaoTalk" }
-        if (lc === "code") return { name: "VS Code", iconName: "vscode" }
+        // Wine apps report a generic class with no matching desktop entry, so
+        // map them by hand and skip the heuristic icon lookup (exact: true).
+        if (lc === "explorer.exe") return { name: "Ableton", iconName: "ableton", base: cls, exact: true }
+        if (lc === "kakaotalk.exe") return { name: "KakaoTalk", iconName: "KakaoTalk", base: cls, exact: true }
         let m = cls.match(/^(.+?)_\d+_\d+$/)
         let base = m ? m[1] : cls
         let baseLc = base.toLowerCase()
+        if (baseLc === "code") return { name: "VS Code", iconName: "visual-studio-code", base: base, exact: false }
         if (baseLc === "com.transmissionbt.transmission")
-            return { name: "Transmission", iconName: "transmission" }
-        return { name: base, iconName: base }
+            return { name: "Transmission", iconName: "transmission", base: base, exact: false }
+        return { name: base, iconName: base, base: base, exact: false }
+    }
+
+    // Resolve a window class to a real icon-theme name. The dock only knows the
+    // Hyprland window class, which often differs from the icon the .desktop
+    // entry declares (e.g. class "code" → icon "visual-studio-code", not
+    // "vscode"). heuristicLookup matches the class against desktop entries — the
+    // same source the launchpad/spotlight icons come from — so the dock picks up
+    // whatever icon those use. Falls back to the hand-mapped guess.
+    function _iconForClass(m) {
+        if (!m.exact) {
+            let de = DesktopEntries.heuristicLookup(m.base)
+            if (de && de.icon) return de.icon
+        }
+        return m.iconName
     }
 
     readonly property var extraApps: DockService.runningClasses
         .filter(cls => !pinnedClasses.includes(cls))
         .map(cls => {
             let m = _remapClass(cls)
-            return { name: m.name, wmClass: cls, iconName: m.iconName, execCmd: [] }
+            return { name: m.name, wmClass: cls, iconName: _iconForClass(m), execCmd: [] }
         })
 
     // ── Dock card ──────────────────────────────────────────────────────────
@@ -244,7 +263,7 @@ PanelWindow {
             let maxX = win.width - width - 8
             return Math.max(8, Math.min(maxX, target))
         }
-        y: dockCard.y - height - 12
+        y: dockCard.y - height - 12 - previewIconLift
 
         width: cardGrid.implicitWidth + win.previewPadding * 2
         height: cardGrid.implicitHeight + win.previewPadding * 2
@@ -254,12 +273,8 @@ PanelWindow {
         border.color: dark ? Qt.rgba(1,1,1,0.13) : Qt.rgba(0,0,0,0.11)
         border.width: 1
 
-        // Smooth fade/scale entrance — visibly grows from the dock card
-        opacity: win.previewOpen ? 1.0 : 0.0
-        scale: win.previewOpen ? 1.0 : 0.88
-        transformOrigin: Item.Bottom
-        Behavior on opacity { NumberAnimation { duration: 140; easing.type: Easing.OutQuad } }
-        Behavior on scale   { NumberAnimation { duration: 170; easing.type: Easing.OutCubic } }
+        // No fade/scale: the popup just appears/disappears with `visible` so
+        // opening and closing carry no animation (no bounce, no grow-in).
 
         // Tail pointer — tracks the icon center even when popup is clamped
         Canvas {
@@ -341,7 +356,12 @@ PanelWindow {
 
                         Item {
                             anchors.verticalCenter: parent.verticalCenter
-                            width: parent.width - 44 - 10
+                            // Pin to the card width (not the enclosing Row, whose
+                            // anchors.fill width feeds back into this binding and
+                            // leaves the width unstable) so the title has a hard
+                            // bound to wrap/elide against: card − margins − icon −
+                            // spacing = 200 − 24 − 44 − 10.
+                            width: card.width - 24 - 44 - 10
                             height: appName.implicitHeight + winTitle.implicitHeight + 4
 
                             Text {
@@ -369,7 +389,11 @@ PanelWindow {
                                 font.pixelSize: 11
                                 elide: Text.ElideRight
                                 maximumLineCount: 2
-                                wrapMode: Text.WordWrap
+                                // Wrap at word boundaries but also mid-word when
+                                // needed — long unbroken titles (e.g. a hashed
+                                // filename) otherwise overflow the card instead
+                                // of wrapping/eliding.
+                                wrapMode: Text.Wrap
                             }
                         }
                     }
