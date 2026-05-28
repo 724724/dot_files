@@ -20,6 +20,12 @@ Item {
     property string pendingLabel: ""
     property var runningApps: []
 
+    // Held while we query running apps, before deciding whether to confirm.
+    // Keeping pendingAction empty until we know apps are open means the overlay
+    // never flashes for the no-apps case.
+    property string candidateAction: ""
+    property string candidateLabel: ""
+
     // Countdown state — 60 s default, auto-confirms on expiry.
     readonly property int countdownTotal: 60
     property int countdownLeft: 0
@@ -63,10 +69,18 @@ Item {
             onStreamFinished: {
                 let apps = text.trim().split("\n").filter(s => s.length > 0)
                 if (apps.length === 0) {
-                    // Nothing running → execute immediately
-                    root.executePending()
+                    // Nothing running → run now, without ever showing the overlay
+                    root._runDetached(root.candidateAction)
+                    root.candidateAction = ""
+                    root.candidateLabel = ""
+                    root.closeRequested()
                 } else {
+                    // Apps still open → promote to pending and show the overlay
                     root.runningApps = apps
+                    root.pendingAction = root.candidateAction
+                    root.pendingLabel = root.candidateLabel
+                    root.candidateAction = ""
+                    root.candidateLabel = ""
                     root.countdownLeft = root.countdownTotal
                     confirmTick.start()
                 }
@@ -95,8 +109,10 @@ Item {
             root.closeRequested()
             return
         }
-        root.pendingAction = actionId
-        root.pendingLabel = label
+        // Defer the decision until we know what's running; leave pendingAction
+        // empty so the confirm overlay stays hidden for the no-apps case.
+        root.candidateAction = actionId
+        root.candidateLabel = label
         root.runningApps = []
         appsProc.running = true
     }
@@ -209,7 +225,7 @@ Item {
             // Header (back to power list)
             CCDetailHeader {
                 width: parent.width
-                title: root.pendingLabel + "?"
+                title: root.pendingLabel
                 onBack: root.cancelPending()
             }
 
@@ -306,7 +322,12 @@ Item {
                             (root.countdownLeft / Math.max(1, root.countdownTotal))
                         radius: parent.radius
                         color: "#FF9F0A"
-                        Behavior on width { NumberAnimation { duration: 950; easing.type: Easing.Linear } }
+                        // Skip the initial 0→full jump; only animate the
+                        // per-second countdown shrink.
+                        Behavior on width {
+                            enabled: root.countdownLeft < root.countdownTotal
+                            NumberAnimation { duration: 950; easing.type: Easing.Linear }
+                        }
                     }
                 }
             }

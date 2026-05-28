@@ -224,11 +224,19 @@ Item {
             width: parent.width
             radius: 12
             color: dark ? Qt.rgba(1,1,1,0.05) : Qt.rgba(0,0,0,0.04)
-            height: appsCol.implicitHeight + 12
 
-            // Top 6 apps; bars are relative to the heaviest user.
-            readonly property var topApps: ScreenTimeService.ranked.slice(0, 6)
-            readonly property int maxSecs: ScreenTimeService.ranked.length > 0
+            readonly property int rowH: 52
+            readonly property int maxVisibleRows: 6
+            readonly property int appCount: ScreenTimeService.ranked.length
+
+            // Cap the card at 6 rows; past that the list scrolls internally so
+            // the control-center window height stays fixed.
+            height: (appCount === 0
+                ? emptyLabel.implicitHeight
+                : Math.min(appCount, maxVisibleRows) * rowH) + 12
+
+            // Bars are relative to the heaviest user (ranked[0]).
+            readonly property int maxSecs: appCount > 0
                 ? ScreenTimeService.ranked[0].seconds : 1
 
             // Snug width for the time column, measured from the widest label
@@ -241,40 +249,49 @@ Item {
                 font.family: "SF Pro Display"
                 font.pixelSize: 12
                 font.weight: Font.DemiBold
-                text: appsCard.topApps.length > 0
-                    ? ScreenTimeService.fmt(appsCard.topApps[0].seconds)
+                text: appsCard.appCount > 0
+                    ? ScreenTimeService.fmt(ScreenTimeService.ranked[0].seconds)
                     : "00m"
             }
             readonly property int timeColW: Math.ceil(timeMetrics.advanceWidth) + 2
 
-            Column {
-                id: appsCol
+            Text {
+                id: emptyLabel
+                visible: appsCard.appCount === 0
                 anchors {
                     top: parent.top; left: parent.left; right: parent.right
                     leftMargin: 12; rightMargin: 12; topMargin: 6
                 }
-                // Rows carry their own internal padding and a hairline divider at
-                // each row's bottom edge, so the column itself adds no spacing.
-                spacing: 0
+                horizontalAlignment: Text.AlignHCenter
+                topPadding: 10; bottomPadding: 10
+                text: "No usage tracked yet — collecting…"
+                color: dark ? Qt.rgba(1,1,1,0.45) : Qt.rgba(0,0,0,0.45)
+                font.family: "SF Pro Display"
+                font.pixelSize: 11
+            }
 
-                Text {
-                    visible: ScreenTimeService.ranked.length === 0
-                    width: parent.width
-                    horizontalAlignment: Text.AlignHCenter
-                    topPadding: 10; bottomPadding: 10
-                    text: "No usage tracked yet — collecting…"
-                    color: dark ? Qt.rgba(1,1,1,0.45) : Qt.rgba(0,0,0,0.45)
-                    font.family: "SF Pro Display"
-                    font.pixelSize: 11
+            ListView {
+                id: appsList
+                visible: appsCard.appCount > 0
+                anchors {
+                    top: parent.top; left: parent.left; right: parent.right
+                    leftMargin: 12; rightMargin: 12; topMargin: 6
                 }
+                // Viewport caps at 6 rows; the rest scrolls.
+                height: Math.min(count, appsCard.maxVisibleRows) * appsCard.rowH
+                clip: true
+                model: ScreenTimeService.ranked
+                spacing: 0
+                // Only grab scroll/flick gestures when there's overflow.
+                interactive: count > appsCard.maxVisibleRows
+                boundsBehavior: Flickable.StopAtBounds
+                flickableDirection: Flickable.VerticalFlick
 
-                Repeater {
-                    model: appsCard.topApps
-                    delegate: Item {
+                delegate: Item {
                         required property var modelData
                         required property int index
-                        width: appsCol.width
-                        height: 52
+                        width: appsList.width
+                        height: appsCard.rowH
 
                         // Icon on the left, vertically centered over both lines.
                         Image {
@@ -345,13 +362,12 @@ Item {
 
                         // Hairline divider between rows (skipped after the last).
                         Rectangle {
-                            visible: index < appsCard.topApps.length - 1
+                            visible: index < appsList.count - 1
                             anchors { left: parent.left; right: parent.right; bottom: parent.bottom }
                             height: 1
                             color: dark ? Qt.rgba(1,1,1,0.07) : Qt.rgba(0,0,0,0.06)
                         }
                     }
-                }
             }
         }
     }

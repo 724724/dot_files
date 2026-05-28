@@ -1,6 +1,5 @@
 -- Replay nwg-displays output (hyprlang format) through the Lua API.
--- Reads monitors.conf, then monitors.override.conf (used by scripts/lid.sh)
--- so later specs win per output.
+-- Reads monitors.conf then workspaces.conf, so later specs win per output.
 
 local function trim(s)
     return (s:match("^%s*(.-)%s*$"))
@@ -82,7 +81,7 @@ local function add_monitor(spec)
     -- A keyword continuation line (transform, bitdepth, …) carries no mode and
     -- isn't a disable — merge it into the output's existing spec instead of
     -- clobbering its mode/position/scale. Full specs (and disable) replace, so
-    -- later files (monitors.override.conf via lid.sh) still win per output.
+    -- later files still win per output.
     if existing and not (spec.mode or spec.disabled) then
         for k, v in pairs(spec) do existing[k] = v end
     else
@@ -113,7 +112,6 @@ end
 local home = os.getenv("HOME") or ""
 load(home .. "/.config/hypr/monitors.conf")
 load(home .. "/.config/hypr/workspaces.conf")
-load(home .. "/.config/hypr/monitors.override.conf")
 
 for _, name in ipairs(monitor_order) do
     hl.monitor(monitor_specs[name])
