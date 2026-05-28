@@ -148,7 +148,9 @@ PanelWindow {
             transformOrigin: Item.TopLeft
             opacity: win.shown ? 1 : 0
             scale:   win.shown ? 1 : 0.97
-            y:       win.shown ? 48 : 40
+            // Rest at BarState.contentTop (gap centralized there); pre-open sits
+            // 8px higher for the drop. Tracks the bar, rising when it's hidden.
+            y:       win.shown ? BarState.contentTop : (BarState.contentTop - 8)
             Behavior on opacity { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
             Behavior on scale   { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
             Behavior on y       { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }

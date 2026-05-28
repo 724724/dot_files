@@ -5,14 +5,13 @@ import QtQuick.Layouts
 
 Scope {
     id: barScope
-    property bool barVisible: true
 
     IpcHandler {
         target: "bar"
-        function toggle() { barScope.barVisible = !barScope.barVisible }
-        function show() { barScope.barVisible = true }
+        function toggle() { BarState.visible = !BarState.visible }
+        function show() { BarState.visible = true }
         function reload() {
-            barScope.barVisible = false
+            BarState.visible = false
             reloadTimer.start()
         }
     }
@@ -21,7 +20,7 @@ Scope {
         id: reloadTimer
         interval: 150
         repeat: false
-        onTriggered: barScope.barVisible = true
+        onTriggered: BarState.visible = true
     }
 
     Variants {
@@ -32,7 +31,7 @@ Scope {
             required property var modelData
             screen: modelData
 
-            visible: barScope.barVisible
+            visible: BarState.visible
             anchors { top: true; left: true; right: true }
             margins { top: 10; left: 10; right: 10 }
             implicitHeight: 33

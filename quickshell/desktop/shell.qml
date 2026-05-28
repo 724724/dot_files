@@ -46,9 +46,9 @@ Scope {
     //    NcServer singleton owns IpcHandler "nc") ─────────────────────────
     Variants {
         model: Quickshell.screens
-        NotificationPopupWindow {}
+        NotificationPopupWindow { barContentTop: BarState.contentTop }
     }
-    ControlCenterWindow {}
+    ControlCenterWindow { barContentTop: BarState.contentTop }
 
     // ── Overlays (each Controller wraps its own IpcHandler + state) ─────
     SpotlightController {}

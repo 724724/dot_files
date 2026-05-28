@@ -197,7 +197,8 @@ Item {
     Item {
         id: confirmOverlay
         anchors { top: parent.top; left: parent.left; right: parent.right }
-        height: confirmCol.implicitHeight + 16
+        // No extra padding: the card already adds a 14px margin, matching the top.
+        height: confirmCol.implicitHeight
         visible: root.pendingAction !== ""
 
         Column {

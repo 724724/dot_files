@@ -39,6 +39,9 @@ PillContainer {
             font.family: "SF Pro Display"
             font.pixelSize: 11
             font.weight: Font.DemiBold
+            // Tabular (fixed-width) figures so ticking digits keep a constant
+            // width — otherwise the proportional glyphs resize the pill each second.
+            font.features: { "tnum": 1 }
         }
     }
 }

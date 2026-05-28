@@ -22,6 +22,13 @@ PanelWindow {
     // Bottom buffer so the dock doesn't fight with the panel surface.
     readonly property int bottomGap: 60
 
+    // Set from shell.qml = BarState.contentTop (gap centralized there). The
+    // panel rises with the bar when hidden; height grows to keep the bottom edge
+    // fixed. Animated so the toggle slides rather than jumps.
+    property int barContentTop: 53
+    property real topInset: barContentTop
+    Behavior on topInset { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
+
     readonly property int cardHeight: {
         if (win.detail !== "") {
             let d = win.detail, h = 600
@@ -30,12 +37,11 @@ PanelWindow {
             else if (d === "appearance" && detailAppearance.item) h = detailAppearance.item.implicitHeight + 28
             else if (d === "battery"    && detailBattery.item)    h = detailBattery.item.implicitHeight + 28
             else if (d === "power"      && detailPower.item)      h = detailPower.item.implicitHeight + 28
-            return Math.max(180, Math.min(h, screenH - 50 - bottomGap))
+            return Math.max(180, Math.min(h, screenH - topInset - bottomGap))
         }
-        // Main view: extend down toward the bottom of the screen so the
-        // fixed CC header has plenty of room and notifications get a real
-        // scroll area underneath.
-        return Math.max(420, screenH - 50 - bottomGap)
+        // Main view: fit the Control Center widgets exactly. Notifications now
+        // live in their own transparent module below this card.
+        return Math.min(ccHeader.implicitHeight + 28, screenH - topInset - bottomGap)
     }
 
     color: "transparent"
@@ -59,10 +65,15 @@ PanelWindow {
     Component.onCompleted: void ScreenTimeService.day
 
     onVisibleChanged: {
-        if (!visible) detail = ""
-        // Grab keyboard focus so Esc is delivered (layer keyboardFocus is
-        // OnDemand and only acquires the keyboard when an item is focused).
-        else escScope.forceActiveFocus()
+        if (!visible) {
+            detail = ""
+            // Always reopen with every notification stack collapsed.
+            stackColumn.expandedGroups = ({})
+        } else {
+            // Grab keyboard focus so Esc is delivered (layer keyboardFocus is
+            // OnDemand and only acquires the keyboard when an item is focused).
+            escScope.forceActiveFocus()
+        }
     }
 
     // Connectivity pollers
@@ -149,7 +160,7 @@ PanelWindow {
         height: win.cardHeight
         anchors.top: parent.top
         anchors.right: parent.right
-        anchors.topMargin: 50
+        anchors.topMargin: win.topInset
         anchors.rightMargin: 10
         radius: 18
         color: dark ? Qt.rgba(28/255, 28/255, 32/255, 0.92)
@@ -228,10 +239,8 @@ PanelWindow {
         }
 
         // ── MAIN ──────────────────────────────────────────────────────────────
-        // The CC widgets stay pinned at the top and only the notification
-        // stacks below them scroll. Splitting into a separate fixed Column
-        // and a notification-only Flickable means dragging through 30 alerts
-        // never hides the toggles/sliders/media controls.
+        // Just the Control Center widgets now; the card sizes to fit them.
+        // Notifications live in the separate transparent module below.
         Item {
             id: mainArea
             anchors.fill: parent
@@ -379,50 +388,29 @@ PanelWindow {
                     contentPadding: 10
                     CCMediaPanel { anchors.fill: parent }
                 }
+            }
+        }
+        }
 
-                // ── NOTIFICATIONS HEADER ──────────────────────────────────────
-                Item { Layout.preferredHeight: 4; Layout.fillWidth: true }
-
-                RowLayout {
-                    Layout.fillWidth: true
-                    visible: NcServer.count > 0
-
-                    Text {
-                        text: "Notifications"
-                        color: dark ? Qt.rgba(1,1,1,0.55) : Qt.rgba(0,0,0,0.55)
-                        font.family: "SF Pro Display"
-                        font.pixelSize: 12
-                        font.weight: Font.DemiBold
-                    }
-
-                    Item { Layout.fillWidth: true }
-
-                    Text {
-                        text: "Clear All"
-                        color: dark ? "#60b8ff" : "#007AFF"
-                        font.family: "SF Pro Display"
-                        font.pixelSize: 11
-                        MouseArea {
-                            anchors.fill: parent
-                            cursorShape: Qt.PointingHandCursor
-                            onClicked: NcServer.dismissAll()
-                        }
-                    }
-                }
+        // ── NOTIFICATIONS — separate, transparent module below the Control
+        // Center so the cards float macOS-style instead of sitting on a panel.
+        Item {
+            id: notifModule
+            visible: NcServer.count > 0 && win.detail === ""
+            // Slightly narrower than the CC card, centered under it.
+            width: card.width - 12
+            anchors {
+                top: card.bottom
+                topMargin: 28
+                horizontalCenter: card.horizontalCenter
+                bottom: parent.bottom
+                bottomMargin: win.bottomGap
             }
 
-            // ── SCROLLABLE NOTIFICATIONS ─────────────────────────────────────
             Flickable {
                 id: scroll
-                anchors {
-                    top: ccHeader.bottom
-                    topMargin: 8
-                    left: parent.left
-                    right: parent.right
-                    bottom: parent.bottom
-                }
+                anchors.fill: parent
                 contentHeight: stackColumn.implicitHeight
-                    + (NcServer.count === 0 ? emptyState.height : 0)
                 clip: true
                 // interactive=true is required for Flickable to even *see*
                 // wheel events (its wheelEvent handler short-circuits when
@@ -465,22 +453,6 @@ PanelWindow {
                         color: dark ? "#ffffff" : "#000000"
                         opacity: vBar.pressed ? 0.45 : (vBar.active ? 0.30 : 0.15)
                         Behavior on opacity { NumberAnimation { duration: 150 } }
-                    }
-                }
-
-                // Empty state — centered at top of scroll area when no notifications.
-                Item {
-                    id: emptyState
-                    width: scroll.width
-                    height: 32
-                    visible: NcServer.count === 0
-
-                    Text {
-                        anchors.centerIn: parent
-                        text: "No Notifications"
-                        color: dark ? Qt.rgba(1,1,1,0.35) : Qt.rgba(0,0,0,0.35)
-                        font.family: "SF Pro Display"
-                        font.pixelSize: 12
                     }
                 }
 
@@ -650,9 +622,46 @@ PanelWindow {
                             }
                         }
                     }
+
+                    // ── CLEAR ALL — right-aligned pill at the end of the list ──
+                    Item {
+                        width: stackColumn.width
+                        height: 30
+
+                        Rectangle {
+                            anchors.right: parent.right
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: clearAllLabel.implicitWidth + 24
+                            height: 28
+                            radius: 14
+                            color: clearAllMa.containsMouse
+                                ? (dark ? Qt.rgba(1,1,1,0.16) : Qt.rgba(0,0,0,0.10))
+                                : (dark ? Qt.rgba(1,1,1,0.08) : Qt.rgba(0,0,0,0.05))
+                            border.color: dark ? Qt.rgba(1,1,1,0.10) : Qt.rgba(0,0,0,0.08)
+                            border.width: 1
+                            Behavior on color { ColorAnimation { duration: 120 } }
+
+                            Text {
+                                id: clearAllLabel
+                                anchors.centerIn: parent
+                                text: "Clear All"
+                                color: dark ? "#ff6b6b" : "#FF3B30"
+                                font.family: "SF Pro Display"
+                                font.pixelSize: 12
+                                font.weight: Font.DemiBold
+                            }
+
+                            MouseArea {
+                                id: clearAllMa
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: NcServer.dismissAll()
+                            }
+                        }
+                    }
                 }
             }
-        }
         }
     }
 }

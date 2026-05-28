@@ -13,6 +13,7 @@ hl.bind(mainMod .. " + E",            hl.dsp.exec_cmd(fileManager))
 hl.bind(mainMod .. " + SPACE",        hl.dsp.exec_cmd("qs ipc -c desktop call spotlight toggle"))
 hl.bind("ALT + SPACE",                hl.dsp.exec_cmd("qs ipc -c desktop call launchpad toggle"))
 hl.bind(mainMod .. " + B",            hl.dsp.exec_cmd("qs ipc -c desktop call bar toggle"))
+hl.bind(mainMod .. " + C",            hl.dsp.exec_cmd("qs ipc -c desktop call nc toggle"))
 --hl.bind(mainMod .. " + CTRL + SPACE", hl.dsp.exec_cmd("/usr/bin/smile"))
 
 -- ── System ──────────────────────────────────────────────────────────────

@@ -8,8 +8,12 @@ PanelWindow {
     required property var modelData
     screen: modelData
 
+    // Set from shell.qml = BarState.contentTop (gap centralized there), so
+    // toasts track the bar and rise with it when the bar is hidden.
+    property int barContentTop: 53
+
     anchors { top: true; right: true }
-    margins { top: 50; right: 10 }
+    margins { top: barContentTop; right: 10 }
     implicitWidth: 400
     implicitHeight: Math.max(popupCol.implicitHeight + 16, 1)
 

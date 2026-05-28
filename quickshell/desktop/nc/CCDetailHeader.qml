@@ -69,6 +69,43 @@ Item {
         }
         spacing: 8
 
+        // iOS-style "spokes" spinner shown to the LEFT of the action button
+        // while busy (12 fading bars), instead of rotating the button's icon.
+        Item {
+            id: spinner
+            visible: root.actionBusy
+            anchors.verticalCenter: parent.verticalCenter
+            width: 14; height: 14
+
+            Repeater {
+                model: 12
+                delegate: Rectangle {
+                    required property int index
+                    width: 2
+                    height: 4
+                    radius: 1
+                    color: root.dark ? "#f0f3f6" : "#1c1c1e"
+                    // Fading trail: one bar leads at full opacity, the rest fade.
+                    opacity: (index + 1) / 12
+                    x: spinner.width / 2 - width / 2
+                    y: 0
+                    transform: Rotation {
+                        origin.x: 1
+                        origin.y: spinner.height / 2
+                        angle: index * 30
+                    }
+                }
+            }
+
+            transformOrigin: Item.Center
+            RotationAnimation on rotation {
+                running: root.actionBusy
+                from: 0; to: 360
+                duration: 1000
+                loops: Animation.Infinite
+            }
+        }
+
         // Action button (refresh / scan)
         Rectangle {
             visible: root.actionIcon !== ""
@@ -85,15 +122,6 @@ Item {
                 color: dark ? "#f0f3f6" : "#1c1c1e"
                 font.family: "JetBrainsMono Nerd Font Propo"
                 font.pixelSize: 14
-
-                // Busy spin
-                RotationAnimation on rotation {
-                    running: root.actionBusy
-                    from: 0; to: 360
-                    duration: 900
-                    loops: Animation.Infinite
-                }
-                onRotationChanged: if (!root.actionBusy) rotation = 0
             }
 
             MouseArea {
