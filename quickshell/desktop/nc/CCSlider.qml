@@ -33,7 +33,9 @@ Item {
         }
         height: 28
         radius: 14
-        color: dark ? Qt.rgba(1,1,1,0.10) : Qt.rgba(0,0,0,0.08)
+        // Light mode: a clearer gray so the track doesn't disappear into the
+        // near-white panel behind it (iOS/macOS slider look).
+        color: dark ? Qt.rgba(1,1,1,0.10) : Qt.rgba(0,0,0,0.14)
 
         // Fill — grows from left edge based on value, but always at least
         // 28px wide so the icon thumb area stays solid even at value=0.
@@ -44,6 +46,10 @@ Item {
                   parent.width * (root.value - root.minimum) / (root.maximum - root.minimum))
             radius: parent.radius
             color: dark ? "#f4f5f7" : "#ffffff"
+            // Outline the fill in both modes so its level edge reads clearly
+            // against the track and the panel behind it.
+            border.width: 1
+            border.color: dark ? Qt.rgba(0,0,0,0.13) : Qt.rgba(0,0,0,0.07)
             Behavior on width { NumberAnimation { duration: 60 } }
         }
 

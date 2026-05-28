@@ -22,7 +22,3 @@ hl.on("hyprland.start", function()
     hl.exec_cmd("systemctl --user start hyprpolkitagent")
 
 end)
-
--- Runs on every config (re)load — this file is re-executed each reload,
--- which mirrors the old `exec` keyword.
---hl.exec_cmd("~/.config/hypr/scripts/lid.sh init")

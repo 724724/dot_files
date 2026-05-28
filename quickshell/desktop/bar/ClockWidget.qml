@@ -7,6 +7,20 @@ PillContainer {
     implicitHeight: 33
     implicitWidth: row.implicitWidth + 24
 
+    // Screen this pill lives on, so the popup opens on the right monitor.
+    property var screen: null
+
+    // Light the pill up while its clock/calendar popup is open.
+    active: ClockService.popupVisible
+
+    TapHandler {
+        acceptedButtons: Qt.LeftButton
+        onTapped: {
+            ClockService.targetScreen = root.screen
+            ClockService.popupVisible = !ClockService.popupVisible
+        }
+    }
+
     RowLayout {
         id: row
         anchors.centerIn: parent

@@ -23,7 +23,13 @@ PanelWindow {
         if (!cls) return ""
         let lc = cls.toLowerCase()
         if (lc === "explorer.exe") return "ableton"
-        if (lc === "kakaotalk.exe") return "KakaoTalk"
+        if (lc === "kakaotalk.exe") {
+            // Wine app: its themed icon is a hash name from the .desktop entry,
+            // so resolve it live; fall back to the known name if desktop
+            // entries aren't loaded yet.
+            let de = DesktopEntries.heuristicLookup("kakaotalk.exe")
+            return de && de.icon ? de.icon : "DDB7_KakaoTalk.0"
+        }
         if (lc === "code") return "visual-studio-code"
         // Spotify reports class "Spotify" but its theme icon is "spotify-client".
         if (lc === "spotify") return "spotify-client"

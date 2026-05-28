@@ -29,6 +29,9 @@ Scope {
 
     // ── Bar (self-contained Scope; owns IpcHandler target "bar") ────────
     Bar {}
+    // Clock/calendar popup that drops from the bar clock pill (ClockService
+    // singleton owns IpcHandler target "clock").
+    ClockPopupWindow {}
 
     // ── Dock ────────────────────────────────────────────────────────────
     DockWindow {}

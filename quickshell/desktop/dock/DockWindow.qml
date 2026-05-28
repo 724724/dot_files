@@ -137,10 +137,18 @@ PanelWindow {
 
     // ── Pinned apps ────────────────────────────────────────────────────────
 
+    // KakaoTalk runs under Wine; its themed icon is a hash name declared in the
+    // .desktop entry (Icon=), not "KakaoTalk". Resolve it live so a reinstall
+    // with a different hash keeps working, falling back to the current name.
+    readonly property string kakaoIcon: {
+        let de = DesktopEntries.heuristicLookup("kakaotalk.exe")
+        return de && de.icon ? de.icon : "DDB7_KakaoTalk.0"
+    }
+
     readonly property var pinnedApps: [
         { name: "Files",     wmClass: "org.gnome.Nautilus", iconName: "org.gnome.Nautilus", execCmd: ["gtk-launch", "org.gnome.Nautilus"] },
         { name: "Chrome",    wmClass: "google-chrome",      iconName: "google-chrome",      execCmd: ["gtk-launch", "google-chrome"] },
-        { name: "KakaoTalk", wmClass: "kakaotalk.exe",      iconName: "KakaoTalk",          execCmd: ["gtk-launch", "wine-Programs-KakaoTalk"] },
+        { name: "KakaoTalk", wmClass: "kakaotalk.exe",      iconName: win.kakaoIcon,        execCmd: ["gtk-launch", "wine-Programs-KakaoTalk"] },
         { name: "Spotify",   wmClass: "spotify",            iconName: "spotify-client",     execCmd: ["gtk-launch", "spotify"] }
     ]
 
@@ -156,7 +164,9 @@ PanelWindow {
         // Wine apps report a generic class with no matching desktop entry, so
         // map them by hand and skip the heuristic icon lookup (exact: true).
         if (lc === "explorer.exe") return { name: "Ableton", iconName: "ableton", base: cls, exact: true }
-        if (lc === "kakaotalk.exe") return { name: "KakaoTalk", iconName: "KakaoTalk", base: cls, exact: true }
+        // KakaoTalk resolves via heuristicLookup (exact: false); its .desktop
+        // entry carries the real hashed icon name. kakaoIcon is the fallback.
+        if (lc === "kakaotalk.exe") return { name: "KakaoTalk", iconName: win.kakaoIcon, base: cls, exact: false }
         let m = cls.match(/^(.+?)_\d+_\d+$/)
         let base = m ? m[1] : cls
         let baseLc = base.toLowerCase()
@@ -415,7 +425,10 @@ PanelWindow {
     Process {
         id: focusAddrProc
         property string addr: ""
-        command: ["hyprctl", "dispatch",
-                  'hl.dsp.focus({ window = "address:' + addr + '" })']
+        // Focus the window then raise it above other (floating) windows so it
+        // isn't left buried under whatever was stacked higher.
+        command: ["hyprctl", "eval",
+                  'hl.dispatch(hl.dsp.focus({ window = "address:' + addr + '" })); '
+                  + 'hl.dispatch(hl.dsp.window.bring_to_top({ window = "address:' + addr + '" }))']
     }
 }

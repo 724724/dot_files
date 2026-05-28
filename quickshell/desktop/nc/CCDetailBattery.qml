@@ -192,6 +192,10 @@ Item {
             }
         }
 
+        // Extra breathing room between the Battery Level graph and the
+        // usage-by-app section below.
+        Item { width: parent.width; height: 6 }
+
         // ── Usage by app (screen time) ───────────────────────────────────────
         Item {
             width: parent.width
@@ -220,17 +224,38 @@ Item {
             width: parent.width
             radius: 12
             color: dark ? Qt.rgba(1,1,1,0.05) : Qt.rgba(0,0,0,0.04)
-            height: appsCol.implicitHeight + 20
+            height: appsCol.implicitHeight + 12
 
             // Top 6 apps; bars are relative to the heaviest user.
             readonly property var topApps: ScreenTimeService.ranked.slice(0, 6)
             readonly property int maxSecs: ScreenTimeService.ranked.length > 0
                 ? ScreenTimeService.ranked[0].seconds : 1
 
+            // Snug width for the time column, measured from the widest label
+            // (the top app's — it has the longest duration). A snug, right-
+            // aligned column keeps the bar↔time gap small while letting the
+            // time sit flush to a right margin that matches the left, so the
+            // whole row is centered rather than hugging the left edge.
+            TextMetrics {
+                id: timeMetrics
+                font.family: "SF Pro Display"
+                font.pixelSize: 12
+                font.weight: Font.DemiBold
+                text: appsCard.topApps.length > 0
+                    ? ScreenTimeService.fmt(appsCard.topApps[0].seconds)
+                    : "00m"
+            }
+            readonly property int timeColW: Math.ceil(timeMetrics.advanceWidth) + 2
+
             Column {
                 id: appsCol
-                anchors { top: parent.top; left: parent.left; right: parent.right; margins: 10 }
-                spacing: 4
+                anchors {
+                    top: parent.top; left: parent.left; right: parent.right
+                    leftMargin: 12; rightMargin: 12; topMargin: 6
+                }
+                // Rows carry their own internal padding and a hairline divider at
+                // each row's bottom edge, so the column itself adds no spacing.
+                spacing: 0
 
                 Text {
                     visible: ScreenTimeService.ranked.length === 0
@@ -247,9 +272,11 @@ Item {
                     model: appsCard.topApps
                     delegate: Item {
                         required property var modelData
+                        required property int index
                         width: appsCol.width
-                        height: 46
+                        height: 52
 
+                        // Icon on the left, vertically centered over both lines.
                         Image {
                             id: appIcon
                             anchors { left: parent.left; verticalCenter: parent.verticalCenter }
@@ -262,9 +289,15 @@ Item {
                                 source = "image://icon/application-x-executable"
                         }
 
+                        // Time, right-aligned and flush to the right margin (which
+                        // matches the icon's left margin → the row reads centered).
+                        // Its column is sized snugly to the widest label so the
+                        // bar reaches close to it, and every row's bar matches.
                         Text {
                             id: timeLabel
                             anchors { right: parent.right; verticalCenter: parent.verticalCenter }
+                            width: appsCard.timeColW
+                            horizontalAlignment: Text.AlignRight
                             text: ScreenTimeService.fmt(modelData.seconds)
                             color: dark ? "#f5f6f8" : "#1c1c1e"
                             font.family: "SF Pro Display"
@@ -272,16 +305,23 @@ Item {
                             font.weight: Font.DemiBold
                         }
 
+                        // Middle column: name on top, usage bar below. The bar runs
+                        // from just right of the icon to just before the time, so
+                        // it's long and identical on every row.
                         Column {
                             anchors {
-                                left: appIcon.right; leftMargin: 10
+                                left: appIcon.right; leftMargin: 12
                                 right: timeLabel.left; rightMargin: 10
                                 verticalCenter: parent.verticalCenter
                             }
                             spacing: 6
 
+                            // Name and bar are 3px narrower than the column and
+                            // centered (1.5px each side) so they shrink evenly and
+                            // stay aligned with each other.
                             Text {
-                                width: parent.width
+                                width: parent.width - 3
+                                x: (parent.width - width) / 2
                                 text: ScreenTimeService.displayName(modelData.cls)
                                 elide: Text.ElideRight
                                 color: dark ? "#f5f6f8" : "#1c1c1e"
@@ -290,15 +330,25 @@ Item {
                                 font.weight: Font.Medium
                             }
                             Rectangle {
-                                width: parent.width; height: 4; radius: 2
+                                width: parent.width - 3
+                                x: (parent.width - width) / 2
+                                height: 5; radius: 2.5
                                 color: dark ? Qt.rgba(1,1,1,0.10) : Qt.rgba(0,0,0,0.08)
                                 Rectangle {
                                     height: parent.height; radius: parent.radius
                                     width: parent.width * modelData.seconds / Math.max(1, appsCard.maxSecs)
-                                    color: "#34C759"
+                                    color: dark ? "#0A84FF" : "#007AFF"
                                     Behavior on width { NumberAnimation { duration: 200 } }
                                 }
                             }
+                        }
+
+                        // Hairline divider between rows (skipped after the last).
+                        Rectangle {
+                            visible: index < appsCard.topApps.length - 1
+                            anchors { left: parent.left; right: parent.right; bottom: parent.bottom }
+                            height: 1
+                            color: dark ? Qt.rgba(1,1,1,0.07) : Qt.rgba(0,0,0,0.06)
                         }
                     }
                 }

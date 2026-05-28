@@ -158,6 +158,16 @@ PanelWindow {
         border.width: 1
         Behavior on color { ColorAnimation { duration: 200 } }
 
+        // Absorb clicks that land on the card but not on an interactive widget,
+        // so they don't fall through to the dismiss-on-outside MouseArea behind
+        // the card. Declared first → lowest in the card's stacking order, so the
+        // toggles, sliders, buttons and notification list still receive their
+        // clicks; only "empty" clicks reach here and get swallowed. The panel
+        // then closes only on Esc or a click truly outside the card.
+        MouseArea {
+            anchors.fill: parent
+        }
+
         // ── DETAIL ────────────────────────────────────────────────────────────
         Item {
             anchors.fill: parent

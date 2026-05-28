@@ -26,6 +26,9 @@ PillContainer {
     RowLayout {
         id: row
         anchors.centerIn: parent
+        // Nudge right 1px: the nerd-font glyph's ink sits slightly left of its
+        // advance box, so plain centering reads as shifted left.
+        anchors.horizontalCenterOffset: 1
 
         Text {
             text: "󰘔"

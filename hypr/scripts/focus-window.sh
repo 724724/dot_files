@@ -14,8 +14,8 @@ INFO=$(hyprctl clients -j 2>/dev/null \
     | jq -c --arg a "$ADDR" '.[] | select(.address==$a) | {at, size}')
 
 if [ -z "$INFO" ] || [ "$INFO" = "null" ]; then
-    # Window not found — fall back to a plain focus dispatch.
-    exec hyprctl dispatch "hl.dsp.focus({ window = \"address:$ADDR\" })"
+    # Window not found — fall back to focus + raise (no geometry for cursor).
+    exec hyprctl eval "hl.dispatch(hl.dsp.focus({ window = \"address:$ADDR\" })); hl.dispatch(hl.dsp.window.bring_to_top({ window = \"address:$ADDR\" }))"
 fi
 
 X=$(echo "$INFO" | jq -r '.at[0]')
@@ -26,6 +26,8 @@ H=$(echo "$INFO" | jq -r '.size[1]')
 CX=$((X + W / 2))
 CY=$((Y + H / 2))
 
-# Single eval so the focus + cursor move land on the same frame —
-# avoids any visible flicker or ordering races with `follow_mouse`.
-hyprctl eval "hl.dispatch(hl.dsp.focus({ window = \"address:$ADDR\" })); hl.dispatch(hl.dsp.cursor.move({ x = $CX, y = $CY }))" >/dev/null
+# Single eval so focus + raise + cursor move land on the same frame — avoids
+# flicker or ordering races with `follow_mouse`. bring_to_top raises the target
+# above other floating windows so the cursor (and clicks) land on it, not on a
+# window that was stacked higher.
+hyprctl eval "hl.dispatch(hl.dsp.focus({ window = \"address:$ADDR\" })); hl.dispatch(hl.dsp.window.bring_to_top({ window = \"address:$ADDR\" })); hl.dispatch(hl.dsp.cursor.move({ x = $CX, y = $CY }))" >/dev/null

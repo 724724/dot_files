@@ -133,10 +133,13 @@ Item {
 
     // Hyprland's new dispatcher API takes Lua, so the old
     // `dispatch focuswindow class:X` form errors with "')' expected near 'class'".
+    // Focus the window, then raise it to the top of the z-order — otherwise a
+    // focused floating window can stay buried under other floating windows.
     Process {
         id: focusProc
-        command: ["hyprctl", "dispatch",
-                  'hl.dsp.focus({ window = "class:' + item.wmClass + '" })']
+        command: ["hyprctl", "eval",
+                  'hl.dispatch(hl.dsp.focus({ window = "class:' + item.wmClass + '" })); '
+                  + 'hl.dispatch(hl.dsp.window.bring_to_top({}))']
     }
     Process { id: launchProc; command: item.execCmd.length > 0 ? item.execCmd : ["true"] }
 

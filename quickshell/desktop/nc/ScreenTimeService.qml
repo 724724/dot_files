@@ -45,6 +45,11 @@ Singleton {
         let lc = cls.toLowerCase()
         if (lc === "code")    return "visual-studio-code"
         if (lc === "spotify") return "spotify-client"
+        if (lc === "kakaotalk.exe") {
+            // Wine app: themed icon name (a hash) lives in its .desktop entry.
+            let de = DesktopEntries.heuristicLookup("kakaotalk.exe")
+            return de && de.icon ? de.icon : "DDB7_KakaoTalk.0"
+        }
         return cls
     }
 

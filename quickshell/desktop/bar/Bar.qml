@@ -64,7 +64,7 @@ Scope {
                 height: parent.height
                 spacing: 8
 
-                ClockWidget { id: clockW }
+                ClockWidget { id: clockW; screen: win.modelData }
                 WorkspacesWidget { id: workspacesW; screen: win.modelData }
 
                 Item { Layout.fillWidth: true }

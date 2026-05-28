@@ -29,7 +29,8 @@ Singleton {
         let base = _baseClass(cls)
         let lc = base.toLowerCase()
         if (lc === "explorer.exe") return "ableton"
-        if (lc === "kakaotalk.exe") return "KakaoTalk"
+        // KakaoTalk (Wine) resolves through heuristicLookup below — its themed
+        // icon is a hash name declared in the .desktop entry, not "KakaoTalk".
         if (lc === "code") return "visual-studio-code"
         if (lc === "com.transmissionbt.transmission") return "transmission"
         let de = DesktopEntries.heuristicLookup(base)
@@ -52,6 +53,10 @@ Singleton {
             let cls = obj.class || obj.initialClass || ""
             if (!cls && t.wayland) cls = t.wayland.appId || ""
             if (!cls) continue
+            // xembedsniproxy / xwaylandvideobridge are invisible X11 tray/video
+            // helpers, not real apps — keep them out of the workspace icon row.
+            let clsLc = cls.toLowerCase()
+            if (clsLc.startsWith("xembedsniproxy") || clsLc.startsWith("xwaylandvideobridge")) continue
             let key = String(wid)
             let dedup = key + "|" + _baseClass(cls).toLowerCase()
             if (seen[dedup]) continue
