@@ -1,5 +1,6 @@
 import Quickshell
 import Quickshell.Io
+import Quickshell.Wayland
 import QtQuick
 import QtQuick.Layouts
 
@@ -30,6 +31,11 @@ Scope {
             id: win
             required property var modelData
             screen: modelData
+
+            // Dedicated layer namespace (matched by the qs-bar layerrule in
+            // hypr windowrules) so the bar no longer rides the generic
+            // "quickshell" default.
+            WlrLayershell.namespace: "qs-bar"
 
             visible: BarState.visible
             anchors { top: true; left: true; right: true }

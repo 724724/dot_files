@@ -188,15 +188,10 @@ hl.window_rule({ match = { class = "^(wlfreerdp)$" }, opaque = true, xray = fals
 hl.layer_rule({ match = { namespace = "hyprpicker" }, no_anim = true })
 hl.layer_rule({ match = { namespace = "selection" },  no_anim = true })
 
--- Waybar & Notifications
-hl.layer_rule({ match = { namespace = "waybar" }, blur = true, ignore_alpha = 0.25 })
-hl.layer_rule({ match = { namespace = "swaync-control-center" }, animation = "slide top", blur = true, ignore_alpha = 0.5 })
-
--- Rofi
-hl.layer_rule({ match = { namespace = "rofi" }, blur = true, ignore_alpha = 0.5 })
-
--- Quickshell OSD Pop-up
-hl.layer_rule({ match = { namespace = "quickshell" }, animation = "slide top", blur = true, ignore_alpha = 0.5 })
+-- Quickshell bar (dedicated "qs-bar" namespace, set in bar/Bar.qml). ignore_alpha
+-- is below the pill background alpha (~0.25) so the translucent pills actually get
+-- blurred; the fully transparent gaps between pills stay unblurred (click-through).
+hl.layer_rule({ match = { namespace = "qs-bar" }, animation = "slide top", blur = true, ignore_alpha = 0.1 })
 
 -- Quickshell dock — dedicated namespace so its panel can resize (preview open/close)
 -- without retriggering the slide-top animation. Blur kept for the glass look.
@@ -217,6 +212,9 @@ hl.layer_rule({ match = { namespace = "qs-launchpad" }, no_anim = true, blur = t
 hl.layer_rule({ match = { namespace = "qs-switcher" }, no_anim = true, blur = true, ignore_alpha = 0.4 })
 
 hl.layer_rule({ match = { namespace = "qs-cc" }, blur = true, ignore_alpha = 0.5 })
+
+-- Clock + calendar popup that drops from the bar clock pill.
+hl.layer_rule({ match = { namespace = "qs-clock" }, blur = true, ignore_alpha = 0.5 })
 
 -- Notification popups (transient toasts at top-right when CC closed)
 hl.layer_rule({ match = { namespace = "qs-notif" }, blur = true, ignore_alpha = 0.5 })

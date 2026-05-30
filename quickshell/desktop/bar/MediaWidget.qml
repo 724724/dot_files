@@ -4,6 +4,7 @@ import Quickshell.Widgets
 
 PillContainer {
     id: root
+    clickable: true
 
     visible: MediaService.hasMedia
     implicitHeight: 33

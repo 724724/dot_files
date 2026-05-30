@@ -46,9 +46,10 @@ Singleton {
         if (lc === "code")    return "visual-studio-code"
         if (lc === "spotify") return "spotify-client"
         if (lc === "kakaotalk.exe") {
-            // Wine app: themed icon name (a hash) lives in its .desktop entry.
-            let de = DesktopEntries.heuristicLookup("kakaotalk.exe")
-            return de && de.icon ? de.icon : "DDB7_KakaoTalk.0"
+            // Wine's .desktop entry only declares its raw hash icon; prefer the
+            // themed "KakaoTalk" name (follows the active icon theme), falling
+            // back to the hash if the theme doesn't provide it.
+            return Quickshell.iconPath("KakaoTalk", true) !== "" ? "KakaoTalk" : "DDB7_KakaoTalk.0"
         }
         return cls
     }

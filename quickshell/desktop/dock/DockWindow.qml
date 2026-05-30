@@ -137,13 +137,12 @@ PanelWindow {
 
     // ── Pinned apps ────────────────────────────────────────────────────────
 
-    // KakaoTalk runs under Wine; its themed icon is a hash name declared in the
-    // .desktop entry (Icon=), not "KakaoTalk". Resolve it live so a reinstall
-    // with a different hash keeps working, falling back to the current name.
-    readonly property string kakaoIcon: {
-        let de = DesktopEntries.heuristicLookup("kakaotalk.exe")
-        return de && de.icon ? de.icon : "DDB7_KakaoTalk.0"
-    }
+    // KakaoTalk runs under Wine, whose .desktop entry only declares its raw
+    // hash icon (DDB7_KakaoTalk.0) — themes ship a clean "KakaoTalk" instead.
+    // Prefer the themed name (follows the active icon theme); fall back to the
+    // always-present Wine hash if the theme doesn't provide it.
+    readonly property string kakaoIcon:
+        Quickshell.iconPath("KakaoTalk", true) !== "" ? "KakaoTalk" : "DDB7_KakaoTalk.0"
 
     readonly property var pinnedApps: [
         { name: "Files",     wmClass: "org.gnome.Nautilus", iconName: "org.gnome.Nautilus", execCmd: ["gtk-launch", "org.gnome.Nautilus"] },
@@ -164,9 +163,9 @@ PanelWindow {
         // Wine apps report a generic class with no matching desktop entry, so
         // map them by hand and skip the heuristic icon lookup (exact: true).
         if (lc === "explorer.exe") return { name: "Ableton", iconName: "ableton", base: cls, exact: true }
-        // KakaoTalk resolves via heuristicLookup (exact: false); its .desktop
-        // entry carries the real hashed icon name. kakaoIcon is the fallback.
-        if (lc === "kakaotalk.exe") return { name: "KakaoTalk", iconName: win.kakaoIcon, base: cls, exact: false }
+        // KakaoTalk's .desktop icon is Wine's raw hash; use the themed kakaoIcon
+        // directly (exact: true) rather than re-resolving to that hash.
+        if (lc === "kakaotalk.exe") return { name: "KakaoTalk", iconName: win.kakaoIcon, base: cls, exact: true }
         let m = cls.match(/^(.+?)_\d+_\d+$/)
         let base = m ? m[1] : cls
         let baseLc = base.toLowerCase()

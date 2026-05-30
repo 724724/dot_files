@@ -48,6 +48,15 @@ PanelWindow {
     color: "transparent"
     exclusionMode: ExclusionMode.Ignore
 
+    // KakaoTalk's .desktop carries Wine's raw hash icon (DDB7_KakaoTalk.0);
+    // prefer the themed "KakaoTalk" name when the active icon theme provides it.
+    function _iconNameFor(app) {
+        if (!app || !app.icon) return "application-x-executable"
+        if (app.icon === "DDB7_KakaoTalk.0" && Quickshell.iconPath("KakaoTalk", true) !== "")
+            return "KakaoTalk"
+        return app.icon
+    }
+
     // ── App data ────────────────────────────────────────────────────────
     readonly property string query: queryField.text
     readonly property var filteredApps: {
@@ -348,9 +357,7 @@ PanelWindow {
                                             height: 56
                                             sourceSize.width: 56
                                             sourceSize.height: 56
-                                            source: cell.app && cell.app.icon
-                                                ? "image://icon/" + cell.app.icon
-                                                : "image://icon/application-x-executable"
+                                            source: "image://icon/" + win._iconNameFor(cell.app)
                                             smooth: true
                                             mipmap: true
                                             fillMode: Image.PreserveAspectFit

@@ -2,6 +2,10 @@ import Quickshell.Services.UPower
 import QtQuick
 import QtQuick.Layouts
 
+// Power profile lives in nc/'s BatteryService singleton; reuse it (qualified to
+// avoid colliding with bar/'s own ThemeService when the dir is imported).
+import "../nc" as Nc
+
 PillContainer {
     id: root
     implicitHeight: 33
@@ -15,6 +19,8 @@ PillContainer {
         device.state === UPowerDeviceState.PendingCharge)
     readonly property bool warning: !charging && pct <= 30 && pct > 15
     readonly property bool critical: !charging && pct <= 15
+    // Low-power profile → iOS/macOS-style yellow battery glyph.
+    readonly property bool powerSaver: Nc.BatteryService.mode === "power-saver"
 
     color: hovered
         ? Qt.rgba(40/255, 50/255, 60/255, 0.4)
@@ -56,7 +62,7 @@ PillContainer {
                 if (p > 5)  return "󰁺"
                 return "󰂃"
             }
-            color: root.textColor
+            color: root.powerSaver ? "#FFD60A" : root.textColor
             font.family: "JetBrainsMono Nerd Font Propo"
             font.pixelSize: 12
         }

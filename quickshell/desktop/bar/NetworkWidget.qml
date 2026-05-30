@@ -4,6 +4,7 @@ import QtQuick.Layouts
 
 PillContainer {
     id: root
+    clickable: true
     implicitHeight: 33
     implicitWidth: row.implicitWidth + 24
 
