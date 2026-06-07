@@ -1,5 +1,3 @@
-import Quickshell
-import Quickshell.Io
 import QtQuick
 
 Item {
@@ -9,18 +7,7 @@ Item {
     readonly property bool dark: ThemeService.isDark
     implicitHeight: column.implicitHeight
 
-    Process {
-        id: setLight
-        command: ["bash", "-c",
-            "gsettings set org.gnome.desktop.interface gtk-theme 'Adwaita';" +
-            "gsettings set org.gnome.desktop.interface color-scheme 'prefer-light'"]
-    }
-    Process {
-        id: setDark
-        command: ["bash", "-c",
-            "gsettings set org.gnome.desktop.interface gtk-theme 'Adwaita-dark';" +
-            "gsettings set org.gnome.desktop.interface color-scheme 'prefer-dark'"]
-    }
+    // Theme switching is centralized in ThemeService (see setLight/setDark/toggle).
 
     Column {
         id: column
@@ -85,7 +72,7 @@ Item {
                 MouseArea {
                     anchors.fill: parent
                     cursorShape: Qt.PointingHandCursor
-                    onClicked: setLight.running = true
+                    onClicked: ThemeService.setLight()
                 }
             }
 
@@ -129,7 +116,7 @@ Item {
                 MouseArea {
                     anchors.fill: parent
                     cursorShape: Qt.PointingHandCursor
-                    onClicked: setDark.running = true
+                    onClicked: ThemeService.setDark()
                 }
             }
         }

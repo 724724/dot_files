@@ -28,7 +28,7 @@ Item {
         anchors {
             left: parent.left
             verticalCenter: parent.verticalCenter
-            leftMargin: 2
+            leftMargin: 8
         }
         width: 32; height: 32
         radius: 16

@@ -232,6 +232,12 @@ Item {
                         readonly property bool expanded: root.passwordSsid === modelData.ssid
                         readonly property bool connecting: root.pendingSsid === modelData.ssid
 
+                        // Grab keyboard focus the moment the password row opens so
+                        // the user can type immediately — no extra click needed
+                        // (the layer is keyboardFocus: OnDemand, so forcing focus
+                        // on the field is what makes the compositor route keys here).
+                        onExpandedChanged: if (expanded) Qt.callLater(pwField.forceActiveFocus)
+
                         // Main row
                         Item {
                             width: parent.width
@@ -314,10 +320,15 @@ Item {
                                         root.passwordSsid = ""
                                         root.passwordError = ""
                                     } else {
-                                        // Try saved credentials first; if it
-                                        // fails the connect-finished handler
-                                        // opens the password row.
-                                        WifiService.tryConnect(rowWrap.modelData.ssid, "")
+                                        // Open / saved networks connect straight
+                                        // away; a new secured network opens the
+                                        // inline password row (the connect-finished
+                                        // handler does this on the exit-100 sentinel)
+                                        // instead of letting nm-applet pop its own
+                                        // dialog under the overlay.
+                                        WifiService.smartConnect(
+                                            rowWrap.modelData.ssid,
+                                            rowWrap.modelData.security, "")
                                     }
                                 }
                             }

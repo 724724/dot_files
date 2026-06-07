@@ -52,6 +52,31 @@ Singleton {
         connectProc.running = true
     }
 
+    // Row-click connect. A bare `nmcli dev wifi connect` on a *secured* network
+    // with no stored secret makes NetworkManager consult the system secret
+    // agent (nm-applet), which pops its own GTK dialog *under* our overlay —
+    // unreachable without first dismissing the panel. To keep everything in the
+    // inline password row we never trigger that path: open networks connect
+    // directly, secured networks activate an existing saved profile (stored
+    // secret, no prompt) if one exists, otherwise exit 100 so the UI opens the
+    // inline field and we reconnect with the typed password instead.
+    function smartConnect(ssid, security, password) {
+        root.pendingSsid = ssid
+        let s = ssid.replace(/'/g, "'\\''")
+        let cmd
+        if (password && password.length > 0) {
+            cmd = "nmcli dev wifi connect '" + s + "' password '"
+                + password.replace(/'/g, "'\\''") + "'"
+        } else if (security === "") {
+            cmd = "nmcli dev wifi connect '" + s + "'"
+        } else {
+            cmd = "if nmcli -t -f NAME connection show | grep -Fxq '" + s + "'; then "
+                + "nmcli con up id '" + s + "'; else exit 100; fi"
+        }
+        connectProc.command = ["bash", "-c", cmd]
+        connectProc.running = true
+    }
+
     Process {
         id: scanProc
         command: ["bash", "-c",
@@ -87,12 +112,13 @@ Singleton {
         command: ["true"]
         onRunningChanged: {
             if (!running) {
-                root.connectFinished(root.pendingSsid, exitCode)
-                if (exitCode === 0) {
-                    root.pendingSsid = ""
-                    // Refresh after a successful connect so the active flag updates
-                    scanProc.running = true
-                }
+                // Clear the pending marker before notifying so a failed attempt
+                // doesn't leave the row stuck on "Connecting…".
+                let ssid = root.pendingSsid
+                root.pendingSsid = ""
+                root.connectFinished(ssid, exitCode)
+                // Refresh after a successful connect so the active flag updates
+                if (exitCode === 0) scanProc.running = true
             }
         }
     }

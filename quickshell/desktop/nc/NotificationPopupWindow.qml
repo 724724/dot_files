@@ -100,7 +100,13 @@ PanelWindow {
                 Timer {
                     id: hideTimer
                     interval: 220
-                    onTriggered: NcServer.markPopupSeen(wrap.modelData.id)
+                    // Transient toasts (DND on/off) leave no trace: dismiss to
+                    // drop them from the tracked model entirely. Regular cards
+                    // just finish their popup and remain in the center.
+                    onTriggered: {
+                        if (wrap.modelData.transient) wrap.modelData.dismiss()
+                        else NcServer.markPopupSeen(wrap.modelData.id)
+                    }
                 }
 
                 Behavior on fade   { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }

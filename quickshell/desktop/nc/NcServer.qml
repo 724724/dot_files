@@ -8,7 +8,74 @@ Singleton {
     id: root
 
     property bool controlCenterVisible: false
+
+    // ── Do Not Disturb ──────────────────────────────────────────────────
+    // `dnd` is the live on/off state. When enabled for a fixed duration,
+    // `dndUntil` holds the epoch-ms deadline (0 = indefinite / "Always On")
+    // and `dndMode` names the preset so the menu can highlight the active row.
     property bool dnd: false
+    property double dndUntil: 0
+    property string dndMode: ""   // "1h" | "evening" | "tomorrow" | "always" | ""
+
+    function enableDnd(untilMs, mode) {
+        root.dndUntil = untilMs || 0
+        root.dndMode = mode || (untilMs ? "" : "always")
+        root.dnd = true
+    }
+    function disableDnd() {
+        root.dndUntil = 0
+        root.dndMode = ""
+        root.dnd = false
+    }
+    function toggleDnd() {
+        if (root.dnd) root.disableDnd()
+        else root.enableDnd(0, "always")
+    }
+
+    // One-shot feedback on every DND state change (bar right-click, menu,
+    // keybinding, or auto-expiry alike): emit a *real* notification so it
+    // slides in as a top-right card like any other — but tagged `transient`
+    // so it pops once and then vanishes, and is never logged in the
+    // notification center (see `transient` handling in onNotification, the
+    // `persistent` filter, and the popup window's dismiss-on-expire).
+    onDndChanged: {
+        let on = root.dnd
+        let body = (on && root.dndUntil > 0) ? "Until " + root._fmtClock(root.dndUntil) : ""
+        // Sent via gdbus, not notify-send: this libnotify routes --icon to the
+        // `image-path` hint, which the card renders as a big right-side preview
+        // and that throws the layout off. Notify's `app_icon` argument (3rd)
+        // puts the bell in the small left slot like every other notification.
+        // The `transient` hint keeps it out of the center (see onNotification).
+        Quickshell.execDetached([
+            "gdbus", "call", "--session",
+            "--dest", "org.freedesktop.Notifications",
+            "--object-path", "/org/freedesktop/Notifications",
+            "--method", "org.freedesktop.Notifications.Notify",
+            "Do Not Disturb",
+            "0",
+            on ? "notifications-disabled-symbolic" : "notifications-symbolic",
+            on ? "On" : "Off",
+            body,
+            "[]",
+            "{'transient': <true>}",
+            "4000"
+        ])
+    }
+
+    function _fmtClock(ms) {
+        let d = new Date(ms)
+        return String(d.getHours()).padStart(2, "0") + ":"
+             + String(d.getMinutes()).padStart(2, "0")
+    }
+
+    // Auto-clear a timed DND once its deadline passes. Only runs while a
+    // deadline is set; 15s granularity is plenty for hour/evening presets.
+    Timer {
+        interval: 15000
+        repeat: true
+        running: root.dnd && root.dndUntil > 0
+        onTriggered: if (root.dndUntil > 0 && Date.now() >= root.dndUntil) root.disableDnd()
+    }
 
     // server.trackedNotifications is an UntypedObjectModel — convert to a JS
     // array (newest first) so .filter / .length / etc. work in bindings.
@@ -34,7 +101,10 @@ Singleton {
         let __ = root._revision    // belt-and-braces fallback
         return _toArray(m)
     }
-    readonly property int count: notifications ? notifications.length : 0
+    // Everything except transient toasts (DND on/off and the like). These pop
+    // once via the popup window but are never shown or counted in the center.
+    readonly property var persistent: notifications.filter(n => !n.transient)
+    readonly property int count: persistent.length
 
     // id → Date.now() arrival timestamp, used for live "now / 2m / 1h" labels.
     // Persisted to disk (see timeStore) so the labels survive a config reload
@@ -115,8 +185,8 @@ Singleton {
     function groupedByApp() {
         let groups = []
         let seen = {}
-        for (let i = 0; i < notifications.length; ++i) {
-            let n = notifications[i]
+        for (let i = 0; i < persistent.length; ++i) {
+            let n = persistent[i]
             let key = n.appName || "?"
             if (key in seen) {
                 groups[seen[key]].notifs.push(n)
@@ -161,10 +231,6 @@ Singleton {
         imageSupported: true
 
         onNotification: n => {
-            if (root.dnd && n.urgency !== NotificationUrgency.Critical) {
-                n.expire()
-                return
-            }
             n.tracked = true
             // A config reload re-emits kept notifications (keepOnReload) with
             // lastGeneration === true. Their arrival time is already restored
@@ -172,7 +238,10 @@ Singleton {
             // reset every card to "now". Only stamp genuinely new arrivals;
             // those always have lastGeneration === false (including after a
             // full process restart, where stale ids must be re-stamped).
-            if (!n.lastGeneration) {
+            if (n.transient) {
+                // Transient toast: no persisted arrival time and no popup-seen
+                // bookkeeping — the popup window dismisses it once it expires.
+            } else if (!n.lastGeneration) {
                 let copy = Object.assign({}, root.receivedAt)
                 copy[n.id] = Date.now()
                 root.receivedAt = copy
@@ -185,6 +254,12 @@ Singleton {
                 // only genuine "now" arrivals pop.
                 root.markPopupSeen(n.id)
             }
+            // Do Not Disturb: keep the notification in the center but suppress
+            // its transient popup by marking it seen on arrival. Critical alerts
+            // and our own DND toasts still pop (transient toasts are excluded
+            // from the center list entirely; see `persistent`).
+            if (root.dnd && !n.transient && n.urgency !== NotificationUrgency.Critical)
+                root.markPopupSeen(n.id)
             root._revision++
         }
     }
@@ -192,7 +267,7 @@ Singleton {
     IpcHandler {
         target: "nc"
         function toggle() { root.controlCenterVisible = !root.controlCenterVisible }
-        function dnd() { root.dnd = !root.dnd }
+        function dnd() { root.toggleDnd() }
         function getstate(): string {
             return JSON.stringify({ count: root.count, dnd: root.dnd })
         }

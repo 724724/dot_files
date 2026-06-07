@@ -14,13 +14,15 @@ Rectangle {
 
     readonly property bool dark: ThemeService.isDark
     readonly property bool hasImage: notification.image && notification.image !== ""
+    readonly property bool hasAppIcon: notification.appIcon && notification.appIcon !== ""
 
     implicitWidth: 380
-    implicitHeight: cardContent.implicitHeight + 24
+    implicitHeight: cardContent.implicitHeight + 32
     radius: 14
 
-    color: dark ? Qt.rgba(58/255, 58/255, 64/255, 0.92)
-                : Qt.rgba(255/255, 255/255, 255/255, 0.94)
+    // Fully opaque so cards stacked behind never bleed through the front one.
+    color: dark ? Qt.rgba(58/255, 58/255, 64/255, 1.0)
+                : Qt.rgba(255/255, 255/255, 255/255, 1.0)
     border.color: dark ? Qt.rgba(1,1,1,0.06) : Qt.rgba(0,0,0,0.06)
     border.width: 1
 
@@ -40,8 +42,8 @@ Rectangle {
         anchors {
             right: parent.right
             top: parent.top
-            rightMargin: 12
-            topMargin: 12
+            rightMargin: 16
+            topMargin: 16
         }
         text: NcServer.relativeTime(card.notification.id)
         color: dark ? Qt.rgba(1,1,1,0.4) : Qt.rgba(0,0,0,0.40)
@@ -58,8 +60,8 @@ Rectangle {
         anchors {
             right: parent.right
             top: parent.top
-            rightMargin: 8
-            topMargin: 8
+            rightMargin: 12
+            topMargin: 12
         }
         width: 18; height: 18
         radius: 9
@@ -92,33 +94,48 @@ Rectangle {
         id: cardContent
         anchors {
             fill: parent
-            leftMargin: 12
-            rightMargin: 12
-            topMargin: 12
-            bottomMargin: 12
+            leftMargin: 16
+            rightMargin: 16
+            topMargin: 16
+            bottomMargin: 16
         }
-        spacing: 12
+        spacing: 14
 
-        // App icon — square with subtle background
+        // Avatar — the app icon when set; otherwise the notification's own
+        // image (e.g. a screenshot thumbnail) so it identifies the card the way
+        // a letter never could; finally an initial. The old right-hand preview
+        // is gone, so this single slot carries whatever visual the card has.
         Rectangle {
             Layout.alignment: Qt.AlignTop
             Layout.preferredWidth: 36
             Layout.preferredHeight: 36
             radius: 8
+            clip: true
             color: dark ? Qt.rgba(1,1,1,0.07) : Qt.rgba(0,0,0,0.05)
 
+            // Themed app icon
             Image {
                 anchors.fill: parent
                 anchors.margins: 4
-                source: card.notification.appIcon
-                    ? "image://icon/" + card.notification.appIcon
-                    : ""
-                visible: status === Image.Ready
+                source: card.hasAppIcon ? "image://icon/" + card.notification.appIcon : ""
+                visible: card.hasAppIcon && status === Image.Ready
                 sourceSize.width: 32; sourceSize.height: 32
                 smooth: true
                 asynchronous: true
             }
 
+            // Notification image, used as the avatar when no app icon is set
+            Image {
+                anchors.fill: parent
+                source: (!card.hasAppIcon && card.hasImage) ? card.notification.image : ""
+                visible: !card.hasAppIcon && card.hasImage && status === Image.Ready
+                fillMode: Image.PreserveAspectCrop
+                sourceSize.width: 72; sourceSize.height: 72
+                smooth: true
+                asynchronous: true
+            }
+
+            // Letter fallback when there is neither an icon nor an image
             Text {
                 anchors.centerIn: parent
                 text: (card.notification.appName || "?").charAt(0).toUpperCase()
@@ -126,7 +143,7 @@ Rectangle {
                 font.family: "SF Pro Display"
                 font.pixelSize: 16
                 font.weight: Font.DemiBold
-                visible: !card.notification.appIcon
+                visible: !card.hasAppIcon && !card.hasImage
             }
         }
 
@@ -136,9 +153,9 @@ Rectangle {
 
             Text {
                 Layout.fillWidth: true
-                // Reserve room for the absolute-positioned timestamp/close
-                // when there is no image to push the column inward.
-                Layout.rightMargin: card.hasImage ? 0 : 36
+                // Always reserve room for the absolute-positioned timestamp/close
+                // in the top-right corner (no right-hand image pushes it in now).
+                Layout.rightMargin: 36
                 text: (card.notification.appName || "Notification").toUpperCase()
                 color: dark ? Qt.rgba(1,1,1,0.55) : Qt.rgba(0,0,0,0.50)
                 font.family: "SF Pro Display"
@@ -213,27 +230,5 @@ Rectangle {
             }
         }
 
-        // Right-side image preview — pushed down with topMargin so it
-        // doesn't visually clash with the timestamp at the top-right corner.
-        Rectangle {
-            Layout.alignment: Qt.AlignTop
-            Layout.preferredWidth: 56
-            Layout.preferredHeight: 56
-            Layout.topMargin: 18
-            radius: 8
-            color: dark ? Qt.rgba(1,1,1,0.05) : Qt.rgba(0,0,0,0.04)
-            visible: card.hasImage
-            clip: true
-
-            Image {
-                anchors.fill: parent
-                source: card.notification.image
-                fillMode: Image.PreserveAspectCrop
-                sourceSize.width: 112
-                sourceSize.height: 112
-                smooth: true
-                asynchronous: true
-            }
-        }
     }
 }

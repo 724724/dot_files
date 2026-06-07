@@ -1,6 +1,7 @@
 import Quickshell
 import Quickshell.Io
 import QtQuick
+import "kinetic.js" as Kinetic
 
 Item {
     id: root
@@ -286,6 +287,27 @@ Item {
                 interactive: count > appsCard.maxVisibleRows
                 boundsBehavior: Flickable.StopAtBounds
                 flickableDirection: Flickable.VerticalFlick
+
+                // Kinetic scroll: touchpad momentum + crisp mouse notches, via
+                // the shared kinetic.js (same feel as the rest of the shell).
+                property var _ks: ({})
+                WheelHandler {
+                    acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
+                    onWheel: (ev) => {
+                        appsGlide.stop()
+                        if (Kinetic.onWheel(appsList, ev, appsList._ks, { gain: appsCard.rowH }))
+                            appsEnd.restart()
+                    }
+                }
+                Timer {
+                    id: appsEnd
+                    interval: 70
+                    onTriggered: {
+                        let g = Kinetic.fling(appsList, appsList._ks, {})
+                        if (g) { appsGlide.from = g.from; appsGlide.to = g.to; appsGlide.duration = g.duration; appsGlide.restart() }
+                    }
+                }
+                NumberAnimation { id: appsGlide; target: appsList; property: "contentY"; easing.type: Easing.OutCubic }
 
                 delegate: Item {
                         required property var modelData

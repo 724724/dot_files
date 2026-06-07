@@ -23,6 +23,8 @@ import "nc"
 import "spotlight"
 import "launchpad"
 import "switcher"
+import "widgets"
+import "emoji"
 
 Scope {
     id: root
@@ -33,8 +35,12 @@ Scope {
     // singleton owns IpcHandler target "clock").
     ClockPopupWindow {}
 
-    // ── Dock ────────────────────────────────────────────────────────────
-    DockWindow {}
+    // ── Dock (per-screen, like OSD/NC) so it reveals on whichever monitor the
+    //    cursor is at the bottom of — not just the primary one ──────────────
+    Variants {
+        model: Quickshell.screens
+        DockWindow {}
+    }
 
     // ── OSD (per-screen; OsdService singleton owns IpcHandler "osd") ────
     Variants {
@@ -54,4 +60,6 @@ Scope {
     SpotlightController {}
     LaunchpadController {}
     SwitcherController {}
+    WidgetsController {}
+    EmojiController {}
 }

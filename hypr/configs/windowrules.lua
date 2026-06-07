@@ -211,6 +211,11 @@ hl.layer_rule({ match = { namespace = "qs-launchpad" }, no_anim = true, blur = t
 -- Quickshell App Switcher (macOS Cmd+Tab style)
 hl.layer_rule({ match = { namespace = "qs-switcher" }, no_anim = true, blur = true, ignore_alpha = 0.4 })
 
+-- Quickshell Widgets board (macOS-style notes/clock/weather/reminders) —
+-- fullscreen overlay, fade via QML. Low ignore_alpha so the ~0.5 dark veil
+-- still blurs the workspace windows behind.
+hl.layer_rule({ match = { namespace = "qs-widgets" }, no_anim = true, blur = true, ignore_alpha = 0.1 })
+
 hl.layer_rule({ match = { namespace = "qs-cc" }, blur = true, ignore_alpha = 0.5 })
 
 -- Clock + calendar popup that drops from the bar clock pill.

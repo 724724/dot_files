@@ -4,6 +4,7 @@ import Quickshell.Wayland
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls
+import "kinetic.js" as Kinetic
 
 PanelWindow {
     id: win
@@ -37,6 +38,7 @@ PanelWindow {
             else if (d === "appearance" && detailAppearance.item) h = detailAppearance.item.implicitHeight + 28
             else if (d === "battery"    && detailBattery.item)    h = detailBattery.item.implicitHeight + 28
             else if (d === "power"      && detailPower.item)      h = detailPower.item.implicitHeight + 28
+            else if (d === "dnd"        && detailDnd.item)         h = detailDnd.item.implicitHeight + 28
             return Math.max(180, Math.min(h, screenH - topInset - bottomGap))
         }
         // Main view: fit the Control Center widgets exactly. Notifications now
@@ -98,10 +100,6 @@ PanelWindow {
             " then bluetoothctl power off >/dev/null 2>&1;" +
             " else bluetoothctl power on  >/dev/null 2>&1; fi"]
         onRunningChanged: if (!running) btPoll.running = true
-    }
-    Process {
-        id: themeToggle
-        command: ["bash", "/home/sejunlee/.config/quickshell/scripts/toggle-theme.sh"]
     }
 
     Process {
@@ -236,6 +234,13 @@ PanelWindow {
                     onCloseRequested: NcServer.controlCenterVisible = false
                 }
             }
+            Loader {
+                id: detailDnd
+                anchors.fill: parent
+                active: win.detail === "dnd"
+                visible: active
+                sourceComponent: CCDetailDnd { onBack: win.detail = "" }
+            }
         }
 
         // ── MAIN ──────────────────────────────────────────────────────────────
@@ -270,7 +275,13 @@ PanelWindow {
                         contentPadding: 10
 
                         Column {
-                            anchors.fill: parent
+                            // Centered vertically so the leftover space splits
+                            // evenly top/bottom (top row and bottom row get the
+                            // same padding) instead of all collecting under the
+                            // last row.
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            anchors.verticalCenter: parent.verticalCenter
                             spacing: 4
 
                             CCConnectivityRow {
@@ -297,7 +308,7 @@ PanelWindow {
                                 label: "Appearance"
                                 sublabel: ThemeService.isDark ? "Dark" : "Light"
                                 active: ThemeService.isDark
-                                onIconClicked: themeToggle.running = true
+                                onIconClicked: ThemeService.toggle()
                                 onBodyClicked: win.detail = "appearance"
                             }
                         }
@@ -312,10 +323,12 @@ PanelWindow {
                             Layout.fillWidth: true
                             Layout.preferredHeight: 90
                             icon: "󰂛"
-                            label: "Do Not Disturb"
-                            sublabel: NcServer.dnd ? "On" : "Off"
+                            label: "Do Not\nDisturb"
                             active: NcServer.dnd
-                            onClicked: NcServer.dnd = !NcServer.dnd
+                            // Icon flips DND instantly; the rest of the tile (and
+                            // the chevron) drills into the duration menu.
+                            onIconClicked: NcServer.toggleDnd()
+                            onClicked: win.detail = "dnd"
                         }
 
                         RowLayout {
@@ -331,9 +344,6 @@ PanelWindow {
                                 iconBg: BatteryService.charging ? "#34C759"
                                       : (BatteryService.level <= 20 ? "#FF453A" : "#0A84FF")
                                 label: "Battery"
-                                sublabel: BatteryService.level + "%  ·  "
-                                    + (BatteryService.mode === "performance" ? "Perf"
-                                        : BatteryService.mode === "power-saver" ? "Saver" : "Bal")
                                 onClicked: win.detail = "battery"
                             }
 
@@ -344,7 +354,6 @@ PanelWindow {
                                 icon: "󰐥"
                                 iconBg: "#FF453A"
                                 label: "Power"
-                                sublabel: "Lock · Logout · ⏻"
                                 onClicked: win.detail = "power"
                             }
                         }
@@ -421,27 +430,29 @@ PanelWindow {
                 flickDeceleration: 6000
                 maximumFlickVelocity: 6000
 
-                // Mouse wheel: ~150px per notch. Touchpad: pixelDelta * 6 so
-                // a quick two-finger swipe covers a real list, not 30 pixels.
+                // Kinetic scroll: touchpad swipes glide with momentum, mouse
+                // wheel is one crisp step per notch (shared kinetic.js — same
+                // feel as the emoji picker and other scroll areas).
+                property var _ks: ({})
                 WheelHandler {
                     target: null
                     acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
-                    onWheel: function(event) {
-                        let dy = event.pixelDelta.y !== 0
-                            ? event.pixelDelta.y * 8
-                            : (event.angleDelta.y / 120) * 180
-                        let max = Math.max(0, scroll.contentHeight - scroll.height)
-                        scroll.contentY = Math.max(0, Math.min(max, scroll.contentY - dy))
+                    onWheel: (event) => {
+                        scrollGlide.stop()
                         event.accepted = true
+                        if (Kinetic.onWheel(scroll, event, scroll._ks, { gain: 100 }))
+                            scrollEnd.restart()
                     }
                 }
-
-                // Animate mouse-wheel hops; touchpad events go through
-                // Flickable directly so this Behavior shouldn't fight them.
-                Behavior on contentY {
-                    enabled: !scroll.dragging && !scroll.flicking
-                    NumberAnimation { duration: 90; easing.type: Easing.OutCubic }
+                Timer {
+                    id: scrollEnd
+                    interval: 70
+                    onTriggered: {
+                        let g = Kinetic.fling(scroll, scroll._ks, {})
+                        if (g) { scrollGlide.from = g.from; scrollGlide.to = g.to; scrollGlide.duration = g.duration; scrollGlide.restart() }
+                    }
                 }
+                NumberAnimation { id: scrollGlide; target: scroll; property: "contentY"; easing.type: Easing.OutCubic }
 
                 ScrollBar.vertical: ScrollBar {
                     id: vBar
@@ -506,9 +517,12 @@ PanelWindow {
                                 height: 18
                                 y: stackDelegate.topPad + topCard.implicitHeight - 4
                                 radius: 14
-                                color: dark ? Qt.rgba(48/255, 48/255, 52/255, 0.92)
-                                            : Qt.rgba(248/255, 248/255, 250/255, 0.94)
-                                border.color: dark ? Qt.rgba(1,1,1,0.05) : Qt.rgba(0,0,0,0.05)
+                                // Same fill as the top card so the peek reads as
+                                // a stacked sheet, not a dark band under it; the
+                                // border alone conveys the stack.
+                                color: dark ? Qt.rgba(58/255, 58/255, 64/255, 1.0)
+                                            : Qt.rgba(255/255, 255/255, 255/255, 1.0)
+                                border.color: dark ? Qt.rgba(1,1,1,0.12) : Qt.rgba(0,0,0,0.08)
                                 border.width: 1
                                 z: 0
                             }
@@ -521,9 +535,10 @@ PanelWindow {
                                 height: 18
                                 y: stackDelegate.topPad + topCard.implicitHeight - 10
                                 radius: 14
-                                color: dark ? Qt.rgba(52/255, 52/255, 58/255, 0.94)
-                                            : Qt.rgba(252/255, 252/255, 254/255, 0.96)
-                                border.color: dark ? Qt.rgba(1,1,1,0.06) : Qt.rgba(0,0,0,0.06)
+                                // Matches the top card (see peek 2) — no dark fill.
+                                color: dark ? Qt.rgba(58/255, 58/255, 64/255, 1.0)
+                                            : Qt.rgba(255/255, 255/255, 255/255, 1.0)
+                                border.color: dark ? Qt.rgba(1,1,1,0.14) : Qt.rgba(0,0,0,0.10)
                                 border.width: 1
                                 z: 1
                             }
@@ -634,10 +649,12 @@ PanelWindow {
                             width: clearAllLabel.implicitWidth + 24
                             height: 28
                             radius: 14
+                            // Solid (opaque) so it reads as a real button instead
+                            // of a faint translucent sheet over the blurred desktop.
                             color: clearAllMa.containsMouse
-                                ? (dark ? Qt.rgba(1,1,1,0.16) : Qt.rgba(0,0,0,0.10))
-                                : (dark ? Qt.rgba(1,1,1,0.08) : Qt.rgba(0,0,0,0.05))
-                            border.color: dark ? Qt.rgba(1,1,1,0.10) : Qt.rgba(0,0,0,0.08)
+                                ? (dark ? Qt.rgba(92/255, 92/255, 100/255, 1.0) : Qt.rgba(236/255, 236/255, 238/255, 1.0))
+                                : (dark ? Qt.rgba(72/255, 72/255, 80/255, 1.0)  : Qt.rgba(255/255, 255/255, 255/255, 1.0))
+                            border.color: dark ? Qt.rgba(1,1,1,0.14) : Qt.rgba(0,0,0,0.12)
                             border.width: 1
                             Behavior on color { ColorAnimation { duration: 120 } }
 

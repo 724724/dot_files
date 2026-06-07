@@ -1,6 +1,6 @@
-import Quickshell.Io
 import QtQuick
 import QtQuick.Layouts
+import "../nc" as Nc
 
 PillContainer {
     id: root
@@ -8,27 +8,20 @@ PillContainer {
     implicitHeight: 33
     implicitWidth: row.implicitWidth + 24
 
-    readonly property bool isDnd: SwayncService.dnd
-    readonly property bool hasNotif: SwayncService.notifCount > 0
-
-    Process {
-        id: toggleProc
-        command: ["qs", "ipc", "-c", "desktop", "call", "nc", "toggle"]
-    }
-
-    Process {
-        id: dndProc
-        command: ["qs", "ipc", "-c", "desktop", "call", "nc", "dnd"]
-    }
+    // Bar and notification center share one qs process, so the widget reads
+    // and drives the NcServer singleton directly — instant, with none of the
+    // `qs ipc` subprocess latency the old toggles paid on every click.
+    readonly property bool isDnd: Nc.NcServer.dnd
+    readonly property bool hasNotif: Nc.NcServer.count > 0
 
     TapHandler {
         acceptedButtons: Qt.LeftButton
-        onTapped: toggleProc.running = true
+        onTapped: Nc.NcServer.controlCenterVisible = !Nc.NcServer.controlCenterVisible
     }
 
     TapHandler {
         acceptedButtons: Qt.RightButton
-        onTapped: dndProc.running = true
+        onTapped: Nc.NcServer.toggleDnd()
     }
 
     RowLayout {

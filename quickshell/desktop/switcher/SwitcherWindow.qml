@@ -195,9 +195,7 @@ PanelWindow {
             id: titleLabel
             readonly property bool empty: win.count === 0
             anchors.horizontalCenter: parent.horizontalCenter
-            anchors.top: empty ? undefined : parent.top
-            anchors.topMargin: empty ? 0 : 14
-            anchors.verticalCenter: empty ? parent.verticalCenter : undefined
+            y: empty ? Math.round((parent.height - implicitHeight) / 2) : 14
             width: parent.width - 32
             text: {
                 if (empty) return "No windows"

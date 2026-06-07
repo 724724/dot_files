@@ -4,7 +4,6 @@ Rectangle {
     id: tile
     property string icon: ""
     property string label: ""
-    property string sublabel: ""
     property color iconBg: "transparent"
     property color iconColor: "#ffffff"
     property bool active: false
@@ -29,7 +28,7 @@ Rectangle {
             topMargin: 12
             leftMargin: 12
         }
-        width: 26; height: 26; radius: 13
+        width: 32; height: 32; radius: 16
         color: tile.iconBg !== "transparent" ? tile.iconBg
             : (tile.active ? "#0A84FF"
                            : (dark ? Qt.rgba(1,1,1,0.14) : Qt.rgba(0,0,0,0.06)))
@@ -62,18 +61,8 @@ Rectangle {
             text: tile.label
             color: dark ? "#f5f6f8" : "#1c1c1e"
             font.family: "SF Pro Display"
-            font.pixelSize: 11
+            font.pixelSize: 13
             font.weight: Font.DemiBold
-            elide: Text.ElideRight
-            width: parent.width
-        }
-
-        Text {
-            text: tile.sublabel
-            color: dark ? Qt.rgba(1,1,1,0.5) : Qt.rgba(0,0,0,0.50)
-            font.family: "SF Pro Display"
-            font.pixelSize: 10
-            visible: text !== ""
             elide: Text.ElideRight
             width: parent.width
         }

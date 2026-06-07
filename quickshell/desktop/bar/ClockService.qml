@@ -7,7 +7,7 @@ Singleton {
     id: root
 
     // Popup visibility. The bar ClockWidget lives in this same directory, so it
-    // flips this directly (no `qs ipc` subprocess as SwayncWidget needs for the
+    // flips this directly (no `qs ipc` subprocess as NotificationWidget needs for the
     // cross-directory nc target); the IpcHandler below mirrors it for external
     // triggers like keybindings.
     property bool popupVisible: false

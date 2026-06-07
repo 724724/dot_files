@@ -55,7 +55,7 @@ Scope {
                 Region { item: volumeW }
                 Region { item: batteryW }
                 Region { item: networkW }
-                Region { item: swayncW }
+                Region { item: notificationW }
             }
 
             RowLayout {
@@ -79,7 +79,7 @@ Scope {
                 VolumeWidget { id: volumeW }
                 BatteryWidget { id: batteryW }
                 NetworkWidget { id: networkW }
-                SwayncWidget { id: swayncW }
+                NotificationWidget { id: notificationW }
             }
 
             // MediaWidget is positioned independently from the RowLayout so it

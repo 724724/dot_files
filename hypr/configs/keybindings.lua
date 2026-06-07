@@ -14,7 +14,9 @@ hl.bind(mainMod .. " + SPACE",        hl.dsp.exec_cmd("qs ipc -c desktop call sp
 hl.bind("ALT + SPACE",                hl.dsp.exec_cmd("qs ipc -c desktop call launchpad toggle"))
 hl.bind(mainMod .. " + B",            hl.dsp.exec_cmd("qs ipc -c desktop call bar toggle"))
 hl.bind(mainMod .. " + C",            hl.dsp.exec_cmd("qs ipc -c desktop call nc toggle"))
---hl.bind(mainMod .. " + CTRL + SPACE", hl.dsp.exec_cmd("/usr/bin/smile"))
+hl.bind(mainMod .. " + V",            hl.dsp.exec_cmd("qs ipc -c desktop call dock toggle"))
+hl.bind(mainMod .. " + W",            hl.dsp.exec_cmd("qs ipc -c desktop call widgets toggle"))
+hl.bind(mainMod .. " + CTRL + SPACE", hl.dsp.exec_cmd("qs ipc -c desktop call emoji toggle"))
 
 -- ── System ──────────────────────────────────────────────────────────────
 hl.bind(mainMod .. " + Q",         hl.dsp.window.close())
@@ -101,3 +103,13 @@ hl.bind("XF86Display", hl.dsp.exec_cmd("~/.config/hypr/scripts/keyboard-lock.sh"
 -- ── Night Shift — Hyprsunset toggle ─────────────────────────────────────
 hl.bind(mainMod .. " + SHIFT + XF86MonBrightnessUp",   hl.dsp.exec_cmd('hyprctl hyprsunset temperature 4500 && qs ipc -c desktop call osd custom "󰃟" "Blue Light Filter ON"'),  { locked = true })
 hl.bind(mainMod .. " + SHIFT + XF86MonBrightnessDown", hl.dsp.exec_cmd('hyprctl hyprsunset identity && qs ipc -c desktop call osd custom "󰃠" "Blue Light Filter OFF"'),         { locked = true })
+
+-- ── Clamshell / Lid Switch (macOS clamshell mode) ───────────────────────
+-- Hall 센서 인터럽트(LidStateChanged)에 대응. 실제 판단 로직은 scripts/clamshell.sh.
+--   switch:on  = 덮개 닫힘,  switch:off = 덮개 열림
+--   { locked = true } = 구 `bindl` 플래그 (화면 잠금/DPMS 중에도 동작)
+hl.bind("switch:on:Lid Switch",  hl.dsp.exec_cmd("~/.config/hypr/scripts/clamshell.sh closed"), { locked = true })
+hl.bind("switch:off:Lid Switch", hl.dsp.exec_cmd("~/.config/hypr/scripts/clamshell.sh open"),   { locked = true })
+
+-- (선택) 수동 토글 단축키
+hl.bind(mainMod .. " + SHIFT + L", hl.dsp.exec_cmd("~/.config/hypr/scripts/clamshell.sh closed"), { locked = true })
