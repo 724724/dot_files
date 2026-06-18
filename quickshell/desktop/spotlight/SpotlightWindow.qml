@@ -295,9 +295,8 @@ PanelWindow {
         anchors.horizontalCenter: parent.horizontalCenter
         y: Math.max(120, Math.round((parent ? parent.height : 1080) * 0.22))
         radius: 18
-        color: dark ? Qt.rgba(16/255, 16/255, 21/255, 0.78)
-                    : Qt.rgba(255/255, 255/255, 255/255, 0.78)
-        border.color: dark ? Qt.rgba(1, 1, 1, 0.13) : Qt.rgba(0, 0, 0, 0.13)
+        color: ThemeService.bg
+        border.color: ThemeService.stroke
         border.width: 1
 
         // Open: fade + scale-up from 0.96. Close: fade + slight scale-down.

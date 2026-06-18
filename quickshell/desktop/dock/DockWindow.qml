@@ -499,9 +499,8 @@ PanelWindow {
         anchors.bottom: parent.bottom
         implicitWidth: dockRow.implicitWidth + 20
         height: 68; radius: 22
-        color: dark ? Qt.rgba(16/255, 16/255, 21/255, 0.72)
-                    : Qt.rgba(1, 1, 1, 0.68)
-        border.color: dark ? Qt.rgba(1,1,1,0.13) : Qt.rgba(0,0,0,0.13)
+        color: ThemeService.bg
+        border.color: ThemeService.stroke
         border.width: 1
         Behavior on color { ColorAnimation { duration: 200 } }
 
@@ -574,9 +573,8 @@ PanelWindow {
         width: cardGrid.implicitWidth + win.previewPadding * 2
         height: cardGrid.implicitHeight + win.previewPadding * 2
         radius: 18
-        color: dark ? Qt.rgba(22/255, 23/255, 28/255, 0.94)
-                    : Qt.rgba(248/255, 248/255, 248/255, 0.94)
-        border.color: dark ? Qt.rgba(1,1,1,0.13) : Qt.rgba(0,0,0,0.11)
+        color: ThemeService.bg
+        border.color: ThemeService.stroke
         border.width: 1
 
         // No fade/scale: the popup just appears/disappears with `visible` so
@@ -779,9 +777,8 @@ PanelWindow {
         width: win.menuWidth
         height: win.menuHeight
         radius: 12
-        color: dark ? Qt.rgba(28/255, 28/255, 33/255, 0.97)
-                    : Qt.rgba(250/255, 250/255, 250/255, 0.98)
-        border.color: dark ? Qt.rgba(1,1,1,0.13) : Qt.rgba(0,0,0,0.12)
+        color: ThemeService.bg
+        border.color: ThemeService.stroke
         border.width: 1
 
         // Anchor horizontally to the clicked icon, clamped to the panel edges.

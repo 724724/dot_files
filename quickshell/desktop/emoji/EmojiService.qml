@@ -51,10 +51,11 @@ Singleton {
         return out
     }
 
-    // Pick an emoji: record under Recents, then type it straight into the
-    // focused field. The small sleep lets the picker's layer surface unmap so
-    // keyboard focus returns to the app before wtype types. If no typing tool is
-    // installed we fall back to the clipboard (install `wtype` for direct input).
+    // Pick an emoji: record under Recents, copy it to the clipboard, and also
+    // type it straight into the focused field. The small sleep lets the picker's
+    // layer surface unmap so keyboard focus returns to the app before wtype
+    // types. The clipboard copy always happens (install `wtype` for direct
+    // input too).
     function use(ch) {
         let r = root.recents.slice()
         let i = r.indexOf(ch)
@@ -66,8 +67,9 @@ Singleton {
 
         Quickshell.execDetached(["bash", "-c",
             "e=\"$1\"; "
+          + "printf %s \"$e\" | wl-copy; "
           + "if command -v wtype >/dev/null 2>&1; then sleep 0.2; wtype \"$e\"; "
-          + "elif command -v ydotool >/dev/null 2>&1; then sleep 0.2; ydotool type \"$e\"; "
-          + "else printf %s \"$e\" | wl-copy; fi", "_", ch])
+          + "elif command -v ydotool >/dev/null 2>&1; then sleep 0.2; ydotool type \"$e\"; fi",
+            "_", ch])
     }
 }

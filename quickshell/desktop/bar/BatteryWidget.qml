@@ -23,23 +23,26 @@ PillContainer {
     readonly property bool powerSaver: Nc.BatteryService.mode === "power-saver"
 
     color: hovered
-        ? Qt.rgba(40/255, 50/255, 60/255, 0.4)
+        ? ThemeService.pillBgHover
         : critical ? Qt.rgba(255/255, 107/255, 107/255, 0.35)
         : warning  ? Qt.rgba(255/255, 200/255, 100/255, 0.35)
-        : charging ? Qt.rgba(100/255, 210/255, 180/255, 0.35)
-        : Qt.rgba(30/255, 40/255, 50/255, 0.25)
+        : charging ? (ThemeService.isDark ? Qt.rgba(70/255, 170/255, 110/255, 0.38)
+                                          : Qt.rgba(190/255, 232/255, 202/255, 0.92))
+        : ThemeService.pillBg
     border.color: hovered
-        ? Qt.rgba(100/255, 210/255, 180/255, 0.4)
+        ? ThemeService.pillBorderHover
         : critical ? Qt.rgba(255/255, 107/255, 107/255, 0.4)
         : warning  ? Qt.rgba(255/255, 200/255, 100/255, 0.4)
-        : charging ? Qt.rgba(120/255, 230/255, 190/255, 0.4)
-        : Qt.rgba(100/255, 210/255, 180/255, 0.3)
+        : charging ? (ThemeService.isDark ? Qt.rgba(90/255, 200/255, 130/255, 0.50)
+                                          : Qt.rgba(110/255, 190/255, 145/255, 0.60))
+        : ThemeService.pillBorder
 
-    readonly property color textColor:
-        critical ? "#ffd0d0"
-        : warning  ? "#ffe8c0"
-        : charging ? "#d0f8e8"
-        : "#d4f1e8"
+    // Dark mode keeps the soft light tints; light mode uses deep variants so the
+    // % stays readable on the coloured pill. Charging in light mode is a genuinely
+    // pale (opaque) green with dark-green text so it doesn't wash into the wallpaper.
+    readonly property color textColor: ThemeService.isDark
+        ? (critical ? "#ffd0d0" : warning ? "#ffe8c0" : charging ? "#d8f5e2" : "#d4f1e8")
+        : (critical ? "#7a1414" : warning ? "#6e4400" : charging ? "#0d4a26" : "#1c1c1e")
 
     RowLayout {
         id: row
@@ -62,7 +65,7 @@ PillContainer {
                 if (p > 5)  return "󰁺"
                 return "󰂃"
             }
-            color: root.powerSaver ? "#FFD60A" : root.textColor
+            color: root.powerSaver ? (ThemeService.isDark ? "#FFD60A" : "#8a6d00") : root.textColor
             font.family: "JetBrainsMono Nerd Font Propo"
             font.pixelSize: 12
         }

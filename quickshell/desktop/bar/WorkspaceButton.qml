@@ -17,7 +17,7 @@ Rectangle {
         : workspace.urgent
             ? Qt.rgba(255/255, 100/255, 100/255, 0.5)
             : hover.hovered
-                ? Qt.rgba(255/255, 255/255, 255/255, 0.08)
+                ? (ThemeService.isDark ? Qt.rgba(1, 1, 1, 0.08) : Qt.rgba(0, 0, 0, 0.06))
                 : "transparent"
     border.color: workspace.focused
         ? Qt.rgba(255/255, 140/255, 130/255, 0.5)
@@ -38,7 +38,9 @@ Rectangle {
             id: label
             Layout.alignment: Qt.AlignVCenter
             text: workspace.name
-            color: workspace.focused ? "#ffd4d0" : workspace.urgent ? "#ffffff" : "#8ba3b8"
+            color: ThemeService.isDark
+                ? (workspace.focused ? "#ffd4d0" : workspace.urgent ? "#ffffff" : "#8ba3b8")
+                : (workspace.focused || workspace.urgent ? "#1c1c1e" : Qt.rgba(0, 0, 0, 0.5))
             font.family: "SF Pro Display"
             font.pixelSize: 11
 

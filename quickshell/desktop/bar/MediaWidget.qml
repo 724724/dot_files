@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
+import QtQuick.Effects
 import Quickshell.Widgets
 
 PillContainer {
@@ -15,17 +16,82 @@ PillContainer {
     // smaller on that side.
     implicitWidth: visible ? content.implicitWidth + 22 : 0
 
-    // Subtle warm tint when playing, neutral glass when paused
-    color: hovered
-        ? Qt.rgba(255/255, 180/255, 90/255, 0.35)
-        : (MediaService.isPlaying
-            ? Qt.rgba(255/255, 160/255, 70/255, 0.22)
-            : Qt.rgba(30/255, 40/255, 50/255, 0.25))
-    border.color: hovered
-        ? Qt.rgba(255/255, 180/255, 90/255, 0.55)
-        : (MediaService.isPlaying
-            ? Qt.rgba(255/255, 170/255, 70/255, 0.45)
-            : Qt.rgba(100/255, 210/255, 180/255, 0.3))
+    // Foreground album-art size: small while paused, full while playing.
+    // Animated so the artwork eases between the two sizes. The layout slot it
+    // sits in is fixed (see below), so this scaling never changes the pill
+    // width — only the artwork inside grows/shrinks.
+    readonly property int artSizePlaying: 22
+    readonly property int artSizePaused: 13
+    property real artSize: MediaService.isPlaying ? artSizePlaying : artSizePaused
+    Behavior on artSize {
+        NumberAnimation { duration: 240; easing.type: Easing.OutCubic }
+    }
+
+    // Album art available → use it as the pill's surface + brightness-aware
+    // text color. Latches true once a cover has loaded and *stays* true while
+    // the next track's cover loads, so changing songs doesn't blink through the
+    // placeholder / themed-glass fallback. Drops only when the track genuinely
+    // has no art (empty URL).
+    property bool artReady: false
+    Connections {
+        target: MediaService
+        function onArtUrlChanged() {
+            if (MediaService.artUrl === "") root.artReady = false
+        }
+    }
+    // iOS-style: white text over dark covers, near-black text over bright ones.
+    // The backdrop below is near-opaque + heavily blurred, so the pill's
+    // brightness reliably tracks the cover's average — which is exactly what
+    // MediaService.artDark measures — making this choice readable in practice.
+    readonly property color contentColor: artReady
+        ? (MediaService.artDark ? "#ffffff" : "#101012")
+        : (ThemeService.isDark ? "#ffffff" : ThemeService.fg)
+
+    // Theme-independent surface: when art is present the pill is an opaque
+    // frosted base (identical in light & dark) — the near-opaque blurred art
+    // below supplies the color, so the pill reads as the album cover rather
+    // than the wallpaper behind it. Falls back to the themed glass pill only
+    // when there's no art yet.
+    color: artReady
+        ? (hovered ? Qt.rgba(0.14, 0.14, 0.15, 1.0) : Qt.rgba(0.11, 0.11, 0.12, 1.0))
+        : (hovered ? ThemeService.pillBgHover : ThemeService.pillBg)
+    border.color: artReady
+        ? (hovered ? Qt.rgba(1, 1, 1, 0.35) : Qt.rgba(1, 1, 1, 0.16))
+        : (hovered ? ThemeService.pillBorderHover : ThemeService.pillBorder)
+
+    // ── Frosted, blurred album-art backdrop (fills the whole pill) ────────────
+    // Clipped to the pill's rounded shape; sits behind the content. Near-opaque
+    // so the pill's brightness matches the cover; identical in light & dark.
+    ClippingRectangle {
+        anchors.fill: parent
+        anchors.margins: root.border.width
+        radius: parent.radius
+        color: "transparent"
+        visible: root.artReady
+
+        Image {
+            id: bgArt
+            anchors.fill: parent
+            source: cover.source
+            fillMode: Image.PreserveAspectCrop
+            smooth: true
+            mipmap: true
+            cache: true
+            asynchronous: true
+            sourceSize.width: 256
+            sourceSize.height: 256
+            visible: false   // drawn via the blur effect below
+        }
+        MultiEffect {
+            anchors.fill: parent
+            source: bgArt
+            autoPaddingEnabled: false
+            blurEnabled: true
+            blur: 1.0
+            blurMax: 48
+            opacity: 0.92
+        }
+    }
 
     RowLayout {
         id: content
@@ -33,50 +99,42 @@ PillContainer {
         anchors.verticalCenter: parent.verticalCenter
         spacing: 8
 
-        // ── Album art (rounded) ───────────────────────────────────────────
+        // ── Album art ─────────────────────────────────────────────────────
+        // Fixed-size layout slot so the pill width stays constant; the artwork
+        // inside scales (and animates) within it, centred.
         Item {
-            Layout.preferredWidth: 22
-            Layout.preferredHeight: 22
+            Layout.alignment: Qt.AlignVCenter
+            Layout.preferredWidth: root.artSizePlaying
+            Layout.preferredHeight: root.artSizePlaying
 
-            Rectangle {
-                anchors.fill: parent
-                radius: 7
-                color: Qt.rgba(0, 0, 0, 0.20)
-                visible: cover.status !== Image.Ready
-                Text {
-                    anchors.centerIn: parent
-                    text: "󰎈"
-                    color: "#ffffff"
-                    font.family: "JetBrainsMono Nerd Font Propo"
-                    font.pixelSize: 12
-                    opacity: 0.7
-                }
-            }
+            Item {
+                id: artBox
+                anchors.centerIn: parent
+                width: root.artSize
+                height: root.artSize
 
-            // Hidden Image purely for status tracking (the visible art lives
-            // inside the ClippingRectangle below — Rectangle.clip alone does
-            // *not* clip children to its rounded corners).
-            Image {
-                id: cover
-                anchors.fill: parent
-                source: MediaService.artUrl
-                fillMode: Image.PreserveAspectCrop
-                smooth: true
-                mipmap: true
-                cache: true
-                asynchronous: true
-                sourceSize.width: 44
-                sourceSize.height: 44
-                visible: false
-            }
-
-            ClippingRectangle {
-                anchors.fill: parent
-                radius: 7
-                color: "transparent"
-                Image {
+                Rectangle {
                     anchors.fill: parent
-                    source: cover.source
+                    radius: Math.round(parent.width * 0.32)
+                    color: Qt.rgba(0, 0, 0, 0.20)
+                    visible: !root.artReady
+                    Text {
+                        anchors.centerIn: parent
+                        text: "󰎈"
+                        color: root.contentColor
+                        font.family: "JetBrainsMono Nerd Font Propo"
+                        font.pixelSize: Math.round(parent.width * 0.55)
+                        opacity: 0.7
+                    }
+                }
+
+                // Hidden Image purely for status tracking (the visible art lives
+                // inside the ClippingRectangle below — Rectangle.clip alone does
+                // *not* clip children to its rounded corners).
+                Image {
+                    id: cover
+                    anchors.fill: parent
+                    source: MediaService.artUrl
                     fillMode: Image.PreserveAspectCrop
                     smooth: true
                     mipmap: true
@@ -84,7 +142,29 @@ PillContainer {
                     asynchronous: true
                     sourceSize.width: 44
                     sourceSize.height: 44
-                    visible: cover.status === Image.Ready
+                    visible: false
+                    // Latch the backdrop/foreground on once a cover is ready;
+                    // async loading keeps the previous frame painted meanwhile,
+                    // so the swap is seamless instead of a placeholder blink.
+                    onStatusChanged: if (status === Image.Ready) root.artReady = true
+                }
+
+                ClippingRectangle {
+                    anchors.fill: parent
+                    radius: Math.round(parent.width * 0.32)
+                    color: "transparent"
+                    visible: root.artReady
+                    Image {
+                        anchors.fill: parent
+                        source: cover.source
+                        fillMode: Image.PreserveAspectCrop
+                        smooth: true
+                        mipmap: true
+                        cache: true
+                        asynchronous: true
+                        sourceSize.width: 44
+                        sourceSize.height: 44
+                    }
                 }
             }
         }
@@ -95,10 +175,19 @@ PillContainer {
             // No title/artist → drop this item entirely (visible:false also
             // collapses the RowLayout spacing) so the album art stays centred.
             visible: marquee.fullText !== ""
+            Layout.alignment: Qt.AlignVCenter
             // Cap the visible window at 360px; if title fits we shrink to it.
-            Layout.preferredWidth: Math.min(360, label.implicitWidth)
+            readonly property int maxWidth: 360
+            readonly property real windowWidth: Math.min(maxWidth, label.implicitWidth)
+            Layout.preferredWidth: windowWidth
             Layout.preferredHeight: label.implicitHeight
             clip: true
+
+            // Ease the text-window width between songs so the whole pill grows
+            // and shrinks smoothly (and stays in sync) instead of snapping.
+            Behavior on Layout.preferredWidth {
+                NumberAnimation { duration: 280; easing.type: Easing.OutCubic }
+            }
 
             readonly property string fullText: {
                 let a = MediaService.artist
@@ -106,8 +195,12 @@ PillContainer {
                 if (a && t) return a + "  •  " + t
                 return t || a || ""
             }
-            readonly property bool needsScroll: label.implicitWidth > width + 0.5
-            readonly property int scrollDistance: needsScroll ? Math.ceil(label.implicitWidth - width) : 0
+            // Measure the scroll against the settled target window width, not the
+            // live (Behavior-animated) item width — otherwise the first scroll can
+            // capture an oversized distance while the width is still easing in and
+            // overshoot far past the end of the text.
+            readonly property bool needsScroll: label.implicitWidth > windowWidth + 0.5
+            readonly property int scrollDistance: needsScroll ? Math.ceil(label.implicitWidth - windowWidth) : 0
 
             // When the song changes, snap text back to the start so the next
             // marquee cycle reads the new title from the beginning.
@@ -117,7 +210,10 @@ PillContainer {
                 id: label
                 text: marquee.fullText
                 x: 0
-                color: "#ffffff"
+                anchors.verticalCenter: parent.verticalCenter
+                // Color tracks the album-art brightness (iOS-style) so the text
+                // stays legible over the frosted artwork.
+                color: root.contentColor
                 font.family: "SF Pro Display"
                 font.pixelSize: 12
                 font.weight: Font.Medium

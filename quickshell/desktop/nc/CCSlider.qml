@@ -12,6 +12,20 @@ Item {
     readonly property bool dark: ThemeService.isDark
     implicitHeight: titleText.implicitHeight + 12 + 28
 
+    // Track geometry, exposed so callers can place a control (e.g. the Display
+    // dropdown button) at exactly the track's height and vertical position.
+    readonly property real trackTop: track.y
+    readonly property real trackHeight: track.height
+
+    // Display position. Normally mirrors `value` (which may be bound to a service
+    // like AudioService.vol), but while dragging we show the local drag position
+    // for instant feedback. We never assign to `value` itself, so the external
+    // binding keeps updating the slider — e.g. when switching the output device
+    // changes the bound volume.
+    property bool _dragging: false
+    property real _drag: 0
+    readonly property real _pos: _dragging ? _drag : value
+
     Text {
         id: titleText
         text: root.label
@@ -43,7 +57,7 @@ Item {
             id: fill
             anchors { left: parent.left; top: parent.top; bottom: parent.bottom }
             width: Math.max(parent.height,
-                  parent.width * (root.value - root.minimum) / (root.maximum - root.minimum))
+                  parent.width * (root._pos - root.minimum) / (root.maximum - root.minimum))
             radius: parent.radius
             color: dark ? "#f4f5f7" : "#ffffff"
             // Outline the fill in both modes so its level edge reads clearly
@@ -79,12 +93,14 @@ Item {
             function emitFromX(x) {
                 let ratio = Math.max(0, Math.min(1, x / width))
                 let v = root.minimum + ratio * (root.maximum - root.minimum)
-                root.value = v
+                root._drag = v
                 root.moved(v)
             }
 
-            onPressed: emitFromX(mouseX)
+            onPressed: { root._dragging = true; emitFromX(mouseX) }
             onPositionChanged: if (pressed) emitFromX(mouseX)
+            onReleased: root._dragging = false
+            onCanceled: root._dragging = false
         }
     }
 }

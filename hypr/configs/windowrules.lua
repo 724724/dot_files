@@ -4,6 +4,19 @@
 -- See https://wiki.hypr.land/Configuring/Basics/Window-Rules/
 -- Rules are evaluated top to bottom — order matters.
 
+-- Position a floating window relative to the cursor but keep it fully on-screen.
+-- NOTE: the Lua `move` field only accepts math expressions — the hyprlang
+-- `move onscreen cursor 50% 50%` keyword syntax does NOT work here and silently
+-- falls back to monitor-centering. So we clamp by hand: move expressions are in
+-- monitor-local coords, and only min()/max() (not clamp()) are supported, with
+-- vars cursor_x/y, window_w/h, monitor_w/h. dx/dy are the cursor offset strings.
+local function cursor_on_screen(dx, dy)
+    return {
+        "max(0, min(cursor_x" .. dx .. ", monitor_w-window_w))",
+        "max(0, min(cursor_y" .. dy .. ", monitor_h-window_h))",
+    }
+end
+
 -- -----------------------------------------------------
 -- Opacity Rules
 -- -----------------------------------------------------
@@ -21,11 +34,18 @@ hl.window_rule({ match = { class = "^(mpv)$" },                opacity = "1.0 ov
 -- Floating & PIP
 -- -----------------------------------------------------
 
+-- Floating mode on all windows
+hl.window_rule({ 
+    match = { class = ".*" }, 
+    float = true,
+    move = cursor_on_screen("-(window_w*0.5)", "-(window_h*0.5)")
+})
+
 -- Notion Command Search (Spotlight style)
 hl.window_rule({ match = { title = "^(Notion - Command Search)$" }, float = true })
 hl.window_rule({
     match = { title = "^(Notion - Command Search)$" },
-    move  = { "cursor_x-(window_w*0.95)", "cursor_y+(window_h*0.05)" },
+    move  = cursor_on_screen("-(window_w*0.95)", "+(window_h*0.05)"),
 })
 
 -- Picture-in-Picture
@@ -52,7 +72,7 @@ hl.window_rule({ match = { class = "^(org.gnome.NautilusPreviewer)$" }, float = 
 -- Center on cursor
 hl.window_rule({
     match = { class = "^(spotify)$", title = "^(Spotify Premium)$" },
-    move  = { "cursor_x-(window_w*0.5)", "cursor_y-(window_h*0.5)" },
+    move  = cursor_on_screen("-(window_w*0.5)", "-(window_h*0.5)"),
 })
 
 -- -----------------------------------------------------
@@ -64,13 +84,13 @@ hl.window_rule({ match = { class = "^(blueman-manager)$",    title = "^(Bluetoot
 hl.window_rule({ match = { class = "org.gnome.Nautilus" }, float = true, size = { 1000, 600 } })
 hl.window_rule({
     match = { class = "^(org.gnome.Nautilus)$" },
-    move  = { "cursor_x-(window_w*0.5)", "cursor_y-(window_h*0.5)" },
+    move  = cursor_on_screen("-(window_w*0.5)", "-(window_h*0.5)"),
 })
 
 hl.window_rule({ match = { class = "^(org.gnome.Calculator)$", title = "^(Calculator)$" }, float = true })
 hl.window_rule({
     match = { class = "^(org.gnome.Calculator)$", title = "^(Calculator)$" },
-    move  = { "cursor_x-(window_w*0.5)", "cursor_y-(window_h*0.5)" },
+    move  = cursor_on_screen("-(window_w*0.5)", "-(window_h*0.5)"),
 })
 
 hl.window_rule({ match = { title = "^(Open Folder)$" },              float = true })
@@ -79,13 +99,13 @@ hl.window_rule({ match = { class = "^(xdg-desktop-portal-gtk)$" },   float = tru
 hl.window_rule({ match = { class = "^(org.gnome.SystemMonitor)$", title = "^(System Monitor)$" }, float = true })
 hl.window_rule({
     match = { class = "^(org.gnome.SystemMonitor)$", title = "^(System Monitor)$" },
-    move  = { "cursor_x-(window_w*0.5)", "cursor_y-(window_h*0.5)" },
+    move  = cursor_on_screen("-(window_w*0.5)", "-(window_h*0.5)"),
 })
 
 hl.window_rule({ match = { class = "^(me.kavishdevar.librepods)$", title = "^(LibrePods)$" }, float = true })
 hl.window_rule({
     match = { class = "^(me.kavishdevar.librepods)$", title = "^(LibrePods)$" },
-    move  = { "cursor_x-(window_w*0.5)", "cursor_y-(window_h*0.5)" },
+    move  = cursor_on_screen("-(window_w*0.5)", "-(window_h*0.5)"),
 })
 
 hl.window_rule({ match = { class = "^(anki)$" },      float = true })
@@ -94,31 +114,31 @@ hl.window_rule({ match = { class = "^(GStreamer)$" }, float = true })
 hl.window_rule({ match = { class = "^(org.gnome.Solanum)$" }, float = true })
 hl.window_rule({
     match = { class = "^(org.gnome.Solanum)$" },
-    move  = { "cursor_x-(window_w*0.5)", "cursor_y-(window_h*0.5)" },
+    move  = cursor_on_screen("-(window_w*0.5)", "-(window_h*0.5)"),
 })
 
 hl.window_rule({ match = { class = "^(vesktop)$" }, float = true })
 hl.window_rule({
     match = { class = "^(vesktop)$" },
-    move  = { "cursor_x-(window_w*0.5)", "cursor_y-(window_h*0.5)" },
+    move  = cursor_on_screen("-(window_w*0.5)", "-(window_h*0.5)"),
 })
 
 hl.window_rule({ match = { class = "^(it.mijorus.smile)$" }, float = true, size = { 320, 400 } })
 hl.window_rule({
     match = { class = "^(it.mijorus.smile)$" },
-    move  = { "cursor_x", "cursor_y-(window_h)" },
+    move  = cursor_on_screen("", "-(window_h)"),
 })
 
 hl.window_rule({ match = { class = "^(org.pulseaudio.pavucontrol)$" }, float = true, size = { 800, 700 } })
 hl.window_rule({
     match = { class = "^(org.pulseaudio.pavucontrol)$" },
-    move  = { "cursor_x-(window_w*1.15)", "cursor_y+(window_h*0.06)" },
+    move  = cursor_on_screen("-(window_w*1.15)", "+(window_h*0.06)"),
 })
 
 hl.window_rule({
     match = { class = "^(explorer.exe)$" },
     float = true,
-    move  = { "cursor_x-(window_w*1.15)", "cursor_y+(window_h*0.06)" },
+    move  = cursor_on_screen("-(window_w*1.15)", "+(window_h*0.06)"),
 })
 
 -- -----------------------------------------------------
@@ -226,3 +246,6 @@ hl.layer_rule({ match = { namespace = "qs-notif" }, blur = true, ignore_alpha = 
 
 -- nwg-dock
 hl.layer_rule({ match = { namespace = "nwg-dock" }, blur = true, ignore_alpha = 0.5 })
+
+-- Waydroid (Always Fullscreen)
+hl.window_rule({ match = { class = "^(Waydroid.*)$" }, fullscreen = true })

@@ -16,14 +16,45 @@ Rectangle {
     readonly property bool hasImage: notification.image && notification.image !== ""
     readonly property bool hasAppIcon: notification.appIcon && notification.appIcon !== ""
 
+    // ── Control-center scroll fade ───────────────────────────────────────────
+    // Darkens the card by its position in the scroll viewport, fading toward
+    // whichever edge still hides content (bottom when more is below, top once
+    // scrolled past the middle). The parent feeds the live scroll metrics; the
+    // overlay is clipped to the card's rounded rect, so gaps between cards stay
+    // fully transparent — only the cards darken.
+    property bool fadeActive: false
+    property real fadeViewportH: 1     // scroll viewport height
+    property real fadeViewportY: 0     // this card's top within the viewport
+    property real fadeScrollFrac: 0    // 0 at top of the list, 1 at the bottom
+    property real fadeMax: 0.3         // peak darkness at the far edge
+    property real fadeStart: 0.85      // fraction of the viewport kept fully clear;
+                                       // the fade ramps in across the remaining tail
+
+    // Darkness at a point `vpY` px down the viewport, keyed to a *fraction* of
+    // the viewport height (not a card count): the first `fadeStart` of the area
+    // stays fully clear and the fade ramps in across the remaining tail toward
+    // the far edge. Crossfaded by scroll position so the clear region sits at
+    // the top while there's content below, and at the bottom once past the
+    // middle (the unfaded part always hugs the non-hidden end).
+    function _fadeAt(vpY) {
+        let f = vpY / Math.max(1, fadeViewportH)   // 0 at top → 1 at bottom
+        let ramp = Math.max(0.0001, 1 - fadeStart)
+        // down: clear over the top `fadeStart`, deepening toward the bottom.
+        // up:   clear over the bottom `fadeStart`, deepening toward the top.
+        let down = Math.max(0, Math.min(1, (f - fadeStart) / ramp))
+        let up   = Math.max(0, Math.min(1, ((1 - f) - fadeStart) / ramp))
+        down = down * down * (3 - 2 * down)    // smoothstep for a soft onset
+        up   = up * up * (3 - 2 * up)
+        return ((1 - fadeScrollFrac) * down + fadeScrollFrac * up) * fadeMax
+    }
+
     implicitWidth: 380
     implicitHeight: cardContent.implicitHeight + 32
     radius: 14
 
     // Fully opaque so cards stacked behind never bleed through the front one.
-    color: dark ? Qt.rgba(58/255, 58/255, 64/255, 1.0)
-                : Qt.rgba(255/255, 255/255, 255/255, 1.0)
-    border.color: dark ? Qt.rgba(1,1,1,0.06) : Qt.rgba(0,0,0,0.06)
+    color: ThemeService.bg
+    border.color: ThemeService.stroke
     border.width: 1
 
     Behavior on implicitHeight { NumberAnimation { duration: 150 } }
@@ -230,5 +261,19 @@ Rectangle {
             }
         }
 
+    }
+
+    // Scroll-fade overlay — clipped to the card's rounded rect (radius matches),
+    // sampling the global fade at the card's top and bottom viewport positions.
+    // Non-interactive, so buttons underneath stay clickable.
+    Rectangle {
+        anchors.fill: parent
+        radius: card.radius
+        z: 100
+        visible: card.fadeActive
+        gradient: Gradient {
+            GradientStop { position: 0.0; color: Qt.rgba(0, 0, 0, card._fadeAt(card.fadeViewportY)) }
+            GradientStop { position: 1.0; color: Qt.rgba(0, 0, 0, card._fadeAt(card.fadeViewportY + card.height)) }
+        }
     }
 }

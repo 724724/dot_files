@@ -26,9 +26,8 @@ PanelWindow {
     // ── Theme tokens (iOS palette, dark/light aware) ─────────────────────
     readonly property bool dark: ThemeService.isDark
     readonly property color accent:        dark ? "#0A84FF" : "#007AFF"
-    readonly property color cardBg:        dark ? Qt.rgba(28/255, 28/255, 32/255, 0.7)
-                                                : Qt.rgba(245/255, 245/255, 247/255, 0.7)
-    readonly property color cardBorder:    dark ? Qt.rgba(1, 1, 1, 0.10) : Qt.rgba(0, 0, 0, 0.08)
+    readonly property color cardBg:        ThemeService.bg
+    readonly property color cardBorder:    ThemeService.stroke
     readonly property color primaryText:   dark ? "#ffffff" : "#1a1a1a"
     readonly property color secondaryText: dark ? Qt.rgba(1, 1, 1, 0.55) : Qt.rgba(0, 0, 0, 0.55)
     readonly property color fadedText:     dark ? Qt.rgba(1, 1, 1, 0.25) : Qt.rgba(0, 0, 0, 0.28)

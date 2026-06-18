@@ -46,10 +46,8 @@ PanelWindow {
         height: 52
         radius: 26
 
-        color: dark ? Qt.rgba(20/255, 25/255, 30/255, 0.90)
-                    : Qt.rgba(1, 1, 1, 0.90)
-        border.color: dark ? Qt.rgba(100/255, 100/255, 120/255, 0.30)
-                           : Qt.rgba(0, 0, 0, 0.12)
+        color: ThemeService.bg
+        border.color: ThemeService.stroke
         border.width: 1
 
         Behavior on color { ColorAnimation { duration: 200 } }

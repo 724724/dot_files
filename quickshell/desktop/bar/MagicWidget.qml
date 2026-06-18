@@ -15,10 +15,10 @@ PillContainer {
         ? Qt.rgba(180/255, 140/255, 255/255, 0.65)
         : hasMagic
             ? Qt.rgba(180/255, 140/255, 255/255, 0.45)
-            : Qt.rgba(30/255, 40/255, 50/255, 0.25)
+            : ThemeService.pillBg
     border.color: hasMagic || hovered
         ? Qt.rgba(180/255, 140/255, 255/255, 0.6)
-        : Qt.rgba(100/255, 210/255, 180/255, 0.3)
+        : ThemeService.pillBorder
 
     TapHandler {
         onTapped: Hyprland.dispatch('hl.dsp.workspace.toggle_special("magic")')
@@ -33,7 +33,7 @@ PillContainer {
 
         Text {
             text: "󰘔"
-            color: root.hasMagic ? "#ffffff" : "#d4f1e8"
+            color: (ThemeService.isDark && root.hasMagic) ? "#ffffff" : ThemeService.fg
             font.family: "JetBrainsMono Nerd Font Propo"
             font.pixelSize: 12
 

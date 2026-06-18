@@ -9,12 +9,8 @@ Rectangle {
     // Pills that respond to clicks opt in to a pointing-hand cursor on hover.
     property bool clickable: false
 
-    color: (hovered || active)
-        ? Qt.rgba(40/255, 50/255, 60/255, 0.4)
-        : Qt.rgba(30/255, 40/255, 50/255, 0.25)
-    border.color: (hovered || active)
-        ? Qt.rgba(100/255, 210/255, 180/255, 0.4)
-        : Qt.rgba(100/255, 210/255, 180/255, 0.3)
+    color: (hovered || active) ? ThemeService.pillBgHover : ThemeService.pillBg
+    border.color: (hovered || active) ? ThemeService.pillBorderHover : ThemeService.pillBorder
     border.width: 1
     radius: 999
 

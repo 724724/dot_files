@@ -159,9 +159,8 @@ Item {
         width: tipLabel.implicitWidth + 16
         height: tipLabel.implicitHeight + 8
         radius: 7
-        color: dark ? Qt.rgba(28/255, 28/255, 33/255, 0.96)
-                    : Qt.rgba(250/255, 250/255, 250/255, 0.96)
-        border.color: dark ? Qt.rgba(1,1,1,0.13) : Qt.rgba(0,0,0,0.11)
+        color: ThemeService.bg
+        border.color: ThemeService.stroke
         border.width: 1
         Behavior on opacity { NumberAnimation { duration: 120; easing.type: Easing.OutQuad } }
 

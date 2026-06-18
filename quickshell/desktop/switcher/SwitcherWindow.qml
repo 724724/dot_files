@@ -179,9 +179,8 @@ PanelWindow {
         height: win.cardH
         radius: 22
 
-        color: dark ? Qt.rgba(28/255, 28/255, 32/255, 0.78)
-                    : Qt.rgba(245/255, 245/255, 247/255, 0.78)
-        border.color: dark ? Qt.rgba(1, 1, 1, 0.13) : Qt.rgba(0, 0, 0, 0.13)
+        color: ThemeService.bg
+        border.color: ThemeService.stroke
         border.width: 1
 
         opacity: win.show ? 1.0 : 0.0

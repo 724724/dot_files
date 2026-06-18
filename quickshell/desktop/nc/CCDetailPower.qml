@@ -38,23 +38,16 @@ Item {
         { id: "shutdown",  label: "Shutdown",  icon: "󰐥", color: "#FF453A", needsConfirm: true }
     ]
 
-    // ── PROCESSES ────────────────────────────────────────────────────────────
-    // setsid -f forks a fresh session and detaches the script before this
-    // qs-owned Process object can be torn down by the control-center close.
-    // Earlier we tried `systemd-run --user --no-block`, but routing the
-    // systemctl calls through a transient user unit caused shutdown/reboot
-    // to silently no-op (only logout / lock worked). Forking with
-    // setsid keeps the script's session intact and lets it complete its
-    // graceful-close + systemctl call without parent supervision.
-    Process {
-        id: actProc
-        command: ["true"]
-    }
+    // ── ACTION LAUNCH ────────────────────────────────────────────────────────
+    // Launch via Quickshell.execDetached: it forks a fully OS-detached process
+    // synchronously, so the script is already running independently before we
+    // close the control center. A qs-owned Process here would be racy — closing
+    // the window deactivates this detail's Loader and destroys the Process,
+    // which could drop the child before it ever spawned (intermittent no-op on
+    // shutdown/reboot). execDetached has no such lifetime coupling.
     function _runDetached(cmd) {
-        actProc.command = ["sh", "-c",
-            "setsid -f bash /home/sejunlee/.config/quickshell/scripts/power.sh "
-            + cmd + " </dev/null >/dev/null 2>&1"]
-        actProc.running = true
+        Quickshell.execDetached(
+            ["bash", "/home/sejunlee/.config/quickshell/scripts/power.sh", cmd])
     }
 
     // Lookup running GUI apps, excluding shell internals. Triggered when an

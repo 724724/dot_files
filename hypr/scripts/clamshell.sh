@@ -6,16 +6,23 @@
 #   덮개 닫힘 (그 외)                       →  RAM 절전 (suspend)
 #   덮개 열림                               →  내장 패널 복구
 #
+# ── Lua(non-legacy) 파서 주의 ────────────────────────────────────────────────
+# 이 설정은 hyprland.lua(0.55+) 파서를 쓴다. 그래서 `hyprctl keyword monitor ...`는
+#   "keyword can't work with non-legacy parsers. Use eval."
+# 로 무음 실패한다(에러를 내도 exit 0이라 성공한 척한다). 반드시 eval/reload를 쓸 것:
+#   - 내장 끄기 : hyprctl eval 'hl.monitor({ ..., disabled = true })'
+#                 → eDP-1이 빠지면서 그 위 워크스페이스가 외부 모니터로 자동 이동한다.
+#   - 내장 복구 : hyprctl reload
+#                 → monitors.conf(설정의 source of truth)를 다시 적용해 eDP-1을 되살린다.
+#                 hl.monitor()를 다시 호출하는 것만으로는 0.55에서 재활성화가 안 된다(reload 필요).
+#                 reload는 autostart(hl.on "hyprland.start")를 재실행하지 않으므로 앱 중복 없음.
+#
 # 사용법: clamshell.sh [closed|open]   (인자 없으면 /proc 에서 현재 lid 상태 감지)
 # 호출 위치: configs/keybindings.lua 의 switch:Lid Switch 바인딩
 
 set -euo pipefail
 
 INTERNAL="eDP-1"   # 내장 패널 (hyprctl monitors)
-
-# 내장 패널 복구 라인 — monitors.lua/monitors.conf 의 eDP-1 설정과 동일하게 유지할 것
-# (nwg-displays 로 모니터 설정을 바꾸면 이 값도 같이 갱신)
-INTERNAL_RESTORE="$INTERNAL, 3840x2400@60.0, 314x1440, 2.0, bitdepth, 10"
 
 note() { logger -t clamshell -- "$*"; }
 
@@ -46,15 +53,16 @@ external_connected() {
 case "${1:-$(lid_state)}" in
     closed)
         if on_ac && external_connected; then
-            note "lid closed + AC + external → clamshell (disable $INTERNAL)"
-            hyprctl keyword monitor "$INTERNAL, disable"   # 내장 화면 OFF → 워크스페이스 외부로 자동 이동
+            note "lid closed + AC + external → clamshell (disable $INTERNAL via lua eval)"
+            # 내장 패널 OFF → 워크스페이스가 외부 모니터로 자동 이동
+            hyprctl eval "hl.monitor({ output = \"$INTERNAL\", disabled = true })" >/dev/null
         else
             note "lid closed, no dock/power → suspend"
             systemctl suspend                              # SuspendToRAM
         fi
         ;;
     open)
-        note "lid open → restore $INTERNAL"
-        hyprctl keyword monitor "$INTERNAL_RESTORE"        # 내장 화면 복구
+        note "lid open → restore $INTERNAL (hyprctl reload)"
+        hyprctl reload >/dev/null                          # monitors.conf 재적용으로 eDP-1 복구
         ;;
 esac

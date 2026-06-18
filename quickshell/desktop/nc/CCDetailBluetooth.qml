@@ -19,6 +19,10 @@ Item {
     property var devices: []
     property bool scanning: false
 
+    // MAC of the device currently being (dis)connected/paired — shows a spinner
+    // in place of its status until the action settles and the list refreshes.
+    property string busyMac: ""
+
     // ── PROCESSES ─────────────────────────────────────────────────────────────
     // Inline flip — the swaync helper required $SWAYNC_TOGGLE_STATE, which
     // we don't pass, so it always powered off.
@@ -85,6 +89,9 @@ Item {
                     (b.paired - a.paired) ||
                     a.name.localeCompare(b.name))
                 root.devices = arr
+                // Clear the spinner only once the triggering action has finished
+                // (actProc idle) — periodic/scan refreshes mustn't cut it short.
+                if (!actProc.running) root.busyMac = ""
             }
         }
     }
@@ -98,6 +105,8 @@ Item {
     }
 
     function deviceClicked(d) {
+        if (root.busyMac !== "") return   // ignore taps while one is in flight
+        root.busyMac = d.mac
         let cmd
         if (d.connected) {
             cmd = "bluetoothctl disconnect " + d.mac
@@ -124,10 +133,11 @@ Item {
 
     Component.onCompleted: listProc.running = true
 
-    // Light periodic refresh while open
+    // Light periodic refresh while open. Paused mid-action so reassigning the
+    // device list doesn't rebuild the row and reset its spinner.
     Timer {
         interval: 5000
-        running: root.visible && !root.scanning
+        running: root.visible && !root.scanning && root.busyMac === ""
         repeat: true
         onTriggered: listProc.running = true
     }
@@ -260,12 +270,51 @@ Item {
                                 rightMargin: 12
                                 verticalCenter: parent.verticalCenter
                             }
+                            visible: root.busyMac !== modelData.mac
                             text: modelData.connected
                                 ? "Connected"
                                 : (modelData.paired ? "Paired" : "Tap to pair")
                             color: dark ? Qt.rgba(1,1,1,0.5) : Qt.rgba(0,0,0,0.50)
                             font.family: "SF Pro Display"
                             font.pixelSize: 11
+                        }
+
+                        // Spinner shown in place of the status while this device
+                        // is (dis)connecting / pairing.
+                        Item {
+                            id: spinner
+                            anchors {
+                                right: parent.right
+                                rightMargin: 12
+                                verticalCenter: parent.verticalCenter
+                            }
+                            width: 14; height: 14
+                            visible: root.busyMac === modelData.mac
+
+                            Canvas {
+                                id: spinCv
+                                anchors.fill: parent
+                                onPaint: {
+                                    let ctx = getContext("2d")
+                                    ctx.reset()
+                                    let c = width / 2
+                                    ctx.lineWidth = 2
+                                    ctx.lineCap = "round"
+                                    ctx.strokeStyle = dark ? "rgba(255,255,255,0.75)"
+                                                           : "rgba(0,0,0,0.55)"
+                                    ctx.beginPath()
+                                    ctx.arc(c, c, c - 1.5, 0, Math.PI * 1.4)
+                                    ctx.stroke()
+                                }
+                            }
+
+                            RotationAnimator {
+                                target: spinner
+                                running: spinner.visible
+                                from: 0; to: 360
+                                duration: 800
+                                loops: Animation.Infinite
+                            }
                         }
 
                         MouseArea {

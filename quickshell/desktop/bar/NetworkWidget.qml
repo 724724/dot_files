@@ -9,10 +9,8 @@ PillContainer {
     implicitWidth: row.implicitWidth + 24
 
     color: hovered
-        ? Qt.rgba(40/255, 50/255, 60/255, 0.4)
-        : NetworkService.isConnected
-            ? Qt.rgba(30/255, 40/255, 50/255, 0.25)
-            : Qt.rgba(150/255, 150/255, 150/255, 0.25)
+        ? ThemeService.pillBgHover
+        : NetworkService.isConnected ? ThemeService.pillBg : ThemeService.pillBgMuted
 
     Process {
         id: nmLauncher
@@ -33,7 +31,7 @@ PillContainer {
                 if (!NetworkService.isConnected) return "󰤭"
                 return NetworkService.isWifi ? "󰤨" : "󰈀"
             }
-            color: NetworkService.isConnected ? "#d4f1e8" : "#b0b0b0"
+            color: NetworkService.isConnected ? ThemeService.fg : ThemeService.fgDim
             font.family: "JetBrainsMono Nerd Font Propo"
             font.pixelSize: 12
         }
@@ -45,7 +43,7 @@ PillContainer {
                     return NetworkService.ssid
                 return "Connected"
             }
-            color: NetworkService.isConnected ? "#d4f1e8" : "#b0b0b0"
+            color: NetworkService.isConnected ? ThemeService.fg : ThemeService.fgDim
             font.family: "SF Pro Display"
             font.pixelSize: 11
         }

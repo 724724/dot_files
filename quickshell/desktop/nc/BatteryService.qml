@@ -8,6 +8,7 @@ Singleton {
     property int level: 0           // 0-100
     property string status: ""      // Charging | Discharging | Full | Not charging
     property string mode: ""        // performance | balanced | power-saver
+    property real power: 0          // instantaneous battery power, watts
 
     readonly property bool charging: status === "Charging" || status === "Full"
 
@@ -33,15 +34,23 @@ Singleton {
 
     Process {
         id: batProc
+        // power_now is in µW; if the kernel only exposes current/voltage,
+        // derive it as current_now(µA) × voltage_now(µV) / 1e6 → µW.
         command: ["bash", "-c",
-            "lvl=$(cat /sys/class/power_supply/BAT*/capacity 2>/dev/null | head -1);" +
-            "st=$(cat /sys/class/power_supply/BAT*/status 2>/dev/null | head -1);" +
-            "echo \"$lvl|$st\""]
+            "b=$(ls -d /sys/class/power_supply/BAT* 2>/dev/null | head -1);" +
+            "lvl=$(cat \"$b/capacity\" 2>/dev/null);" +
+            "st=$(cat \"$b/status\" 2>/dev/null);" +
+            "pw=$(cat \"$b/power_now\" 2>/dev/null);" +
+            "if [ -z \"$pw\" ]; then c=$(cat \"$b/current_now\" 2>/dev/null);" +
+            "v=$(cat \"$b/voltage_now\" 2>/dev/null);" +
+            "[ -n \"$c\" ] && [ -n \"$v\" ] && pw=$((c*v/1000000)); fi;" +
+            "echo \"$lvl|$st|$pw\""]
         stdout: StdioCollector {
             onStreamFinished: {
                 let p = text.trim().split("|")
                 root.level = parseInt(p[0]) || 0
                 root.status = p[1] || ""
+                root.power = (parseFloat(p[2]) || 0) / 1000000   // µW → W
             }
         }
     }
@@ -124,5 +133,14 @@ Singleton {
         repeat: true
         triggeredOnStart: true
         onTriggered: refresh()
+    }
+
+    // Fast poll for the live charging level/status/power readout. Only runs
+    // the lightweight battery read, leaving history/mode on the 30s timer.
+    Timer {
+        interval: 3000
+        running: true
+        repeat: true
+        onTriggered: batProc.running = true
     }
 }

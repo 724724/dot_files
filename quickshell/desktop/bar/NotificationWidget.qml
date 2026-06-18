@@ -36,7 +36,7 @@ PillContainer {
             Text {
                 id: notifIcon
                 text: root.isDnd ? "󰂛" : "󰂚"
-                color: "#d4f1e8"
+                color: ThemeService.fg
                 font.family: "JetBrainsMono Nerd Font Propo"
                 font.pixelSize: 14
             }

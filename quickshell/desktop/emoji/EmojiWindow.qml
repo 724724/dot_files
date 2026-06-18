@@ -47,8 +47,7 @@ PanelWindow {
         ? (placeBelow ? anchorY + arrowH + 6 : anchorY - cardH - arrowH - 6)
         : Math.max(80, Math.round(scrH * 0.18))
     readonly property real arrowX: Math.max(18, Math.min(cardW - 18, anchorX - cardX))
-    readonly property color cardColor: dark ? Qt.rgba(28 / 255, 28 / 255, 32 / 255, 0.97)
-                                            : Qt.rgba(244 / 255, 245 / 255, 248 / 255, 0.98)
+    readonly property color cardColor: ThemeService.bg
 
     // Card fades in only once placement is computed (avoids a visible jump from
     // the default position to the pointer popover).
@@ -182,7 +181,7 @@ PanelWindow {
         radius: 16
         clip: true
         color: win.cardColor
-        border.color: win.dark ? Qt.rgba(1, 1, 1, 0.12) : Qt.rgba(0, 0, 0, 0.10)
+        border.color: ThemeService.stroke
         border.width: 1
 
         opacity: (win.show && win.ready) ? 1.0 : 0.0

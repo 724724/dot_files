@@ -1,7 +1,6 @@
 import Quickshell
 import Quickshell.Io
 import QtQuick
-import "kinetic.js" as Kinetic
 
 Item {
     id: root
@@ -48,12 +47,13 @@ Item {
                 spacing: 14
 
                 // Status row
-                Row {
+                Item {
                     width: parent.width
-                    spacing: 12
+                    height: 40
 
                     Rectangle {
                         id: batBg
+                        anchors.left: parent.left
                         anchors.verticalCenter: parent.verticalCenter
                         width: 40; height: 40; radius: 20
                         color: BatteryService.charging
@@ -69,6 +69,8 @@ Item {
                     }
 
                     Column {
+                        anchors.left: batBg.right
+                        anchors.leftMargin: 12
                         anchors.verticalCenter: parent.verticalCenter
                         spacing: 1
                         Text {
@@ -85,6 +87,35 @@ Item {
                             color: dark ? Qt.rgba(1,1,1,0.55) : Qt.rgba(0,0,0,0.55)
                             font.family: "SF Pro Display"
                             font.pixelSize: 11
+                        }
+                    }
+
+                    // Live power, right-aligned with the percentage. While
+                    // charging shows the charge rate (with a bolt); on battery
+                    // it shows the laptop's current draw.
+                    Row {
+                        anchors.right: parent.right
+                        anchors.verticalCenter: parent.verticalCenter
+                        spacing: 5
+                        visible: BatteryService.power > 0
+
+                        Text {
+                            anchors.verticalCenter: parent.verticalCenter
+                            visible: BatteryService.charging
+                            text: "󱐋"
+                            color: "#34C759"
+                            font.family: "JetBrainsMono Nerd Font Propo"
+                            font.pixelSize: 13
+                        }
+                        Text {
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: BatteryService.power.toFixed(1) + " W"
+                            color: BatteryService.charging
+                                ? "#34C759"
+                                : (dark ? Qt.rgba(1,1,1,0.55) : Qt.rgba(0,0,0,0.55))
+                            font.family: "SF Pro Display"
+                            font.pixelSize: 13
+                            font.weight: Font.DemiBold
                         }
                     }
                 }
@@ -190,206 +221,6 @@ Item {
                     font.weight: Font.DemiBold
                 }
                 BatteryUsageGraph { width: parent.width }
-            }
-        }
-
-        // Extra breathing room between the Battery Level graph and the
-        // usage-by-app section below.
-        Item { width: parent.width; height: 6 }
-
-        // ── Usage by app (screen time) ───────────────────────────────────────
-        Item {
-            width: parent.width
-            height: 16
-            Text {
-                anchors { left: parent.left; verticalCenter: parent.verticalCenter }
-                text: "Battery Usage by App"
-                color: dark ? Qt.rgba(1,1,1,0.55) : Qt.rgba(0,0,0,0.55)
-                font.family: "SF Pro Display"
-                font.pixelSize: 11
-                font.weight: Font.DemiBold
-            }
-            Text {
-                anchors { right: parent.right; verticalCenter: parent.verticalCenter }
-                text: ScreenTimeService.totalSeconds > 0
-                    ? "Screen time " + ScreenTimeService.fmt(ScreenTimeService.totalSeconds)
-                    : ""
-                color: dark ? Qt.rgba(1,1,1,0.40) : Qt.rgba(0,0,0,0.40)
-                font.family: "SF Pro Display"
-                font.pixelSize: 10
-            }
-        }
-
-        Rectangle {
-            id: appsCard
-            width: parent.width
-            radius: 12
-            color: dark ? Qt.rgba(1,1,1,0.05) : Qt.rgba(0,0,0,0.04)
-
-            readonly property int rowH: 52
-            readonly property int maxVisibleRows: 6
-            readonly property int appCount: ScreenTimeService.ranked.length
-
-            // Cap the card at 6 rows; past that the list scrolls internally so
-            // the control-center window height stays fixed.
-            height: (appCount === 0
-                ? emptyLabel.implicitHeight
-                : Math.min(appCount, maxVisibleRows) * rowH) + 12
-
-            // Bars are relative to the heaviest user (ranked[0]).
-            readonly property int maxSecs: appCount > 0
-                ? ScreenTimeService.ranked[0].seconds : 1
-
-            // Snug width for the time column, measured from the widest label
-            // (the top app's — it has the longest duration). A snug, right-
-            // aligned column keeps the bar↔time gap small while letting the
-            // time sit flush to a right margin that matches the left, so the
-            // whole row is centered rather than hugging the left edge.
-            TextMetrics {
-                id: timeMetrics
-                font.family: "SF Pro Display"
-                font.pixelSize: 12
-                font.weight: Font.DemiBold
-                text: appsCard.appCount > 0
-                    ? ScreenTimeService.fmt(ScreenTimeService.ranked[0].seconds)
-                    : "00m"
-            }
-            readonly property int timeColW: Math.ceil(timeMetrics.advanceWidth) + 2
-
-            Text {
-                id: emptyLabel
-                visible: appsCard.appCount === 0
-                anchors {
-                    top: parent.top; left: parent.left; right: parent.right
-                    leftMargin: 12; rightMargin: 12; topMargin: 6
-                }
-                horizontalAlignment: Text.AlignHCenter
-                topPadding: 10; bottomPadding: 10
-                text: "No usage tracked yet — collecting…"
-                color: dark ? Qt.rgba(1,1,1,0.45) : Qt.rgba(0,0,0,0.45)
-                font.family: "SF Pro Display"
-                font.pixelSize: 11
-            }
-
-            ListView {
-                id: appsList
-                visible: appsCard.appCount > 0
-                anchors {
-                    top: parent.top; left: parent.left; right: parent.right
-                    leftMargin: 12; rightMargin: 12; topMargin: 6
-                }
-                // Viewport caps at 6 rows; the rest scrolls.
-                height: Math.min(count, appsCard.maxVisibleRows) * appsCard.rowH
-                clip: true
-                model: ScreenTimeService.ranked
-                spacing: 0
-                // Only grab scroll/flick gestures when there's overflow.
-                interactive: count > appsCard.maxVisibleRows
-                boundsBehavior: Flickable.StopAtBounds
-                flickableDirection: Flickable.VerticalFlick
-
-                // Kinetic scroll: touchpad momentum + crisp mouse notches, via
-                // the shared kinetic.js (same feel as the rest of the shell).
-                property var _ks: ({})
-                WheelHandler {
-                    acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
-                    onWheel: (ev) => {
-                        appsGlide.stop()
-                        if (Kinetic.onWheel(appsList, ev, appsList._ks, { gain: appsCard.rowH }))
-                            appsEnd.restart()
-                    }
-                }
-                Timer {
-                    id: appsEnd
-                    interval: 70
-                    onTriggered: {
-                        let g = Kinetic.fling(appsList, appsList._ks, {})
-                        if (g) { appsGlide.from = g.from; appsGlide.to = g.to; appsGlide.duration = g.duration; appsGlide.restart() }
-                    }
-                }
-                NumberAnimation { id: appsGlide; target: appsList; property: "contentY"; easing.type: Easing.OutCubic }
-
-                delegate: Item {
-                        required property var modelData
-                        required property int index
-                        width: appsList.width
-                        height: appsCard.rowH
-
-                        // Icon on the left, vertically centered over both lines.
-                        Image {
-                            id: appIcon
-                            anchors { left: parent.left; verticalCenter: parent.verticalCenter }
-                            width: 28; height: 28
-                            sourceSize.width: 56; sourceSize.height: 56
-                            fillMode: Image.PreserveAspectFit
-                            smooth: true; mipmap: true; asynchronous: true
-                            source: "image://icon/" + ScreenTimeService.iconNameFor(modelData.cls)
-                            onStatusChanged: if (status === Image.Error)
-                                source = "image://icon/application-x-executable"
-                        }
-
-                        // Time, right-aligned and flush to the right margin (which
-                        // matches the icon's left margin → the row reads centered).
-                        // Its column is sized snugly to the widest label so the
-                        // bar reaches close to it, and every row's bar matches.
-                        Text {
-                            id: timeLabel
-                            anchors { right: parent.right; verticalCenter: parent.verticalCenter }
-                            width: appsCard.timeColW
-                            horizontalAlignment: Text.AlignRight
-                            text: ScreenTimeService.fmt(modelData.seconds)
-                            color: dark ? "#f5f6f8" : "#1c1c1e"
-                            font.family: "SF Pro Display"
-                            font.pixelSize: 12
-                            font.weight: Font.DemiBold
-                        }
-
-                        // Middle column: name on top, usage bar below. The bar runs
-                        // from just right of the icon to just before the time, so
-                        // it's long and identical on every row.
-                        Column {
-                            anchors {
-                                left: appIcon.right; leftMargin: 12
-                                right: timeLabel.left; rightMargin: 10
-                                verticalCenter: parent.verticalCenter
-                            }
-                            spacing: 6
-
-                            // Name and bar are 3px narrower than the column and
-                            // centered (1.5px each side) so they shrink evenly and
-                            // stay aligned with each other.
-                            Text {
-                                width: parent.width - 3
-                                x: (parent.width - width) / 2
-                                text: ScreenTimeService.displayName(modelData.cls)
-                                elide: Text.ElideRight
-                                color: dark ? "#f5f6f8" : "#1c1c1e"
-                                font.family: "SF Pro Display"
-                                font.pixelSize: 12
-                                font.weight: Font.Medium
-                            }
-                            Rectangle {
-                                width: parent.width - 3
-                                x: (parent.width - width) / 2
-                                height: 5; radius: 2.5
-                                color: dark ? Qt.rgba(1,1,1,0.10) : Qt.rgba(0,0,0,0.08)
-                                Rectangle {
-                                    height: parent.height; radius: parent.radius
-                                    width: parent.width * modelData.seconds / Math.max(1, appsCard.maxSecs)
-                                    color: dark ? "#0A84FF" : "#007AFF"
-                                    Behavior on width { NumberAnimation { duration: 200 } }
-                                }
-                            }
-                        }
-
-                        // Hairline divider between rows (skipped after the last).
-                        Rectangle {
-                            visible: index < appsList.count - 1
-                            anchors { left: parent.left; right: parent.right; bottom: parent.bottom }
-                            height: 1
-                            color: dark ? Qt.rgba(1,1,1,0.07) : Qt.rgba(0,0,0,0.06)
-                        }
-                    }
             }
         }
     }

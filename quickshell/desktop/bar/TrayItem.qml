@@ -1,6 +1,7 @@
 import Quickshell
 import Quickshell.Services.SystemTray
 import QtQuick
+import Qt5Compat.GraphicalEffects
 
 Rectangle {
     id: trayItem
@@ -9,9 +10,27 @@ Rectangle {
 
     implicitWidth: 22
     implicitHeight: 33
-    color: mouseArea.containsMouse ? Qt.rgba(1, 1, 1, 0.12) : "transparent"
+    color: mouseArea.containsMouse
+        ? (ThemeService.isDark ? Qt.rgba(1, 1, 1, 0.12) : Qt.rgba(0, 0, 0, 0.10))
+        : "transparent"
     radius: 4
     Behavior on color { ColorAnimation { duration: 150 } }
+
+    readonly property string iconSource: {
+        let icon = trayItem.item.icon
+        if (!icon) return ""
+        if (icon.includes("://")) return icon
+        return "image://icon/" + icon
+    }
+
+    // Only the monochrome system glyphs (nm-applet's nm-*, fcitx5's fcitx-*/
+    // keyboard) render near-white and disappear on the light-mode pill. Recolour
+    // just those; coloured app icons (KakaoTalk, Notion, Bluetooth…) are left as-is.
+    readonly property bool monochrome: {
+        let s = iconSource.toLowerCase()
+        return s.indexOf("nm-") !== -1 || s.indexOf("fcitx") !== -1 || s.indexOf("keyboard") !== -1
+    }
+    readonly property bool recolor: monochrome && !ThemeService.isDark
 
     Image {
         id: iconImg
@@ -23,17 +42,21 @@ Rectangle {
         smooth: true
         mipmap: true
         fillMode: Image.PreserveAspectFit
-        source: {
-            let icon = trayItem.item.icon
-            if (!icon) return ""
-            if (icon.includes("://")) return icon
-            return "image://icon/" + icon
-        }
+        visible: !trayItem.recolor   // hidden only while the recoloured copy shows
+        source: trayItem.iconSource
 
         onStatusChanged: {
             if (status === Image.Error)
                 source = "image://icon/application-x-executable"
         }
+    }
+
+    // Dark recolour of the monochrome glyphs, shown only in light mode.
+    ColorOverlay {
+        anchors.fill: iconImg
+        source: iconImg
+        color: "#1c1c1e"
+        visible: trayItem.recolor
     }
 
     // Anchor needs anchor.window (the parent QsWindow) AND a screen-space rect

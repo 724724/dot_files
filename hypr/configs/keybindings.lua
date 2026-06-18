@@ -101,8 +101,8 @@ hl.bind("XF86SelectiveScreenshot",    hl.dsp.exec_cmd("~/.config/hypr/scripts/me
 hl.bind("XF86Display", hl.dsp.exec_cmd("~/.config/hypr/scripts/keyboard-lock.sh"), { locked = true })
 
 -- ── Night Shift — Hyprsunset toggle ─────────────────────────────────────
-hl.bind(mainMod .. " + SHIFT + XF86MonBrightnessUp",   hl.dsp.exec_cmd('hyprctl hyprsunset temperature 4500 && qs ipc -c desktop call osd custom "󰃟" "Blue Light Filter ON"'),  { locked = true })
-hl.bind(mainMod .. " + SHIFT + XF86MonBrightnessDown", hl.dsp.exec_cmd('hyprctl hyprsunset identity && qs ipc -c desktop call osd custom "󰃠" "Blue Light Filter OFF"'),         { locked = true })
+hl.bind(mainMod .. " + SHIFT + XF86MonBrightnessUp",   hl.dsp.exec_cmd('hyprctl hyprsunset temperature 4500 && printf on > "$XDG_RUNTIME_DIR/qs-nightshift" && qs ipc -c desktop call osd custom "󰃟" "Blue Light Filter ON"'),  { locked = true })
+hl.bind(mainMod .. " + SHIFT + XF86MonBrightnessDown", hl.dsp.exec_cmd('hyprctl hyprsunset identity && printf off > "$XDG_RUNTIME_DIR/qs-nightshift" && qs ipc -c desktop call osd custom "󰃠" "Blue Light Filter OFF"'),         { locked = true })
 
 -- ── Clamshell / Lid Switch (macOS clamshell mode) ───────────────────────
 -- Hall 센서 인터럽트(LidStateChanged)에 대응. 실제 판단 로직은 scripts/clamshell.sh.

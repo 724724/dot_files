@@ -34,12 +34,19 @@ Item {
         radius: 16
         color: root.active ? "#0A84FF"
                            : (dark ? Qt.rgba(1,1,1,0.14) : Qt.rgba(0,0,0,0.06))
+        // A ring keeps the circle reading as a button when inactive; the solid
+        // blue active fill drops it (matches the Disturb / mini-tile icons).
+        border.width: root.active ? 0 : 1
+        border.color: dark ? Qt.rgba(1,1,1,0.22) : Qt.rgba(0,0,0,0.16)
 
-        // Subtle pressed-state highlight
+        // Hover / pressed feedback so the icon reads as its own button — same
+        // treatment as the Disturb (mini-tile) icon.
         Rectangle {
             anchors.fill: parent
             radius: parent.radius
-            color: iconMa.pressed ? Qt.rgba(0,0,0,0.12) : "transparent"
+            color: iconMa.pressed ? Qt.rgba(0,0,0,0.18)
+                 : iconMa.containsMouse ? Qt.rgba(1,1,1,0.12) : "transparent"
+            Behavior on color { ColorAnimation { duration: 100 } }
         }
 
         Behavior on color { ColorAnimation { duration: 150 } }

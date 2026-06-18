@@ -1,10 +1,19 @@
 pragma Singleton
 import Quickshell
 import Quickshell.Io
+import QtQuick
 
 Singleton {
     id: root
     property bool isDark: true
+
+    // ── Unified surface palette ──────────────────────────────────────────────
+    // Single source of truth for every panel/window surface across the shell
+    // (bar, dock, emoji, nc, osd, spotlight, switcher). Matched to macOS
+    // NSColor.windowBackgroundColor with macOS-style ~10% separators.
+    //   Light: #ECECEC  ·  Dark: #222222  ·  stroke: black/white @ 0.10
+    readonly property color bg:     isDark ? "#222222" : "#ECECEC"
+    readonly property color stroke: isDark ? Qt.rgba(1, 1, 1, 0.10) : Qt.rgba(0, 0, 0, 0.10)
 
     // Single source of truth for the GTK theme paired with each color scheme.
     readonly property string lightTheme: "MacTahoe-Light"

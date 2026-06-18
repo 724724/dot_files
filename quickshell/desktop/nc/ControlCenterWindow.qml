@@ -35,10 +35,11 @@ PanelWindow {
             let d = win.detail, h = 600
             if (d === "wifi"       && detailWifi.item)       h = detailWifi.item.implicitHeight + 28
             else if (d === "bluetooth"  && detailBt.item)    h = detailBt.item.implicitHeight + 28
-            else if (d === "appearance" && detailAppearance.item) h = detailAppearance.item.implicitHeight + 28
+            else if (d === "usage"      && detailUsage.item)      h = detailUsage.item.implicitHeight + 28
             else if (d === "battery"    && detailBattery.item)    h = detailBattery.item.implicitHeight + 28
             else if (d === "power"      && detailPower.item)      h = detailPower.item.implicitHeight + 28
             else if (d === "dnd"        && detailDnd.item)         h = detailDnd.item.implicitHeight + 28
+            else if (d === "screentime" && detailScreenTime.item)  h = detailScreenTime.item.implicitHeight + 28
             return Math.max(180, Math.min(h, screenH - topInset - bottomGap))
         }
         // Main view: fit the Control Center widgets exactly. Notifications now
@@ -61,6 +62,14 @@ PanelWindow {
 
     property string detail: ""
 
+    // Display dropdown (Dark Mode / Night Shift) — the round button at the right
+    // end of the brightness slider expands the Display tile downward to reveal it.
+    property bool displayMenuOpen: false
+
+    // Sound dropdown (output-device picker) — same expand-downward behaviour on
+    // the Sound tile's round button.
+    property bool soundMenuOpen: false
+
     // Kick the screen-time tracker at shell startup. The singleton is lazy, so
     // without this it wouldn't begin counting until the Battery detail is first
     // opened — touching a property here forces it to instantiate now.
@@ -69,6 +78,8 @@ PanelWindow {
     onVisibleChanged: {
         if (!visible) {
             detail = ""
+            displayMenuOpen = false
+            soundMenuOpen = false
             // Always reopen with every notification stack collapsed.
             stackColumn.expandedGroups = ({})
         } else {
@@ -161,9 +172,8 @@ PanelWindow {
         anchors.topMargin: win.topInset
         anchors.rightMargin: 10
         radius: 18
-        color: dark ? Qt.rgba(28/255, 28/255, 32/255, 0.92)
-                    : Qt.rgba(245/255, 245/255, 247/255, 0.92)
-        border.color: dark ? Qt.rgba(1,1,1,0.10) : Qt.rgba(0,0,0,0.08)
+        color: ThemeService.bg
+        border.color: ThemeService.stroke
         border.width: 1
         Behavior on color { ColorAnimation { duration: 200 } }
 
@@ -211,11 +221,11 @@ PanelWindow {
                 }
             }
             Loader {
-                id: detailAppearance
+                id: detailUsage
                 anchors.fill: parent
-                active: win.detail === "appearance"
+                active: win.detail === "usage"
                 visible: active
-                sourceComponent: CCDetailAppearance { onBack: win.detail = "" }
+                sourceComponent: CCDetailUsage { onBack: win.detail = "" }
             }
             Loader {
                 id: detailBattery
@@ -240,6 +250,13 @@ PanelWindow {
                 active: win.detail === "dnd"
                 visible: active
                 sourceComponent: CCDetailDnd { onBack: win.detail = "" }
+            }
+            Loader {
+                id: detailScreenTime
+                anchors.fill: parent
+                active: win.detail === "screentime"
+                visible: active
+                sourceComponent: CCDetailScreenTime { onBack: win.detail = "" }
             }
         }
 
@@ -304,42 +321,65 @@ PanelWindow {
                             }
                             CCConnectivityRow {
                                 width: parent.width
-                                icon: ThemeService.isDark ? "󰖔" : "󰖙"
-                                label: "Appearance"
-                                sublabel: ThemeService.isDark ? "Dark" : "Light"
-                                active: ThemeService.isDark
-                                onIconClicked: ThemeService.toggle()
-                                onBodyClicked: win.detail = "appearance"
+                                icon: "󰄛"
+                                label: "Usage"
+                                sublabel: ""
+                                active: SysUsageService.runcatEnabled
+                                onIconClicked: SysUsageService.toggleRuncat()
+                                onBodyClicked: win.detail = "usage"
                             }
                         }
                     }
 
+                    // 2×2 tile grid: DND + Screen Time on top, Battery + Power
+                    // below. Each row fills half the column height so all four
+                    // tiles match the connectivity panel's overall height.
                     ColumnLayout {
                         Layout.preferredWidth: mainArea.columnW
                         Layout.preferredHeight: 178
                         spacing: 8
 
-                        CCBigToggle {
-                            Layout.fillWidth: true
-                            Layout.preferredHeight: 90
-                            icon: "󰂛"
-                            label: "Do Not\nDisturb"
-                            active: NcServer.dnd
-                            // Icon flips DND instantly; the rest of the tile (and
-                            // the chevron) drills into the duration menu.
-                            onIconClicked: NcServer.toggleDnd()
-                            onClicked: win.detail = "dnd"
-                        }
-
                         RowLayout {
                             Layout.fillWidth: true
-                            Layout.preferredHeight: 80
+                            Layout.fillHeight: true
                             spacing: 8
 
                             CCMiniTile {
                                 Layout.fillWidth: true
                                 Layout.preferredWidth: 0
-                                Layout.preferredHeight: 80
+                                Layout.fillHeight: true
+                                icon: "󰂛"
+                                label: "Disturb"
+                                active: NcServer.dnd
+                                showChevron: true
+                                // Icon flips DND instantly; the rest of the tile
+                                // (and the chevron) drills into the duration menu.
+                                iconToggle: true
+                                onIconClicked: NcServer.toggleDnd()
+                                onClicked: win.detail = "dnd"
+                            }
+
+                            CCMiniTile {
+                                Layout.fillWidth: true
+                                Layout.preferredWidth: 0
+                                Layout.fillHeight: true
+                                icon: "󰍹"
+                                iconBg: "#0A84FF"
+                                label: "Screen Time"
+                                showChevron: true
+                                onClicked: win.detail = "screentime"
+                            }
+                        }
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+                            spacing: 8
+
+                            CCMiniTile {
+                                Layout.fillWidth: true
+                                Layout.preferredWidth: 0
+                                Layout.fillHeight: true
                                 icon: BatteryService.charging ? "󰂄" : "󰁹"
                                 iconBg: BatteryService.charging ? "#34C759"
                                       : (BatteryService.level <= 20 ? "#FF453A" : "#0A84FF")
@@ -350,7 +390,7 @@ PanelWindow {
                             CCMiniTile {
                                 Layout.fillWidth: true
                                 Layout.preferredWidth: 0
-                                Layout.preferredHeight: 80
+                                Layout.fillHeight: true
                                 icon: "󰐥"
                                 iconBg: "#FF453A"
                                 label: "Power"
@@ -361,32 +401,298 @@ PanelWindow {
                 }
 
                 // ── DISPLAY ───────────────────────────────────────────────────
+                // The tile expands downward when the dropdown button is tapped,
+                // revealing the Dark Mode / Night Shift toggles inline (no popup).
                 CCPanel {
+                    id: displayPanel
+                    clip: true
                     Layout.fillWidth: true
-                    Layout.preferredHeight: brightnessSlider.implicitHeight + 28
+                    Layout.preferredHeight: (win.displayMenuOpen
+                        ? brightnessSlider.implicitHeight + 18 + displayToggles.implicitHeight
+                        : brightnessSlider.implicitHeight) + 28
+                    Behavior on Layout.preferredHeight {
+                        NumberAnimation { duration: 240; easing.type: Easing.OutCubic }
+                    }
+
                     CCSlider {
                         id: brightnessSlider
-                        anchors.fill: parent
+                        anchors {
+                            left: parent.left
+                            right: displayMenuBtn.left
+                            rightMargin: 12
+                            top: parent.top
+                        }
+                        height: implicitHeight
                         label: "Display"
                         icon: "󰃞"
                         value: BrightnessService.pct
                         onMoved: v => BrightnessService.setPct(v)
                     }
+
+                    // Round dropdown button — same height as the slider track and
+                    // pinned to its exact vertical position. Toggles the inline menu.
+                    Rectangle {
+                        id: displayMenuBtn
+                        width: brightnessSlider.trackHeight
+                        height: brightnessSlider.trackHeight
+                        radius: height / 2
+                        anchors {
+                            right: parent.right
+                            top: brightnessSlider.top
+                            topMargin: brightnessSlider.trackTop
+                        }
+                        color: menuBtnMa.containsMouse || win.displayMenuOpen
+                            ? (dark ? Qt.rgba(1,1,1,0.20) : Qt.rgba(0,0,0,0.12))
+                            : (dark ? Qt.rgba(1,1,1,0.10) : Qt.rgba(0,0,0,0.06))
+                        border.width: 1
+                        border.color: dark ? Qt.rgba(1,1,1,0.12) : Qt.rgba(0,0,0,0.10)
+                        Behavior on color { ColorAnimation { duration: 120 } }
+
+                        Text {
+                            anchors.centerIn: parent
+                            text: "󰅀"
+                            color: dark ? "#e6ebf2" : "#3a3a3c"
+                            font.family: "JetBrainsMono Nerd Font Propo"
+                            font.pixelSize: 13
+                            rotation: win.displayMenuOpen ? 180 : 0
+                            Behavior on rotation { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
+                        }
+
+                        MouseArea {
+                            id: menuBtnMa
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: win.displayMenuOpen = !win.displayMenuOpen
+                        }
+                    }
+
+                    // Hidden toggles, revealed as the tile grows. Clipped by the
+                    // panel while collapsed; disabled so they can't catch clicks.
+                    Row {
+                        id: displayToggles
+                        anchors {
+                            top: brightnessSlider.bottom
+                            topMargin: 18
+                            horizontalCenter: parent.horizontalCenter
+                        }
+                        spacing: 28
+                        opacity: win.displayMenuOpen ? 1 : 0
+                        enabled: win.displayMenuOpen
+                        Behavior on opacity { NumberAnimation { duration: 180 } }
+
+                        CCDisplayToggle {
+                            icon: "󰔎"
+                            label: "Dark Mode"
+                            active: ThemeService.isDark
+                            onClicked: ThemeService.toggle()
+                        }
+                        CCDisplayToggle {
+                            icon: "󰃠"
+                            label: "Night Shift"
+                            active: NightShiftService.active
+                            onClicked: NightShiftService.toggle()
+                        }
+                    }
                 }
 
                 // ── SOUND ─────────────────────────────────────────────────────
+                // Expands downward to reveal the output-device picker.
                 CCPanel {
+                    id: soundPanel
+                    clip: true
                     Layout.fillWidth: true
-                    Layout.preferredHeight: soundSlider.implicitHeight + 28
+                    Layout.preferredHeight: (win.soundMenuOpen
+                        ? soundSlider.implicitHeight + 14 + soundMenu.implicitHeight
+                        : soundSlider.implicitHeight) + 28
+                    Behavior on Layout.preferredHeight {
+                        NumberAnimation { duration: 240; easing.type: Easing.OutCubic }
+                    }
+
                     CCSlider {
                         id: soundSlider
-                        anchors.fill: parent
+                        anchors {
+                            left: parent.left
+                            right: soundMenuBtn.left
+                            rightMargin: 12
+                            top: parent.top
+                        }
+                        height: implicitHeight
                         label: "Sound"
                         icon: AudioService.muted ? "󰝟"
                             : (AudioService.vol < 33 ? "󰕿"
                                                      : (AudioService.vol < 66 ? "󰖀" : "󰕾"))
                         value: AudioService.vol
                         onMoved: v => AudioService.setVolume(v)
+                    }
+
+                    // Round dropdown button — same height as the slider track and
+                    // pinned to its exact vertical position. Toggles the output menu.
+                    Rectangle {
+                        id: soundMenuBtn
+                        width: soundSlider.trackHeight
+                        height: soundSlider.trackHeight
+                        radius: height / 2
+                        anchors {
+                            right: parent.right
+                            top: soundSlider.top
+                            topMargin: soundSlider.trackTop
+                        }
+                        color: soundMenuBtnMa.containsMouse || win.soundMenuOpen
+                            ? (dark ? Qt.rgba(1,1,1,0.20) : Qt.rgba(0,0,0,0.12))
+                            : (dark ? Qt.rgba(1,1,1,0.10) : Qt.rgba(0,0,0,0.06))
+                        border.width: 1
+                        border.color: dark ? Qt.rgba(1,1,1,0.12) : Qt.rgba(0,0,0,0.10)
+                        Behavior on color { ColorAnimation { duration: 120 } }
+
+                        Text {
+                            anchors.centerIn: parent
+                            text: "󰅀"
+                            color: dark ? "#e6ebf2" : "#3a3a3c"
+                            font.family: "JetBrainsMono Nerd Font Propo"
+                            font.pixelSize: 13
+                            rotation: win.soundMenuOpen ? 180 : 0
+                            Behavior on rotation { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
+                        }
+
+                        MouseArea {
+                            id: soundMenuBtnMa
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: {
+                                if (!win.soundMenuOpen) AudioService.refreshDevices()
+                                win.soundMenuOpen = !win.soundMenuOpen
+                            }
+                        }
+                    }
+
+                    // Output + Input device lists and Sound Preferences, revealed
+                    // as the tile grows. Clipped by the panel while collapsed;
+                    // disabled so the rows can't catch clicks.
+                    Column {
+                        id: soundMenu
+                        anchors {
+                            top: soundSlider.bottom
+                            topMargin: 12
+                            left: parent.left
+                            right: parent.right
+                        }
+                        spacing: 2
+                        opacity: win.soundMenuOpen ? 1 : 0
+                        enabled: win.soundMenuOpen
+                        Behavior on opacity { NumberAnimation { duration: 180 } }
+
+                        // ── Output ──────────────────────────────────────────────
+                        Text {
+                            text: "Output"
+                            color: dark ? Qt.rgba(1,1,1,0.55) : Qt.rgba(0,0,0,0.45)
+                            font.family: "SF Pro Display"
+                            font.pixelSize: 12
+                            font.weight: Font.DemiBold
+                            bottomPadding: 4
+                        }
+
+                        Repeater {
+                            model: AudioService.sinks
+                            CCOutputRow {
+                                width: soundMenu.width
+                                label: AudioService.deviceLabel(modelData.name, modelData.description)
+                                active: modelData.name === AudioService.defaultSink
+                                icon: {
+                                    let s = (label + " " + (modelData.name || "")).toLowerCase()
+                                    if (s.includes("bluez") || s.includes("headphone")
+                                        || s.includes("headset") || s.includes("airpod")) return "󰋋"
+                                    if (s.includes("hdmi") || s.includes("display") || s.includes("monitor")) return "󰍹"
+                                    return "󰓃"
+                                }
+                                onClicked: AudioService.setSink(modelData.name)
+                            }
+                        }
+
+                        // divider
+                        Item {
+                            width: soundMenu.width
+                            height: 13
+                            Rectangle {
+                                anchors.verticalCenter: parent.verticalCenter
+                                width: parent.width; height: 1
+                                color: dark ? Qt.rgba(1,1,1,0.10) : Qt.rgba(0,0,0,0.08)
+                            }
+                        }
+
+                        // ── Input ───────────────────────────────────────────────
+                        Text {
+                            text: "Input"
+                            color: dark ? Qt.rgba(1,1,1,0.55) : Qt.rgba(0,0,0,0.45)
+                            font.family: "SF Pro Display"
+                            font.pixelSize: 12
+                            font.weight: Font.DemiBold
+                            bottomPadding: 4
+                        }
+
+                        Repeater {
+                            model: AudioService.sources
+                            CCOutputRow {
+                                width: soundMenu.width
+                                label: AudioService.deviceLabel(modelData.name, modelData.description)
+                                active: modelData.name === AudioService.defaultSource
+                                icon: {
+                                    let s = (label + " " + (modelData.name || "")).toLowerCase()
+                                    if (s.includes("bluez") || s.includes("headphone")
+                                        || s.includes("headset") || s.includes("airpod")) return "󰋋"
+                                    return "󰍬"
+                                }
+                                onClicked: AudioService.setSource(modelData.name)
+                            }
+                        }
+
+                        // divider
+                        Item {
+                            width: soundMenu.width
+                            height: 13
+                            Rectangle {
+                                anchors.verticalCenter: parent.verticalCenter
+                                width: parent.width; height: 1
+                                color: dark ? Qt.rgba(1,1,1,0.10) : Qt.rgba(0,0,0,0.08)
+                            }
+                        }
+
+                        // ── Sound Preferences… → pavucontrol ────────────────────
+                        Item {
+                            width: soundMenu.width
+                            height: 34
+
+                            Rectangle {
+                                anchors.fill: parent
+                                anchors.leftMargin: -6
+                                anchors.rightMargin: -6
+                                radius: 8
+                                color: prefsMa.containsMouse
+                                    ? (dark ? Qt.rgba(1,1,1,0.06) : Qt.rgba(0,0,0,0.04))
+                                    : "transparent"
+                                Behavior on color { ColorAnimation { duration: 100 } }
+                            }
+
+                            Text {
+                                anchors { left: parent.left; verticalCenter: parent.verticalCenter }
+                                text: "Sound Preferences…"
+                                color: dark ? "#f5f6f8" : "#1c1c1e"
+                                font.family: "SF Pro Display"
+                                font.pixelSize: 14
+                            }
+
+                            MouseArea {
+                                id: prefsMa
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: {
+                                    AudioService.openMixer()
+                                    NcServer.controlCenterVisible = false
+                                }
+                            }
+                        }
                     }
                 }
 
@@ -416,11 +722,29 @@ PanelWindow {
                 bottomMargin: win.bottomGap
             }
 
+            // Clear All lives in its own row beneath the scroller, so it stays
+            // fully opaque — the fade only ever touches the cards above it.
+            readonly property int clearAllH: 30
+            readonly property int clearAllGap: 6
+            readonly property real listMax: height - clearAllH - clearAllGap
+
+            // Scroll-fade bookkeeping. scrollFrac is 0 at the top, 1 at the
+            // bottom; it drives a crossfade between the bottom and top fades so
+            // the dark edge follows whichever side still hides content.
+            readonly property bool overflowing: scroll.contentHeight > scroll.height + 1
+            readonly property real scrollFrac: overflowing
+                ? Math.max(0, Math.min(1, scroll.contentY / (scroll.contentHeight - scroll.height)))
+                : 0
+
             Flickable {
                 id: scroll
-                anchors.fill: parent
+                anchors { top: parent.top; left: parent.left; right: parent.right }
+                // Hug the content when short so the fade rides the last card;
+                // cap at the available height and scroll once the list grows.
+                height: Math.min(stackColumn.implicitHeight, notifModule.listMax)
                 contentHeight: stackColumn.implicitHeight
                 clip: true
+
                 // interactive=true is required for Flickable to even *see*
                 // wheel events (its wheelEvent handler short-circuits when
                 // interactive is false). Drag-to-scroll is therefore on, but
@@ -517,11 +841,10 @@ PanelWindow {
                                 height: 18
                                 y: stackDelegate.topPad + topCard.implicitHeight - 4
                                 radius: 14
-                                // Same fill as the top card so the peek reads as
-                                // a stacked sheet, not a dark band under it; the
-                                // border alone conveys the stack.
-                                color: dark ? Qt.rgba(58/255, 58/255, 64/255, 1.0)
-                                            : Qt.rgba(255/255, 255/255, 255/255, 1.0)
+                                // Deepest sheet in the stack — the darkest of the
+                                // three (a touch darker than peek 1) so the cards
+                                // read as receding into depth.
+                                color: dark ? "#151515" : "#d6d6d6"
                                 border.color: dark ? Qt.rgba(1,1,1,0.12) : Qt.rgba(0,0,0,0.08)
                                 border.width: 1
                                 z: 0
@@ -535,9 +858,9 @@ PanelWindow {
                                 height: 18
                                 y: stackDelegate.topPad + topCard.implicitHeight - 10
                                 radius: 14
-                                // Matches the top card (see peek 2) — no dark fill.
-                                color: dark ? Qt.rgba(58/255, 58/255, 64/255, 1.0)
-                                            : Qt.rgba(255/255, 255/255, 255/255, 1.0)
+                                // One sheet below the top card — slightly darker
+                                // than the top, lighter than the bottom peek.
+                                color: dark ? "#1b1b1b" : "#e1e1e1"
                                 border.color: dark ? Qt.rgba(1,1,1,0.14) : Qt.rgba(0,0,0,0.10)
                                 border.width: 1
                                 z: 1
@@ -551,6 +874,10 @@ PanelWindow {
                                 width: parent.width
                                 y: stackDelegate.topPad
                                 z: 2
+                                fadeActive: notifModule.overflowing
+                                fadeViewportH: scroll.height
+                                fadeScrollFrac: notifModule.scrollFrac
+                                fadeViewportY: stackDelegate.y + topCard.y - scroll.contentY
                                 // Collapsed group → × clears the whole app.
                                 // Expanded, or a lone notification → × removes
                                 // just this card (null falls back to dismiss()).
@@ -579,10 +906,16 @@ PanelWindow {
                                         ? stackDelegate.notifs.slice(1)
                                         : []
                                     delegate: NotificationCard {
+                                        id: expCard
                                         required property var modelData
                                         notification: modelData
                                         inControlCenter: true
                                         width: expandedCol.width
+                                        fadeActive: notifModule.overflowing
+                                        fadeViewportH: scroll.height
+                                        fadeScrollFrac: notifModule.scrollFrac
+                                        fadeViewportY: stackDelegate.y + expandedCol.y
+                                            + expCard.y - scroll.contentY
                                     }
                                 }
                             }
@@ -638,44 +971,56 @@ PanelWindow {
                         }
                     }
 
-                    // ── CLEAR ALL — right-aligned pill at the end of the list ──
-                    Item {
-                        width: stackColumn.width
-                        height: 30
+                }
+            }
 
-                        Rectangle {
-                            anchors.right: parent.right
-                            anchors.verticalCenter: parent.verticalCenter
-                            width: clearAllLabel.implicitWidth + 24
-                            height: 28
-                            radius: 14
-                            // Solid (opaque) so it reads as a real button instead
-                            // of a faint translucent sheet over the blurred desktop.
-                            color: clearAllMa.containsMouse
-                                ? (dark ? Qt.rgba(92/255, 92/255, 100/255, 1.0) : Qt.rgba(236/255, 236/255, 238/255, 1.0))
-                                : (dark ? Qt.rgba(72/255, 72/255, 80/255, 1.0)  : Qt.rgba(255/255, 255/255, 255/255, 1.0))
-                            border.color: dark ? Qt.rgba(1,1,1,0.14) : Qt.rgba(0,0,0,0.12)
-                            border.width: 1
-                            Behavior on color { ColorAnimation { duration: 120 } }
+            // (Scroll fade is applied per-card inside NotificationCard so the
+            // gaps between cards stay transparent — see its fade* properties,
+            // wired from the card sites above.)
 
-                            Text {
-                                id: clearAllLabel
-                                anchors.centerIn: parent
-                                text: "Clear All"
-                                color: dark ? "#ff6b6b" : "#FF3B30"
-                                font.family: "SF Pro Display"
-                                font.pixelSize: 12
-                                font.weight: Font.DemiBold
-                            }
+            // ── CLEAR ALL — its own row below the scroller, so the fade never
+            // touches it and it stays fully opaque / always reachable.
+            Item {
+                id: clearAllRow
+                anchors {
+                    top: scroll.bottom
+                    topMargin: notifModule.clearAllGap
+                    left: parent.left
+                    right: parent.right
+                }
+                height: notifModule.clearAllH
 
-                            MouseArea {
-                                id: clearAllMa
-                                anchors.fill: parent
-                                hoverEnabled: true
-                                cursorShape: Qt.PointingHandCursor
-                                onClicked: NcServer.dismissAll()
-                            }
-                        }
+                Rectangle {
+                    anchors.right: parent.right
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: clearAllLabel.implicitWidth + 24
+                    height: 28
+                    radius: 14
+                    // Solid (opaque) so it reads as a real button instead
+                    // of a faint translucent sheet over the blurred desktop.
+                    color: clearAllMa.containsMouse
+                        ? (dark ? Qt.rgba(92/255, 92/255, 100/255, 1.0) : Qt.rgba(236/255, 236/255, 238/255, 1.0))
+                        : (dark ? Qt.rgba(72/255, 72/255, 80/255, 1.0)  : Qt.rgba(255/255, 255/255, 255/255, 1.0))
+                    border.color: dark ? Qt.rgba(1,1,1,0.14) : Qt.rgba(0,0,0,0.12)
+                    border.width: 1
+                    Behavior on color { ColorAnimation { duration: 120 } }
+
+                    Text {
+                        id: clearAllLabel
+                        anchors.centerIn: parent
+                        text: "Clear All"
+                        color: dark ? "#ff6b6b" : "#FF3B30"
+                        font.family: "SF Pro Display"
+                        font.pixelSize: 12
+                        font.weight: Font.DemiBold
+                    }
+
+                    MouseArea {
+                        id: clearAllMa
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: NcServer.dismissAll()
                     }
                 }
             }
