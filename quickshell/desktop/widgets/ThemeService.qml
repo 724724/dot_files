@@ -1,30 +1,16 @@
 pragma Singleton
 import Quickshell
-import Quickshell.Io
 import QtQuick
+import "../nc" as Nc
 
 // Light/Dark theme + Apple system colour palette for the widgets that follow
-// macOS styling (reminders). isDark tracks the GNOME color-scheme (same probe
-// the launchpad/dock ThemeServices use). Hex values are Apple's published
-// system colours (light/dark). See sarunw.com/posts/dark-color-cheat-sheet.
+// macOS styling (reminders). isDark is bound to nc/ThemeService — the one
+// gsettings watcher shared by the whole unified shell. Hex values are Apple's
+// published system colours (light/dark). See sarunw.com/posts/dark-color-cheat-sheet.
 Singleton {
     id: root
-    property bool isDark: true
+    readonly property bool isDark: Nc.ThemeService.isDark
     readonly property string iconFont: "JetBrainsMono Nerd Font Propo"
-
-    Process {
-        command: ["bash", "-c", "gsettings get org.gnome.desktop.interface color-scheme"]
-        running: true
-        stdout: StdioCollector { onStreamFinished: root.isDark = text.trim().includes("dark") }
-    }
-    Process {
-        command: ["gsettings", "monitor", "org.gnome.desktop.interface", "color-scheme"]
-        running: true
-        stdout: SplitParser {
-            splitMarker: "\n"
-            onRead: data => { if (data.includes("color-scheme")) root.isDark = data.includes("dark") }
-        }
-    }
 
     // Apple system colours { light, dark }.
     readonly property var sys: ({

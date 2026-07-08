@@ -50,8 +50,16 @@ Item {
 
     Timer { id: fetchDebounce; interval: 80; onTriggered: wRoot._fetch() }
     Timer { interval: 15 * 60 * 1000; repeat: true; running: true; onTriggered: wRoot._fetch() }
+    // Failed fetch (offline, API unreachable) → retry in 1 min instead of
+    // waiting for the 15-min tick. Restarted, not accumulated, so at most one
+    // retry is ever pending.
+    Timer { id: retryTimer; interval: 60 * 1000; onTriggered: wRoot._fetch() }
 
-    Process { id: fcProc; stdout: StdioCollector { onStreamFinished: wRoot._parse(text) } }
+    Process {
+        id: fcProc
+        stdout: StdioCollector { onStreamFinished: wRoot._parse(text) }
+        onExited: (code, status) => { if (code !== 0) retryTimer.restart() }
+    }
 
     function _fetch() {
         if (isNaN(effLat) || isNaN(effLon)) return
@@ -60,7 +68,9 @@ Item {
             + "&hourly=temperature_2m,weather_code"
             + "&daily=weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset"
             + "&timezone=auto&forecast_days=7&wind_speed_unit=ms"
-        fcProc.command = ["curl", "-sf", "--max-time", "10", url]
+        // openmeteo-fetch.sh = curl with a fallback route for api.open-meteo.com
+        // (unreachable from some ISPs; see the script header).
+        fcProc.command = [WeatherService.fetchScript, url]
         fcProc.running = true
     }
 
@@ -339,3 +349,4 @@ Item {
 
     MouseArea { anchors.fill: parent; acceptedButtons: Qt.LeftButton; onDoubleClicked: wRoot._fetch() }
 }
+

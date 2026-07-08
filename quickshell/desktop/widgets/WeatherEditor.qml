@@ -55,7 +55,7 @@ Item {
         if (!q || q.trim().length < 2) { ed.results = []; return }
         let url = "https://geocoding-api.open-meteo.com/v1/search?name="
                 + encodeURIComponent(q.trim()) + "&count=6&language=en&format=json"
-        searchProc.command = ["curl", "-sf", "--max-time", "8", url]
+        searchProc.command = [WeatherService.fetchScript, url]
         searchProc.running = true
     }
     Timer { id: searchDebounce; interval: 320; onTriggered: ed.search(searchField.text) }
@@ -230,7 +230,7 @@ Item {
             let url = "https://api.open-meteo.com/v1/forecast?latitude=" + lat + "&longitude=" + lon
                 + "&current=temperature_2m,weather_code,is_day"
                 + "&daily=temperature_2m_max,temperature_2m_min,sunrise,sunset&timezone=auto&forecast_days=1"
-            pfc.command = ["curl", "-sf", "--max-time", "10", url]
+            pfc.command = [WeatherService.fetchScript, url]
             pfc.running = true
         }
         function _parse(t) {

@@ -101,12 +101,14 @@ Item {
             sourceComponent: wf.type === "clock"     ? clockComp
                            : wf.type === "weather"   ? weatherComp
                            : wf.type === "reminders" ? remindersComp
+                           : wf.type === "news"      ? newsComp
                            : noteComp
         }
         Component { id: noteComp;      NoteWidget      { frame: wf } }
         Component { id: clockComp;     ClockWidget     { frame: wf } }
         Component { id: weatherComp;   WeatherWidget   { frame: wf } }
         Component { id: remindersComp; RemindersWidget { frame: wf } }
+        Component { id: newsComp;      NewsWidget      { frame: wf } }
 
         // ── Note title bar (macOS Stickies: close left, zoom + collapse
         //    right). Hover-only — the strip is hidden until you point at the

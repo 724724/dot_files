@@ -17,6 +17,16 @@ Singleton {
     readonly property string sunsetGlyph: "\ue36b"
     readonly property string sunriseGlyph: "\ue34c"
 
+    // curl wrapper with a fallback route for api.open-meteo.com \u2014 this ISP
+    // can't reach its only A record, but the same API answers on open-meteo's
+    // other hosts (wildcard cert). Real absolute path, matching the
+    // SysUsageService/ShazamService convention (Qt.resolvedUrl breaks shells).
+    readonly property string _configDir: {
+        let x = Quickshell.env("XDG_CONFIG_HOME")
+        return (x && x !== "") ? x : (Quickshell.env("HOME") + "/.config")
+    }
+    readonly property string fetchScript: _configDir + "/quickshell/scripts/openmeteo-fetch.sh"
+
     // Current (IP) location, shared by widgets left on "Current Location".
     property string currentName: ""
     property real currentLat: NaN
@@ -56,6 +66,16 @@ Singleton {
 
     Component.onCompleted: { root.resolveCurrent(); root._loadPlaces() }
     function resolveCurrent() { geoProc.running = true }
+
+    // The IP lookup used to be a single shot at startup: if the network wasn't
+    // up yet (or the geo APIs hiccuped), every "Current Location" widget stayed
+    // blank until a manual reload. Retry once a minute until it succeeds.
+    Timer {
+        interval: 60 * 1000
+        running: !root.currentReady
+        repeat: true
+        onTriggered: root.resolveCurrent()
+    }
 
     Process {
         id: geoProc

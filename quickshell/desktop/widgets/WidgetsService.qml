@@ -95,6 +95,15 @@ Singleton {
         }
     }
 
+    function newsSize(layout) {
+        switch (layout) {
+        case 1:  return { nw: 430, nh: 330 }
+        case 3:  return { nw: 650, nh: 720 }
+        case 2:
+        default: return { nw: 560, nh: 520 }
+        }
+    }
+
     property alias widgets: widgetsModel
     ListModel { id: widgetsModel }
 
@@ -206,6 +215,7 @@ Singleton {
         case "clock":     return { nw: 220, nh: 220, data: { layout: 4, faces: root.defaultClockFaces(4) } }
         case "weather":   return { nw: 320, nh: 430, data: { layout: 1 } }
         case "reminders": return { nw: 372, nh: 200, data: { layout: 2, title: "Reminders", accent: "blue", items: [] } }
+        case "news":      return { nw: 560, nh: 520, data: { layout: 2, sources: NewsService.defaultSources(), categories: NewsService.defaultCategories(), model: NewsService.defaultModel } }
         case "note":
         default:
             return { nw: 240, nh: 240, data: {
@@ -228,6 +238,9 @@ Singleton {
             nw = sz.nw; nh = sz.nh
         } else if (type === "reminders") {
             let sz = root.remindersSize(data.layout || 2)
+            nw = sz.nw; nh = sz.nh
+        } else if (type === "news") {
+            let sz = root.newsSize(data.layout || 2)
             nw = sz.nw; nh = sz.nh
         }
         widgetsModel.append({
@@ -313,6 +326,14 @@ Singleton {
     function setRemindersLayout(index, layout) {
         if (index < 0 || index >= widgetsModel.count) return
         let sz = root.remindersSize(layout)
+        widgetsModel.setProperty(index, "nw", sz.nw)
+        widgetsModel.setProperty(index, "nh", sz.nh)
+        setData(index, { layout: layout })
+    }
+
+    function setNewsLayout(index, layout) {
+        if (index < 0 || index >= widgetsModel.count) return
+        let sz = root.newsSize(layout)
         widgetsModel.setProperty(index, "nw", sz.nw)
         widgetsModel.setProperty(index, "nh", sz.nh)
         setData(index, { layout: layout })

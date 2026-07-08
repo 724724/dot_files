@@ -207,6 +207,7 @@ PanelWindow {
                     GalleryCard { label: "Note";      kind: "note" }
                     GalleryCard { label: "Weather";   kind: "weather" }
                     GalleryCard { label: "Reminders"; kind: "reminders" }
+                    GalleryCard { label: "News";      kind: "news" }
                 }
 
                 // Stage 2: pick a clock layout
@@ -334,6 +335,7 @@ PanelWindow {
                         enabled: WidgetsService.typeAt(board.ctxIndex) === "clock"
                               || WidgetsService.typeAt(board.ctxIndex) === "weather"
                               || WidgetsService.typeAt(board.ctxIndex) === "reminders"
+                              || WidgetsService.typeAt(board.ctxIndex) === "news"
                               || WidgetsService.typeAt(board.ctxIndex) === "note"
                         onTriggered: board.openEditor(board.ctxIndex)
                     }
@@ -374,6 +376,7 @@ PanelWindow {
                             if (t === "clock") return clockEditorComp
                             if (t === "weather") return weatherEditorComp
                             if (t === "reminders") return remindersEditorComp
+                            if (t === "news") return newsEditorComp
                             if (t === "note") return noteEditorComp
                             return noOptionsComp
                         }
@@ -392,6 +395,7 @@ PanelWindow {
                 Component { id: clockEditorComp; ClockEditor { index: board.editIndex } }
                 Component { id: weatherEditorComp; WeatherEditor { index: board.editIndex } }
                 Component { id: remindersEditorComp; RemindersEditor { index: board.editIndex } }
+                Component { id: newsEditorComp; NewsEditor { index: board.editIndex } }
                 Component { id: noteEditorComp; NoteEditor { index: board.editIndex } }
                 Component {
                     id: noOptionsComp
@@ -466,6 +470,7 @@ PanelWindow {
                     anchors.centerIn: parent
                     text: gcard.kind === "note" ? "\uf249"
                         : gcard.kind === "weather" ? "\ue302"
+                        : gcard.kind === "news" ? "\uf1ea"
                         : "\uf046"
                     color: "#ffffff"
                     font.family: WeatherService.iconFont

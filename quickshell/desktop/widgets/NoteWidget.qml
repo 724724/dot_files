@@ -21,16 +21,27 @@ Item {
     readonly property var d: frame ? frame.dataObj : ({})
     readonly property int fontSize: (d && d.fontSize) ? d.fontSize : 15
     // "SF Pro Display" has no Korean glyphs, so Hangul falls back to a taller
-    // CJK font and the line height wanders on mixed-script lines. Pretendard
-    // (an SF-style face with full Korean coverage) keeps the look and gives one
-    // consistent line height. Any other explicit font choice is respected.
+    // CJK font. Default to Apple SD Gothic Neo — full Korean + Latin coverage
+    // and, crucially, a *static* family with real weight styles: Pretendard
+    // Variable's bold renders nearly black in Qt rich text (the wght axis isn't
+    // applied per-run so it synthesises), whereas Apple SD Gothic Neo's real
+    // SemiBold/Bold render cleanly. Any other explicit font choice is respected.
     readonly property string fontFamily: {
         let f = (d && d.fontFamily) ? d.fontFamily : ""
-        return (!f || f === "SF Pro Display") ? "Pretendard Variable" : f
+        return (!f || f === "SF Pro Display") ? "Apple SD Gothic Neo" : f
     }
 
     function _esc(s) {
         return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    }
+
+    // Qt bakes the document's default font-family into the saved HTML, so a
+    // newly-chosen base family wouldn't restyle existing text — and bold can
+    // render weakly when the baked face has poor weight coverage. Strip baked
+    // font-family so the live `font.family` (bound to fontFamily) always governs
+    // the whole note. The note never sets a per-run family, so this is safe.
+    function _stripFamily(s) {
+        return (s || "").replace(/font-family:[^;"}]*;?/gi, "")
     }
 
     // Plain text of the note (HTML stripped) — used for the collapsed title and
@@ -73,7 +84,9 @@ Item {
         s: /text-decoration:\s*[^;"}]*;?/gi
     })
     readonly property var _fmtCss: ({ b: "font-weight", i: "font-style", u: "text-decoration", s: "text-decoration" })
-    readonly property var _fmtOn:  ({ b: "700", i: "italic", u: "underline", s: "line-through" })
+    // Bold = 600 (Pretendard SemiBold). The face's real 700 reads as heavy as
+    // Black at note sizes, so 600 gives a clean "just bold" weight.
+    readonly property var _fmtOn:  ({ b: "600", i: "italic", u: "underline", s: "line-through" })
     readonly property var _fmtOff: ({ b: "400", i: "normal", u: "none", s: "none" })
 
     // The HTML of a range, unwrapped from Qt's full-document envelope.
@@ -278,7 +291,7 @@ Item {
             font.pixelSize: noteRoot.fontSize
             background: null
 
-            Component.onCompleted: { text = (noteRoot.d.content || ""); noteRoot._initUndo() }
+            Component.onCompleted: { text = noteRoot._stripFamily(noteRoot.d.content || ""); noteRoot._initUndo() }
             Connections {
                 target: noteRoot
                 function onDChanged() {
@@ -291,10 +304,26 @@ Item {
                     if (body.activeFocus) return
                     if (noteRoot._plain(body.text) !== noteRoot._plain(noteRoot.d.content || "")) {
                         noteRoot._restoring = true
-                        body.text = (noteRoot.d.content || "")
+                        body.text = noteRoot._stripFamily(noteRoot.d.content || "")
                         noteRoot._restoring = false
                         noteRoot._initUndo()
                     }
+                }
+                // Choosing a new font: re-parse the document with the baked
+                // font-family stripped, so the new base font.family restyles the
+                // WHOLE note (including already-loaded text). Runs even while the
+                // note is focused — the editor changes the font while the note
+                // still holds focus, and a plain rebind doesn't restyle a loaded
+                // document. Cursor jumps to the end (acceptable for a deliberate
+                // font change).
+                function onFontFamilyChanged() {
+                    let h = noteRoot._stripFamily(body.text)
+                    noteRoot._restoring = true
+                    body.text = h
+                    body.cursorPosition = body.length
+                    noteRoot._restoring = false
+                    frame.save({ content: h })
+                    noteRoot._initUndo()
                 }
             }
 
