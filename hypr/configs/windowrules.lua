@@ -17,6 +17,24 @@ local function cursor_on_screen(dx, dy)
     }
 end
 
+-- Same clamp for windows that ALSO get an explicit `size` rule. window_w/h in
+-- move expressions substitute the client's *initial* surface size — the size
+-- rule hasn't taken effect yet — so the right/bottom clamp is computed against
+-- the wrong size and the resized window overflows those edges (left/top are
+-- size-independent, which is why only right/bottom escaped). Bake the ruled
+-- size in as literals instead. fx/fy = cursor offset as a fraction of w/h
+-- (-0.5/-0.5 centers, matching cursor_on_screen's dx/dy convention).
+local function cursor_on_screen_sized(w, h, fx, fy)
+    local function off(d)
+        d = math.floor(d + 0.5)
+        return (d >= 0 and "+" or "") .. d
+    end
+    return {
+        "max(0, min(cursor_x" .. off(w * fx) .. ", monitor_w-" .. w .. "))",
+        "max(0, min(cursor_y" .. off(h * fy) .. ", monitor_h-" .. h .. "))",
+    }
+end
+
 -- -----------------------------------------------------
 -- Opacity Rules
 -- -----------------------------------------------------
@@ -58,12 +76,12 @@ hl.window_rule({
 })
 
 -- Sticky Notes
-hl.window_rule({ match = { class = "^(com.vixalien.sticky)$" }, float = true, size = { 400, 300 } })
+hl.window_rule({ match = { class = "^(com.vixalien.sticky)$" }, float = true, size = { 400, 300 }, move = cursor_on_screen_sized(400, 300, -0.5, -0.5) })
 
 -- Spotify Premium
 hl.window_rule({ match = { class = "^(Spotify)$" }, float = true, size = { 1000, 600 } })
 -- Cider (Apple Music)
-hl.window_rule({ match = { class = "^(Cider)$", title = "^(Cider)$" }, float = true, size = { 1000, 600 } })
+hl.window_rule({ match = { class = "^(Cider)$", title = "^(Cider)$" }, float = true, size = { 1000, 600 }, move = cursor_on_screen_sized(1000, 600, -0.5, -0.5) })
 -- Loupe
 hl.window_rule({ match = { class = "^(org.gnome.Loupe)$" }, float = true })
 -- Nautilus
@@ -72,7 +90,7 @@ hl.window_rule({ match = { class = "^(org.gnome.NautilusPreviewer)$" }, float = 
 -- Center on cursor
 hl.window_rule({
     match = { class = "^(spotify)$", title = "^(Spotify Premium)$" },
-    move  = cursor_on_screen("-(window_w*0.5)", "-(window_h*0.5)"),
+    move  = cursor_on_screen_sized(1000, 600, -0.5, -0.5),
 })
 
 -- -----------------------------------------------------
@@ -84,7 +102,7 @@ hl.window_rule({ match = { class = "^(blueman-manager)$",    title = "^(Bluetoot
 hl.window_rule({ match = { class = "org.gnome.Nautilus" }, float = true, size = { 1000, 600 } })
 hl.window_rule({
     match = { class = "^(org.gnome.Nautilus)$" },
-    move  = cursor_on_screen("-(window_w*0.5)", "-(window_h*0.5)"),
+    move  = cursor_on_screen_sized(1000, 600, -0.5, -0.5),
 })
 
 hl.window_rule({ match = { class = "^(org.gnome.Calculator)$", title = "^(Calculator)$" }, float = true })
@@ -126,13 +144,13 @@ hl.window_rule({
 hl.window_rule({ match = { class = "^(it.mijorus.smile)$" }, float = true, size = { 320, 400 } })
 hl.window_rule({
     match = { class = "^(it.mijorus.smile)$" },
-    move  = cursor_on_screen("", "-(window_h)"),
+    move  = cursor_on_screen_sized(320, 400, 0, -1),
 })
 
 hl.window_rule({ match = { class = "^(org.pulseaudio.pavucontrol)$" }, float = true, size = { 800, 700 } })
 hl.window_rule({
     match = { class = "^(org.pulseaudio.pavucontrol)$" },
-    move  = cursor_on_screen("-(window_w*1.15)", "+(window_h*0.06)"),
+    move  = cursor_on_screen_sized(800, 700, -1.15, 0.06),
 })
 
 hl.window_rule({
@@ -216,6 +234,7 @@ hl.layer_rule({ match = { namespace = "qs-bar" }, animation = "slide top", blur 
 -- Quickshell dock — dedicated namespace so its panel can resize (preview open/close)
 -- without retriggering the slide-top animation. Blur kept for the glass look.
 hl.layer_rule({ match = { namespace = "qs-dock" }, no_anim = true, blur = true, ignore_alpha = 0.5 })
+hl.layer_rule({ match = { namespace = "qs-dock-menu" }, no_anim = true, blur = true, ignore_alpha = 0.1 })
 
 -- Quickshell OSD — separate namespace; QML handles its own fade animation.
 hl.layer_rule({ match = { namespace = "qs-osd" }, no_anim = true, blur = true, ignore_alpha = 0.5 })
@@ -228,8 +247,12 @@ hl.layer_rule({ match = { namespace = "qs-spotlight" }, blur = true, ignore_alph
 -- the blur (Hyprland skips blur for pixels with alpha below the threshold).
 hl.layer_rule({ match = { namespace = "qs-launchpad" }, no_anim = true, blur = true, ignore_alpha = 0.1 })
 
+-- Quickshell Mission Control (macOS overview) — opaque wallpaper, no slide-in.
+hl.layer_rule({ match = { namespace = "qs-missioncontrol" }, no_anim = true, blur = true, ignore_alpha = 0.1 })
+
 -- Quickshell App Switcher (macOS Cmd+Tab style)
 hl.layer_rule({ match = { namespace = "qs-switcher" }, no_anim = true, blur = true, ignore_alpha = 0.4 })
+hl.layer_rule({ match = { namespace = "qs-emoji" }, no_anim = true, blur = true, ignore_alpha = 0.1 })
 
 -- Quickshell Widgets board (macOS-style notes/clock/weather/reminders) —
 -- fullscreen overlay, fade via QML. Low ignore_alpha so the ~0.5 dark veil
@@ -240,6 +263,7 @@ hl.layer_rule({ match = { namespace = "qs-cc" }, blur = true, ignore_alpha = 0.5
 
 -- Clock + calendar popup that drops from the bar clock pill.
 hl.layer_rule({ match = { namespace = "qs-clock" }, blur = true, ignore_alpha = 0.5 })
+hl.layer_rule({ match = { namespace = "qs-shazam" }, blur = true, ignore_alpha = 0.1 })
 
 -- Notification popups (transient toasts at top-right when CC closed)
 hl.layer_rule({ match = { namespace = "qs-notif" }, blur = true, ignore_alpha = 0.5 })
@@ -249,3 +273,5 @@ hl.layer_rule({ match = { namespace = "nwg-dock" }, blur = true, ignore_alpha = 
 
 -- Waydroid (Always Fullscreen)
 hl.window_rule({ match = { class = "^(Waydroid.*)$" }, fullscreen = true })
+
+hl.window_rule({ match = { class = "^(firefox)$" }, size = { 1600, 950 }, move = cursor_on_screen_sized(1600, 950, -0.5, -0.5) })

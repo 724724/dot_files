@@ -4,7 +4,7 @@
 #
 #   덮개 닫힘 + AC 전원 + 외부 디스플레이  →  내장 패널 끄고 깨어있기 (클램쉘)
 #   덮개 닫힘 (그 외)                       →  RAM 절전 (suspend)
-#   덮개 열림                               →  내장 패널 복구
+#   덮개 열림 / suspend 복귀 후 lid open    →  내장 패널 복구
 #
 # ── Lua(non-legacy) 파서 주의 ────────────────────────────────────────────────
 # 이 설정은 hyprland.lua(0.55+) 파서를 쓴다. 그래서 `hyprctl keyword monitor ...`는
@@ -17,7 +17,7 @@
 #                 hl.monitor()를 다시 호출하는 것만으로는 0.55에서 재활성화가 안 된다(reload 필요).
 #                 reload는 autostart(hl.on "hyprland.start")를 재실행하지 않으므로 앱 중복 없음.
 #
-# 사용법: clamshell.sh [closed|open]   (인자 없으면 /proc 에서 현재 lid 상태 감지)
+# 사용법: clamshell.sh [closed|open|resume]   (인자 없으면 /proc 에서 현재 lid 상태 감지)
 # 호출 위치: configs/keybindings.lua 의 switch:Lid Switch 바인딩
 
 set -euo pipefail
@@ -50,19 +50,92 @@ external_connected() {
     hyprctl monitors -j | jq -e --arg i "$INTERNAL" 'any(.[]; .name != $i)' >/dev/null
 }
 
+wait_hypr() {
+    local i
+    for i in {1..30}; do
+        hyprctl monitors -j >/dev/null 2>&1 && return 0
+        sleep 0.1
+    done
+    return 1
+}
+
+dpms_on() {
+    hyprctl dispatch 'hl.dsp.dpms({ action = "enable" })' >/dev/null 2>&1 || true
+}
+
+internal_active() {
+    hyprctl monitors -j 2>/dev/null | jq -e --arg i "$INTERNAL" 'any(.[]; .name == $i)' >/dev/null
+}
+
+internal_spec() {
+    awk -F= -v output="$INTERNAL" '
+        $1 == "monitor" {
+            split($2, p, ",")
+            if (p[1] == output && p[2] != "disable" && p[2] != "disabled") {
+                print p[2] "|" p[3] "|" p[4]
+                exit
+            }
+        }
+    ' "$HOME/.config/hypr/monitors.conf"
+}
+
+restore_internal() {
+    wait_hypr || true
+    dpms_on
+
+    local delay
+    for delay in 0 0.15 0.35 0.7; do
+        [[ "$delay" == "0" ]] || sleep "$delay"
+        note "restore $INTERNAL → hyprctl reload"
+        hyprctl reload >/dev/null 2>&1 || true
+        dpms_on
+        internal_active && return 0
+    done
+
+    local spec mode position scale
+    spec="$(internal_spec || true)"
+    if [[ -n "$spec" ]]; then
+        IFS='|' read -r mode position scale <<< "$spec"
+        if [[ -n "$mode" && -n "$position" && -n "$scale" ]]; then
+            note "restore $INTERNAL fallback → hl.monitor eval"
+            hyprctl eval "hl.monitor({ output = \"$INTERNAL\", mode = \"$mode\", position = \"$position\", scale = $scale })" >/dev/null 2>&1 || true
+            sleep 0.2
+            dpms_on
+        fi
+    fi
+
+    internal_active && return 0
+    note "restore $INTERNAL failed"
+    return 1
+}
+
+disable_internal() {
+    wait_hypr || true
+    hyprctl eval "hl.monitor({ output = \"$INTERNAL\", disabled = true })" >/dev/null
+}
+
 case "${1:-$(lid_state)}" in
     closed)
         if on_ac && external_connected; then
             note "lid closed + AC + external → clamshell (disable $INTERNAL via lua eval)"
-            # 내장 패널 OFF → 워크스페이스가 외부 모니터로 자동 이동
-            hyprctl eval "hl.monitor({ output = \"$INTERNAL\", disabled = true })" >/dev/null
+            disable_internal
         else
             note "lid closed, no dock/power → suspend"
             systemctl suspend                              # SuspendToRAM
         fi
         ;;
     open)
-        note "lid open → restore $INTERNAL (hyprctl reload)"
-        hyprctl reload >/dev/null                          # monitors.conf 재적용으로 eDP-1 복구
+        note "lid open → restore $INTERNAL"
+        restore_internal || true
+        ;;
+    resume)
+        note "resume → apply lid state"
+        if [[ "$(lid_state)" == "open" ]]; then
+            restore_internal || true
+        elif on_ac && external_connected; then
+            disable_internal
+        else
+            dpms_on
+        fi
         ;;
 esac

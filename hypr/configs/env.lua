@@ -17,9 +17,7 @@ hl.env("GDK_SCALE",                  "2")
 hl.env("QT_QPA_PLATFORMTHEME",       "gtk3")
 
 -- Cursor
-hl.env("HYPRCURSOR_THEME", "Phinger Cursors (light)")
 hl.env("HYPRCURSOR_SIZE", "24")
-hl.env("XCURSOR_THEME", "Phinger Cursors (light)")
 hl.env("XCURSOR_SIZE", "24")
 
 -- IME / Fcitx

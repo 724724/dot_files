@@ -32,6 +32,13 @@ hl.config({
 -- See https://wiki.hypr.land/Configuring/Advanced-and-Cool/Gestures/
 hl.gesture({ fingers = 3, direction = "horizontal", action = "workspace" })
 hl.gesture({ fingers = 3, direction = "up", mods = "SUPER", action = "fullscreen" })
+-- 3-finger swipe up opens Mission Control; swipe down closes it (down is a no-op
+-- when it's already closed, since `mc hide` just clears the visible flag).
+-- NOTE: the `--` separator is required — without it "show" is parsed as the
+-- `qs ipc show` (list-handlers) subcommand instead of the function argument,
+-- so the call silently does nothing.
+hl.gesture({ fingers = 3, direction = "up", action = function() hl.exec_cmd("qs ipc -c desktop call -- mc show") end })
+hl.gesture({ fingers = 3, direction = "down", action = function() hl.exec_cmd("qs ipc -c desktop call -- mc hide") end })
 
 -- Per-device config
 -- See https://wiki.hypr.land/Configuring/Advanced-and-Cool/Devices/ for more

@@ -12,6 +12,8 @@ hl.bind(mainMod .. " + T",            hl.dsp.exec_cmd(terminal))
 hl.bind(mainMod .. " + E",            hl.dsp.exec_cmd(fileManager))
 hl.bind(mainMod .. " + SPACE",        hl.dsp.exec_cmd("qs ipc -c desktop call spotlight toggle"))
 hl.bind("ALT + SPACE",                hl.dsp.exec_cmd("qs ipc -c desktop call launchpad toggle"))
+hl.bind("XF86Display",                hl.dsp.exec_cmd("qs ipc -c desktop call mc toggle"))
+hl.bind("XF86LaunchA",                hl.dsp.exec_cmd("qs ipc -c desktop call mc toggle"))
 hl.bind(mainMod .. " + B",            hl.dsp.exec_cmd("qs ipc -c desktop call bar toggle"))
 hl.bind(mainMod .. " + C",            hl.dsp.exec_cmd("qs ipc -c desktop call nc toggle"))
 hl.bind(mainMod .. " + V",            hl.dsp.exec_cmd("qs ipc -c desktop call dock toggle"))
@@ -98,7 +100,7 @@ hl.bind("XF86Favorites",  hl.dsp.exec_cmd("~/.config/hypr/scripts/media-osd.sh p
 hl.bind("XF86SelectiveScreenshot",    hl.dsp.exec_cmd("~/.config/hypr/scripts/media-osd.sh prev"),       { locked = true })
 
 -- ── Keyboard Lock ───────────────────────────────────────────────────────
-hl.bind("XF86Display", hl.dsp.exec_cmd("~/.config/hypr/scripts/keyboard-lock.sh"), { locked = true })
+hl.bind(mainMod .. " + XF86Display", hl.dsp.exec_cmd("~/.config/hypr/scripts/keyboard-lock.sh"), { locked = true })
 
 -- ── Night Shift — Hyprsunset toggle ─────────────────────────────────────
 hl.bind(mainMod .. " + SHIFT + XF86MonBrightnessUp",   hl.dsp.exec_cmd('hyprctl hyprsunset temperature 4500 && printf on > "$XDG_RUNTIME_DIR/qs-nightshift" && qs ipc -c desktop call osd custom "󰃟" "Blue Light Filter ON"'),  { locked = true })
