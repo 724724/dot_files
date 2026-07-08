@@ -1,42 +1,16 @@
 pragma Singleton
 import Quickshell
-import Quickshell.Io
 import QtQuick
+import "../nc" as Nc
 
+// Thin proxy over nc/AudioService — the bar and control center share one qs
+// process, so keeping a second `pactl subscribe` + its own refresh pipeline
+// here just doubled every audio event's process spawns. The widget keeps its
+// VolumeService API; the data comes from the single shared subscription.
 Singleton {
     id: root
-    property int vol: 0
-    property bool muted: false
+    readonly property int vol: Nc.AudioService.vol
+    readonly property bool muted: Nc.AudioService.muted
 
-    function refresh() { refreshProc.running = true }
-
-    // Subscribe to pactl events to react instantly to volume changes
-    Process {
-        command: ["pactl", "subscribe"]
-        running: true
-        stdout: SplitParser {
-            splitMarker: "\n"
-            onRead: data => {
-                if (data.includes("'change' on sink") || data.includes("'change' on server"))
-                    root.refresh()
-            }
-        }
-    }
-
-    Process {
-        id: refreshProc
-        command: ["bash", "-c",
-            "vol=$(pactl get-sink-volume @DEFAULT_SINK@ | awk '/Volume:/{gsub(/%/,\"\",$5); print $5}');" +
-            "mute=$(pactl get-sink-mute @DEFAULT_SINK@ | awk '{print $2}');" +
-            "echo \"$vol $mute\""]
-        stdout: StdioCollector {
-            onStreamFinished: {
-                let parts = text.trim().split(" ")
-                root.vol = parseInt(parts[0]) || 0
-                root.muted = parts[1] === "yes"
-            }
-        }
-    }
-
-    Component.onCompleted: refresh()
+    function refresh() { Nc.AudioService.refresh() }
 }

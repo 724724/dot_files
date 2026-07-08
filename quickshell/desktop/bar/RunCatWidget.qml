@@ -22,9 +22,14 @@ Item {
     // Colourful sets are shown as-is; silhouettes get tinted to the bar fg.
     readonly property bool colored: Nc.SysUsageService.runcatColored
 
-    // CPU 0–100% → frame interval (slow when idle, fast when busy).
+    // CPU 0–100% → frame interval (slow when idle, fast when busy). Power
+    // curve so mid loads already look lively, with a ~24ms floor at 100% —
+    // matching macOS RunCat's full-tilt pace (5-frame cat: ~8 run cycles/sec
+    // at full load, ~0.7 at idle). The old linear map bottomed out at 70ms,
+    // which read as a lazy jog even with the CPU pinned.
     readonly property real cpu: Nc.SysUsageService.cpu
-    readonly property int frameInterval: Math.max(60, Math.round(340 - cpu * 2.7))
+    readonly property int frameInterval:
+        Math.round(24 + 276 * Math.pow(1 - cpu / 100, 1.35))
 
     Image {
         id: frameImg
@@ -44,7 +49,7 @@ Item {
         smooth: true
         visible: root.isGif && root.colored
         playing: root.isGif && root.visible
-        speed: 0.4 + root.cpu / 100 * 2.6
+        speed: 0.5 + root.cpu / 100 * 3.0
         source: root.isGif ? root.frameUrl : ""
     }
     // Tint silhouette frames to the bar foreground (theme-adaptive).

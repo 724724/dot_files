@@ -1,6 +1,7 @@
 pragma Singleton
 import Quickshell
 import Quickshell.Io
+import Quickshell.Hyprland
 import QtQuick
 
 Singleton {
@@ -18,10 +19,20 @@ Singleton {
         }
     }
 
+    // Event-driven: window opens/closes/moves (incl. to/from special:magic)
+    // all emit Hyprland events, so poll only then — the old 1s blind timer
+    // spawned bash+hyprctl+jq every second forever.
+    Connections {
+        target: Hyprland
+        function onRawEvent(event) { debounce.restart() }
+    }
+    Timer { id: debounce; interval: 150; onTriggered: if (!magicProc.running) magicProc.running = true }
+
+    // Slow backstop in case an event is ever missed.
     Timer {
-        interval: 1000
+        interval: 15000
         running: true
         repeat: true
-        onTriggered: magicProc.running = true
+        onTriggered: if (!magicProc.running) magicProc.running = true
     }
 }

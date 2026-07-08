@@ -35,10 +35,23 @@ Singleton {
         }
     }
 
+    // Event-driven: nmcli monitor emits a line whenever connectivity changes,
+    // which triggers one (debounced) state read — replacing the old blind 5s
+    // poll. A slow fallback below covers a dead monitor process.
+    Process {
+        command: ["nmcli", "monitor"]
+        running: true
+        stdout: SplitParser {
+            splitMarker: "\n"
+            onRead: data => netDebounce.restart()
+        }
+    }
+    Timer { id: netDebounce; interval: 300; onTriggered: if (!netProc.running) netProc.running = true }
+
     Timer {
-        interval: 5000
+        interval: 30000
         running: true
         repeat: true
-        onTriggered: netProc.running = true
+        onTriggered: if (!netProc.running) netProc.running = true
     }
 }

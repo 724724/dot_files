@@ -25,17 +25,26 @@ Singleton {
     // code"), so map the known mismatches by hand first (matching the dock),
     // then fall back to heuristicLookup against desktop entries — the same
     // source the launchpad/spotlight icons use — then the bare class name.
+    // heuristicLookup scans the desktop-entry set, so cache the result per
+    // class: `scanned` used to re-run it for every window on every refresh.
+    property var _iconCache: ({})
     function _iconName(cls) {
         let base = _baseClass(cls)
+        let cached = _iconCache[base]
+        if (cached !== undefined) return cached
         let lc = base.toLowerCase()
-        if (lc === "explorer.exe") return "ableton"
+        let name
+        if (lc === "explorer.exe") name = "ableton"
         // KakaoTalk (Wine) resolves through heuristicLookup below — its themed
         // icon is a hash name declared in the .desktop entry, not "KakaoTalk".
-        if (lc === "code") return "visual-studio-code"
-        if (lc === "com.transmissionbt.transmission") return "transmission"
-        let de = DesktopEntries.heuristicLookup(base)
-        if (de && de.icon) return de.icon
-        return base
+        else if (lc === "code") name = "visual-studio-code"
+        else if (lc === "com.transmissionbt.transmission") name = "transmission"
+        else {
+            let de = DesktopEntries.heuristicLookup(base)
+            name = (de && de.icon) ? de.icon : base
+        }
+        _iconCache[base] = name
+        return name
     }
 
     // Reactive scan of the live toplevel list. Re-runs whenever a window opens,
@@ -75,10 +84,17 @@ Singleton {
 
     // Hyprland's toplevel model doesn't self-populate and window moves between
     // workspaces don't always carry class info on the event alone, so re-query
-    // periodically. refreshToplevels() is a cheap control-socket query.
+    // on window/workspace events (debounced) instead of every second — the
+    // constant refresh churned every toplevel's lastIpcObject, re-evaluating
+    // `scanned` (and its per-window icon lookups) once a second for nothing.
     Component.onCompleted: Hyprland.refreshToplevels()
+    Connections {
+        target: Hyprland
+        function onRawEvent(event) { refreshDebounce.restart() }
+    }
+    Timer { id: refreshDebounce; interval: 150; onTriggered: Hyprland.refreshToplevels() }
     Timer {
-        interval: 1000; running: true; repeat: true
+        interval: 10000; running: true; repeat: true
         onTriggered: Hyprland.refreshToplevels()
     }
 }

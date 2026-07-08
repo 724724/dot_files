@@ -22,7 +22,8 @@ PillContainer {
                 workspace: modelData
                 visible: {
                     if (modelData.name.startsWith("special:")) return false
-                    if (!modelData.monitor) return false
+                    // Both can be transiently null during monitor/config reloads.
+                    if (!modelData.monitor || !root.screen) return false
                     // Compare monitor names directly. Hyprland.monitorFor()
                     // can return null for the external screen in some setups,
                     // which previously caused the widget to fall through to

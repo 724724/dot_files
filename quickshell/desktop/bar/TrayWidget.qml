@@ -15,8 +15,8 @@ Rectangle {
     border.width: 1
     radius: 999
     implicitHeight: 33
-    implicitWidth: (trayRepeater.count > 0 || runcatOn) ? row.implicitWidth + 12 : 0
-    visible: trayRepeater.count > 0 || runcatOn
+    // The Shazam button is always present, so the pill is always shown.
+    implicitWidth: row.implicitWidth + 12
 
     RowLayout {
         id: row
@@ -24,6 +24,12 @@ Rectangle {
         spacing: 3
 
         RunCatWidget { Layout.alignment: Qt.AlignVCenter }
+
+        // Music Recognition (Shazam) — sits just right of RunCat.
+        ShazamWidget {
+            Layout.alignment: Qt.AlignVCenter
+            screen: root.window ? root.window.screen : null
+        }
 
         Repeater {
             id: trayRepeater
