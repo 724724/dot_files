@@ -25,8 +25,12 @@ PanelWindow {
     WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
 
     // While the control center is open the notifications are already shown
-    // inside it, so suppress the duplicate transient popups.
-    visible: !NcServer.controlCenterVisible
+    // inside it, so suppress the duplicate transient popups. Also unmap the
+    // surface entirely when there are no active popups — otherwise an empty
+    // overlay strip stays mapped (and composited) on every screen forever.
+    // Cards fade out 220ms before leaving popupActive (markPopupSeen fires
+    // from hideTimer), so unmapping on empty never cuts an animation short.
+    visible: !NcServer.controlCenterVisible && NcServer.popupActive.length > 0
 
     // ScriptModel diffs popupActive against its previous contents and emits
     // granular row inserts/removes, so removing one popup destroys only that

@@ -14,8 +14,8 @@ Rectangle {
     radius: 14
 
     // Tile stays neutral whether DND is on or off — only the icon lights up.
-    color: dark ? Qt.rgba(1,1,1,0.07) : Qt.rgba(1,1,1,0.62)
-    border.color: dark ? Qt.rgba(1,1,1,0.06) : Qt.rgba(0,0,0,0.05)
+    color: ThemeService.tileBg
+    border.color: ThemeService.tileStroke
     border.width: 1
 
     // Body click target — fills the whole tile and sits *beneath* the icon's

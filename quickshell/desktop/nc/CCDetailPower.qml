@@ -33,6 +33,7 @@ Item {
     // ── ACTION DEFINITIONS ───────────────────────────────────────────────────
     readonly property var actions: [
         { id: "lock",      label: "Lock",      icon: "󰌾", color: "#0A84FF", needsConfirm: false },
+        { id: "hibernate", label: "Hibernate", icon: "󰒲", color: "#64D2FF", needsConfirm: false },
         { id: "logout",    label: "Logout",    icon: "󰍃", color: "#5E5CE6", needsConfirm: true },
         { id: "reboot",    label: "Reboot",    icon: "󰜉", color: "#FF9F0A", needsConfirm: true },
         { id: "shutdown",  label: "Shutdown",  icon: "󰐥", color: "#FF453A", needsConfirm: true }
@@ -154,8 +155,8 @@ Item {
                     height: 44
                     radius: 10
                     color: rowMa.containsMouse
-                        ? (dark ? Qt.rgba(1,1,1,0.06) : Qt.rgba(0,0,0,0.04))
-                        : (dark ? Qt.rgba(1,1,1,0.04) : Qt.rgba(0,0,0,0.03))
+                        ? ThemeService.rowBgHover
+                        : ThemeService.rowBg
                     Behavior on color { ColorAnimation { duration: 100 } }
 
                     Rectangle {
@@ -183,7 +184,7 @@ Item {
                             verticalCenter: parent.verticalCenter
                         }
                         text: modelData.label
-                        color: dark ? "#f5f6f8" : "#1c1c1e"
+                        color: ThemeService.textPrimary
                         font.family: "SF Pro Display"
                         font.pixelSize: 13
                         font.weight: Font.Medium
@@ -226,9 +227,8 @@ Item {
             Rectangle {
                 width: parent.width
                 radius: 12
-                color: dark ? Qt.rgba(1,1,1,0.05) : Qt.rgba(0,0,0,0.03)
-                border.color: dark ? Qt.rgba(1,1,1,0.08) : Qt.rgba(0,0,0,0.06)
-                border.width: 1
+                color: ThemeService.tileBg
+                border.width: 0
                 height: warnCol.implicitHeight + 24
 
                 Column {
@@ -260,7 +260,7 @@ Item {
                             text: root.runningApps.length + " app"
                                 + (root.runningApps.length !== 1 ? "s" : "")
                                 + " still running"
-                            color: dark ? "#f5f6f8" : "#1c1c1e"
+                            color: ThemeService.textPrimary
                             font.family: "SF Pro Display"
                             font.pixelSize: 13
                             font.weight: Font.DemiBold
@@ -270,7 +270,7 @@ Item {
                     Text {
                         width: parent.width
                         text: root.runningApps.join(", ")
-                        color: dark ? Qt.rgba(1,1,1,0.6) : Qt.rgba(0,0,0,0.55)
+                        color: ThemeService.textSecondary
                         font.family: "SF Pro Display"
                         font.pixelSize: 11
                         wrapMode: Text.WordWrap
@@ -289,7 +289,7 @@ Item {
                         verticalCenter: parent.verticalCenter
                     }
                     text: "Auto-" + root.pendingAction + " in " + root.countdownLeft + "s"
-                    color: dark ? Qt.rgba(1,1,1,0.55) : Qt.rgba(0,0,0,0.55)
+                    color: ThemeService.textSecondary
                     font.family: "SF Pro Display"
                     font.pixelSize: 11
                 }
@@ -303,7 +303,7 @@ Item {
                     }
                     height: 4
                     radius: 2
-                    color: dark ? Qt.rgba(1,1,1,0.10) : Qt.rgba(0,0,0,0.08)
+                    color: ThemeService.separator
 
                     Rectangle {
                         anchors {
@@ -335,14 +335,14 @@ Item {
                     height: 38
                     radius: 10
                     color: cancelMa.containsMouse
-                        ? (dark ? Qt.rgba(1,1,1,0.10) : Qt.rgba(0,0,0,0.08))
-                        : (dark ? Qt.rgba(1,1,1,0.07) : Qt.rgba(0,0,0,0.05))
+                        ? ThemeService.rowBgHover
+                        : ThemeService.rowBg
                     Behavior on color { ColorAnimation { duration: 100 } }
 
                     Text {
                         anchors.centerIn: parent
                         text: "Cancel"
-                        color: dark ? "#f5f6f8" : "#1c1c1e"
+                        color: ThemeService.textPrimary
                         font.family: "SF Pro Display"
                         font.pixelSize: 13
                         font.weight: Font.Medium

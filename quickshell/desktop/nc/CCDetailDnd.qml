@@ -50,7 +50,7 @@ Item {
 
         Text {
             text: "Turn On For"
-            color: dark ? Qt.rgba(1,1,1,0.55) : Qt.rgba(0,0,0,0.55)
+            color: ThemeService.textSecondary
             font.family: "SF Pro Display"
             font.pixelSize: 11
             font.weight: Font.DemiBold
@@ -68,10 +68,10 @@ Item {
                 height: 48
                 radius: 12
                 color: isActive
-                    ? (dark ? Qt.rgba(10/255,132/255,255/255,0.20) : Qt.rgba(10/255,132/255,255/255,0.12))
+                    ? ThemeService.rowBgActive
                     : rowMa.containsMouse
-                        ? (dark ? Qt.rgba(1,1,1,0.08) : Qt.rgba(0,0,0,0.05))
-                        : (dark ? Qt.rgba(1,1,1,0.05) : Qt.rgba(0,0,0,0.03))
+                        ? ThemeService.rowBgHover
+                        : ThemeService.rowBg
                 Behavior on color { ColorAnimation { duration: 120 } }
 
                 Row {
@@ -87,7 +87,7 @@ Item {
                         width: 30; height: 30; radius: 15
                         color: row.isActive
                             ? "#0A84FF"
-                            : (dark ? Qt.rgba(1,1,1,0.14) : Qt.rgba(0,0,0,0.06))
+                            : ThemeService.subtleTileBg
                         Behavior on color { ColorAnimation { duration: 120 } }
 
                         Text {
@@ -102,7 +102,7 @@ Item {
                     Text {
                         anchors.verticalCenter: parent.verticalCenter
                         text: row.modelData.label
-                        color: dark ? "#f5f6f8" : "#1c1c1e"
+                        color: ThemeService.textPrimary
                         font.family: "SF Pro Display"
                         font.pixelSize: 13
                         font.weight: row.isActive ? Font.DemiBold : Font.Normal

@@ -166,7 +166,7 @@ Item {
         Rectangle {
             width: parent.width
             radius: 12
-            color: dark ? Qt.rgba(1,1,1,0.05) : Qt.rgba(0,0,0,0.04)
+            color: ThemeService.tileBg
             height: chartCol.implicitHeight + 28
 
             Column {
@@ -191,7 +191,7 @@ Item {
                                 : (root.selectedApp !== ""
                                     ? ScreenTimeService.displayName(root.selectedApp) + " Usage"
                                     : "Usage")
-                            color: dark ? Qt.rgba(1,1,1,0.55) : Qt.rgba(0,0,0,0.55)
+                            color: ThemeService.textSecondary
                             font.family: "SF Pro Display"
                             font.pixelSize: 11
                             font.weight: Font.DemiBold
@@ -202,7 +202,7 @@ Item {
                             text: ScreenTimeService.fmt(root.weekMode
                                 ? root.weekAvgSecs
                                 : (root.selectedApp !== "" ? root.selectedAppSecs : root.selectedTotal))
-                            color: dark ? "#f5f6f8" : "#1c1c1e"
+                            color: ThemeService.textPrimary
                             font.family: "SF Pro Display"
                             font.pixelSize: 26
                             font.weight: Font.Bold
@@ -222,10 +222,9 @@ Item {
                             width: ddRow.implicitWidth + 18
                             radius: 8
                             color: (ddMa.containsMouse || dateListPopup.opened)
-                                ? (dark ? Qt.rgba(1,1,1,0.14) : Qt.rgba(0,0,0,0.08))
-                                : (dark ? Qt.rgba(1,1,1,0.07) : Qt.rgba(0,0,0,0.05))
-                            border.color: dark ? Qt.rgba(1,1,1,0.12) : Qt.rgba(0,0,0,0.10)
-                            border.width: 1
+                                ? ThemeService.rowBgHover
+                                : ThemeService.rowBg
+                            border.width: 0
                             Behavior on color { ColorAnimation { duration: 100 } }
 
                             Row {
@@ -235,7 +234,7 @@ Item {
                                 Text {
                                     anchors.verticalCenter: parent.verticalCenter
                                     text: root.weekLabel(root.selectedDay)
-                                    color: dark ? "#f5f6f8" : "#1c1c1e"
+                                    color: ThemeService.textPrimary
                                     font.family: "SF Pro Display"
                                     font.pixelSize: 12
                                     font.weight: Font.DemiBold
@@ -243,7 +242,7 @@ Item {
                                 Text {
                                     anchors.verticalCenter: parent.verticalCenter
                                     text: "󰅀"
-                                    color: dark ? Qt.rgba(1,1,1,0.50) : Qt.rgba(0,0,0,0.40)
+                                    color: ThemeService.textTertiary
                                     font.family: "JetBrainsMono Nerd Font Propo"
                                     font.pixelSize: 11
                                 }
@@ -268,9 +267,8 @@ Item {
 
                                 background: Rectangle {
                                     radius: 12
-                                    color: dark ? Qt.rgba(40/255,40/255,44/255,0.98)
-                                                : Qt.rgba(252/255,252/255,253/255,0.99)
-                                    border.color: dark ? Qt.rgba(1,1,1,0.12) : Qt.rgba(0,0,0,0.10)
+                                    color: ThemeService.popupBg
+                                    border.color: ThemeService.stroke
                                     border.width: 1
                                 }
 
@@ -289,14 +287,14 @@ Item {
                                         radius: 8
                                         readonly property bool sel: modelData.weekKey === root.selectedWeekKey
                                         color: sel
-                                            ? (dark ? Qt.rgba(10/255,132/255,255/255,0.22) : Qt.rgba(0,122/255,255/255,0.12))
-                                            : (rowMa.containsMouse ? (dark ? Qt.rgba(1,1,1,0.08) : Qt.rgba(0,0,0,0.05))
+                                            ? ThemeService.rowBgActive
+                                            : (rowMa.containsMouse ? ThemeService.rowBgHover
                                                                    : "transparent")
 
                                         Text {
                                             anchors { left: parent.left; leftMargin: 10; verticalCenter: parent.verticalCenter }
                                             text: root.weekLabel(modelData.weekKey)
-                                            color: parent.sel ? "#0A84FF" : (dark ? "#f5f6f8" : "#1c1c1e")
+                                            color: parent.sel ? "#0A84FF" : ThemeService.textPrimary
                                             font.family: "SF Pro Display"
                                             font.pixelSize: 12
                                             font.weight: parent.sel ? Font.DemiBold : Font.Normal
@@ -304,7 +302,7 @@ Item {
                                         Text {
                                             anchors { right: parent.right; rightMargin: 10; verticalCenter: parent.verticalCenter }
                                             text: ScreenTimeService.fmt(modelData.seconds)
-                                            color: dark ? Qt.rgba(1,1,1,0.50) : Qt.rgba(0,0,0,0.45)
+                                            color: ThemeService.textTertiary
                                             font.family: "SF Pro Display"
                                             font.pixelSize: 11
                                         }
@@ -326,15 +324,13 @@ Item {
                             width: 28; height: 28; radius: 8
                             enabled: root.canPrev
                             opacity: enabled ? 1 : 0.35
-                            color: prevMa.containsMouse ? (dark ? Qt.rgba(1,1,1,0.14) : Qt.rgba(0,0,0,0.08))
-                                                        : (dark ? Qt.rgba(1,1,1,0.07) : Qt.rgba(0,0,0,0.05))
-                            border.color: dark ? Qt.rgba(1,1,1,0.12) : Qt.rgba(0,0,0,0.10)
-                            border.width: 1
+                            color: prevMa.containsMouse ? ThemeService.rowBgHover : ThemeService.rowBg
+                            border.width: 0
                             Behavior on color { ColorAnimation { duration: 100 } }
                             Text {
                                 anchors.centerIn: parent
                                 text: "󰅁"
-                                color: dark ? "#f0f3f6" : "#1c1c1e"
+                                color: ThemeService.textPrimary
                                 font.family: "JetBrainsMono Nerd Font Propo"
                                 font.pixelSize: 14
                             }
@@ -356,16 +352,15 @@ Item {
                             enabled: !root.isToday
                             opacity: enabled ? 1 : 0.5
                             color: (todayMa.containsMouse && enabled)
-                                ? (dark ? Qt.rgba(1,1,1,0.14) : Qt.rgba(0,0,0,0.08))
-                                : (dark ? Qt.rgba(1,1,1,0.07) : Qt.rgba(0,0,0,0.05))
-                            border.color: dark ? Qt.rgba(1,1,1,0.12) : Qt.rgba(0,0,0,0.10)
-                            border.width: 1
+                                ? ThemeService.rowBgHover
+                                : ThemeService.rowBg
+                            border.width: 0
                             Behavior on color { ColorAnimation { duration: 100 } }
                             Text {
                                 id: todayText
                                 anchors.centerIn: parent
                                 text: "Today"
-                                color: dark ? "#f5f6f8" : "#1c1c1e"
+                                color: ThemeService.textPrimary
                                 font.family: "SF Pro Display"
                                 font.pixelSize: 12
                                 font.weight: Font.DemiBold
@@ -385,15 +380,13 @@ Item {
                             width: 28; height: 28; radius: 8
                             enabled: root.canNext
                             opacity: enabled ? 1 : 0.35
-                            color: nextMa.containsMouse ? (dark ? Qt.rgba(1,1,1,0.14) : Qt.rgba(0,0,0,0.08))
-                                                        : (dark ? Qt.rgba(1,1,1,0.07) : Qt.rgba(0,0,0,0.05))
-                            border.color: dark ? Qt.rgba(1,1,1,0.12) : Qt.rgba(0,0,0,0.10)
-                            border.width: 1
+                            color: nextMa.containsMouse ? ThemeService.rowBgHover : ThemeService.rowBg
+                            border.width: 0
                             Behavior on color { ColorAnimation { duration: 100 } }
                             Text {
                                 anchors.centerIn: parent
                                 text: "󰅂"
-                                color: dark ? "#f0f3f6" : "#1c1c1e"
+                                color: ThemeService.textPrimary
                                 font.family: "JetBrainsMono Nerd Font Propo"
                                 font.pixelSize: 14
                             }
@@ -475,7 +468,7 @@ Item {
                                     width: Math.min(implicitWidth, catLegendRow.width * 0.55)
                                     text: legendItem.cat.label
                                     elide: Text.ElideRight
-                                    color: dark ? Qt.rgba(1,1,1,0.65) : Qt.rgba(0,0,0,0.60)
+                                    color: ThemeService.textSecondary
                                     font.family: "SF Pro Display"
                                     font.pixelSize: 11
                                 }
@@ -486,7 +479,7 @@ Item {
                                 id: timeText
                                 anchors { top: nameRow.bottom; topMargin: 2; left: nameRow.left }
                                 text: ScreenTimeService.fmt(legendItem.cat.seconds)
-                                color: dark ? "#f5f6f8" : "#1c1c1e"
+                                color: ThemeService.textPrimary
                                 font.family: "SF Pro Display"
                                 font.pixelSize: 12
                                 font.weight: Font.DemiBold
@@ -521,7 +514,7 @@ Item {
                                 width: Math.min(implicitWidth, appLeg.width / 2 - 14)
                                 text: ScreenTimeService.displayName(root.selectedApp)
                                 elide: Text.ElideRight
-                                color: dark ? Qt.rgba(1,1,1,0.65) : Qt.rgba(0,0,0,0.60)
+                                color: ThemeService.textSecondary
                                 font.family: "SF Pro Display"
                                 font.pixelSize: 11
                             }
@@ -529,7 +522,7 @@ Item {
                         Text {
                             // Left edge aligned to the swatch above (column start).
                             text: ScreenTimeService.fmt(root.selectedAppSecs)
-                            color: dark ? "#f5f6f8" : "#1c1c1e"
+                            color: ThemeService.textPrimary
                             font.family: "SF Pro Display"
                             font.pixelSize: 12
                             font.weight: Font.DemiBold
@@ -548,14 +541,14 @@ Item {
                             Rectangle {
                                 anchors.verticalCenter: parent.verticalCenter
                                 width: 9; height: 9; radius: 2
-                                color: dark ? Qt.rgba(1,1,1,0.40) : Qt.rgba(0,0,0,0.30)
+                                color: ThemeService.textTertiary
                             }
                             Text {
                                 anchors.verticalCenter: parent.verticalCenter
                                 width: Math.min(implicitWidth, avgLegCol.width - 14)
                                 text: "Total Screen Time Average"
                                 elide: Text.ElideRight
-                                color: dark ? Qt.rgba(1,1,1,0.65) : Qt.rgba(0,0,0,0.60)
+                                color: ThemeService.textSecondary
                                 font.family: "SF Pro Display"
                                 font.pixelSize: 11
                             }
@@ -563,7 +556,7 @@ Item {
                         Text {
                             // Left edge aligned to the swatch above (column start).
                             text: ScreenTimeService.fmt(root.selectedAppWeekAvg)
-                            color: dark ? "#f5f6f8" : "#1c1c1e"
+                            color: ThemeService.textPrimary
                             font.family: "SF Pro Display"
                             font.pixelSize: 12
                             font.weight: Font.DemiBold
@@ -583,7 +576,7 @@ Item {
             Text {
                 anchors { left: parent.left; verticalCenter: parent.verticalCenter }
                 text: "Apps Usage"
-                color: dark ? Qt.rgba(1,1,1,0.55) : Qt.rgba(0,0,0,0.55)
+                color: ThemeService.textSecondary
                 font.family: "SF Pro Display"
                 font.pixelSize: 11
                 font.weight: Font.DemiBold
@@ -595,7 +588,7 @@ Item {
                     : (root.selectedTotal > 0
                         ? "Screen time " + ScreenTimeService.fmt(root.selectedTotal)
                         : "")
-                color: dark ? Qt.rgba(1,1,1,0.40) : Qt.rgba(0,0,0,0.40)
+                color: ThemeService.textTertiary
                 font.family: "SF Pro Display"
                 font.pixelSize: 10
             }
@@ -605,7 +598,7 @@ Item {
             id: appsCard
             width: parent.width
             radius: 12
-            color: dark ? Qt.rgba(1,1,1,0.05) : Qt.rgba(0,0,0,0.04)
+            color: ThemeService.tileBg
 
             readonly property int rowH: 44
             readonly property int maxVisibleRows: 6
@@ -646,7 +639,7 @@ Item {
                     : (root.selectedDay === ScreenTimeService.day
                         ? "No usage tracked yet — collecting…"
                         : "No usage tracked on this day")
-                color: dark ? Qt.rgba(1,1,1,0.45) : Qt.rgba(0,0,0,0.45)
+                color: ThemeService.textTertiary
                 font.family: "SF Pro Display"
                 font.pixelSize: 11
             }
@@ -679,7 +672,7 @@ Item {
                     contentItem: Rectangle {
                         implicitWidth: 3
                         radius: 1.5
-                        color: dark ? Qt.rgba(1,1,1,0.35) : Qt.rgba(0,0,0,0.28)
+                        color: ThemeService.textTertiary
                         opacity: appsScroll.active ? 1 : 0
                         Behavior on opacity { NumberAnimation { duration: 250 } }
                     }
@@ -746,7 +739,7 @@ Item {
                             width: appsCard.timeColW
                             horizontalAlignment: Text.AlignRight
                             text: ScreenTimeService.fmt(modelData.seconds)
-                            color: appRow.appSel ? "#ffffff" : (dark ? "#f5f6f8" : "#1c1c1e")
+                            color: appRow.appSel ? "#ffffff" : ThemeService.textPrimary
                             font.family: "SF Pro Display"
                             font.pixelSize: 12
                             font.weight: Font.DemiBold
@@ -761,7 +754,7 @@ Item {
                             }
                             text: ScreenTimeService.displayName(modelData.cls)
                             elide: Text.ElideRight
-                            color: appRow.appSel ? "#ffffff" : (dark ? "#f5f6f8" : "#1c1c1e")
+                            color: appRow.appSel ? "#ffffff" : ThemeService.textPrimary
                             font.family: "SF Pro Display"
                             font.pixelSize: 13
                             font.weight: Font.Medium
@@ -777,7 +770,7 @@ Item {
                                 bottom: parent.bottom
                             }
                             height: 1
-                            color: dark ? Qt.rgba(1,1,1,0.07) : Qt.rgba(0,0,0,0.06)
+                            color: ThemeService.separator
                         }
 
                         // Tap to focus this app across the charts; tap again to

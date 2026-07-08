@@ -122,6 +122,37 @@ Item {
         actProc.running = true
     }
 
+    // Unpair/forget a device entirely ("Remove Device").
+    function removeDevice(d) {
+        if (root.busyMac !== "") return
+        root.busyMac = d.mac
+        actProc.command = ["bash", "-c",
+            "bluetoothctl disconnect " + d.mac + " >/dev/null 2>&1;" +
+            "bluetoothctl remove " + d.mac + " >/dev/null 2>&1"]
+        actProc.running = true
+    }
+
+    // Right-click context menu for a device row.
+    function _btMenuItems(d) {
+        let items = []
+        if (d.paired || d.connected) {
+            items.push({
+                label: d.connected ? "Disconnect" : "Connect",
+                action: function() { root.deviceClicked(d) }
+            })
+        }
+        items.push({
+            label: "Bluetooth Settings…",
+            action: function() { settingsProc.running = true }
+        })
+        items.push({
+            label: "Remove Device",
+            danger: true,
+            action: function() { root.removeDevice(d) }
+        })
+        return items
+    }
+
     Timer {
         id: scanRefreshTimer
         interval: 1500
@@ -162,7 +193,7 @@ Item {
 
         Text {
             text: root.scanning ? "Scanning…" : "Devices"
-            color: dark ? Qt.rgba(1,1,1,0.55) : Qt.rgba(0,0,0,0.55)
+            color: ThemeService.textSecondary
             font.family: "SF Pro Display"
             font.pixelSize: 11
             font.weight: Font.DemiBold
@@ -228,8 +259,8 @@ Item {
                             anchors.fill: parent
                             radius: 6
                             color: dRowMa.containsMouse
-                                ? (dark ? Qt.rgba(1,1,1,0.06) : Qt.rgba(0,0,0,0.04))
-                                : "transparent"
+                                ? ThemeService.rowBgHover
+                                : ThemeService.rowBgHoverClear
                             Behavior on color { ColorAnimation { duration: 100 } }
                         }
 
@@ -245,7 +276,7 @@ Item {
                                 ? "#34C759"
                                 : (modelData.paired
                                     ? "#0A84FF"
-                                    : (dark ? Qt.rgba(1,1,1,0.25) : Qt.rgba(0,0,0,0.20)))
+                                    : ThemeService.textTertiary)
                         }
 
                         Text {
@@ -257,7 +288,7 @@ Item {
                                 verticalCenter: parent.verticalCenter
                             }
                             text: modelData.name
-                            color: dark ? "#f0f3f6" : "#1c1c1e"
+                            color: ThemeService.textPrimary
                             font.family: "SF Pro Display"
                             font.pixelSize: 12
                             elide: Text.ElideRight
@@ -267,14 +298,14 @@ Item {
                             id: stat
                             anchors {
                                 right: parent.right
-                                rightMargin: 12
+                                rightMargin: (modelData.paired || modelData.connected) ? 36 : 12
                                 verticalCenter: parent.verticalCenter
                             }
                             visible: root.busyMac !== modelData.mac
                             text: modelData.connected
                                 ? "Connected"
                                 : (modelData.paired ? "Paired" : "Tap to pair")
-                            color: dark ? Qt.rgba(1,1,1,0.5) : Qt.rgba(0,0,0,0.50)
+                            color: ThemeService.textSecondary
                             font.family: "SF Pro Display"
                             font.pixelSize: 11
                         }
@@ -285,7 +316,7 @@ Item {
                             id: spinner
                             anchors {
                                 right: parent.right
-                                rightMargin: 12
+                                rightMargin: (modelData.paired || modelData.connected) ? 36 : 12
                                 verticalCenter: parent.verticalCenter
                             }
                             width: 14; height: 14
@@ -321,8 +352,35 @@ Item {
                             id: dRowMa
                             anchors.fill: parent
                             hoverEnabled: true
+                            acceptedButtons: Qt.LeftButton | Qt.RightButton
                             cursorShape: Qt.PointingHandCursor
-                            onClicked: root.deviceClicked(modelData)
+                            onClicked: function(mouse) {
+                                if (mouse.button === Qt.RightButton) {
+                                    // Menu only for paired/connected devices.
+                                    if (!(modelData.paired || modelData.connected)) return
+                                    let pt = dRowMa.mapToItem(root, mouse.x, mouse.y)
+                                    ctxMenu.openAt(pt.x, pt.y, root._btMenuItems(modelData))
+                                    return
+                                }
+                                root.deviceClicked(modelData)
+                            }
+                        }
+
+                        // ⋮ kebab — paired/connected devices only (declared after
+                        // dRowMa so it sits above the row's click area).
+                        CCMenuDots {
+                            id: btKebab
+                            visible: modelData.paired || modelData.connected
+                            width: visible ? 24 : 0
+                            anchors {
+                                right: parent.right
+                                rightMargin: 6
+                                verticalCenter: parent.verticalCenter
+                            }
+                            onClicked: {
+                                let pt = btKebab.mapToItem(root, btKebab.width, btKebab.height)
+                                ctxMenu.openAt(pt.x, pt.y, root._btMenuItems(modelData))
+                            }
                         }
                     }
                 }
@@ -333,7 +391,7 @@ Item {
         Text {
             visible: root.btOn && root.devices.length === 0
             text: root.scanning ? "Searching for devices…" : "No devices. Tap + to scan."
-            color: dark ? Qt.rgba(1,1,1,0.4) : Qt.rgba(0,0,0,0.40)
+            color: ThemeService.textTertiary
             font.family: "SF Pro Display"
             font.pixelSize: 11
             leftPadding: 8
@@ -346,8 +404,8 @@ Item {
             height: 36
             radius: 8
             color: bSetMa.containsMouse
-                ? (dark ? Qt.rgba(1,1,1,0.06) : Qt.rgba(0,0,0,0.04))
-                : "transparent"
+                ? ThemeService.rowBgHover
+                : ThemeService.rowBgHoverClear
             Behavior on color { ColorAnimation { duration: 100 } }
 
             Text {
@@ -372,4 +430,7 @@ Item {
             }
         }
     }
+
+    // Right-click context menu overlay (fills the panel, renders above the list).
+    CCContextMenu { id: ctxMenu }
 }

@@ -2,6 +2,7 @@ pragma Singleton
 import Quickshell
 import Quickshell.Io
 import QtQuick
+import "../nc" as Nc
 
 Singleton {
     id: root
@@ -50,6 +51,9 @@ Singleton {
         function brightness(pct: string) {
             let p = parseInt(pct) || 0
             root.showOsd("󰃟", p + "%", p, true)
+            // Keep the control-center slider in sync with keybind changes —
+            // BrightnessService no longer polls while the CC is closed.
+            Nc.BrightnessService.pct = p
         }
 
         function custom(icon: string, message: string) {
@@ -62,47 +66,60 @@ Singleton {
 
     // ── Keyboard backlight watcher ────────────────────────────────────────
     // ThinkPad's Fn+Space cycles tpacpi::kbd_backlight via firmware/ACPI;
-    // userspace never sees a key event. Poll the sysfs brightness file and
-    // surface an OSD whenever the level changes (0 / 1 / 2 on this device).
+    // userspace never sees a key event. sysfs emits no inotify events either,
+    // so the brightness file still has to be polled — but with FileView reads
+    // (in-process, no fork) instead of the old bash+cat pipeline that spawned
+    // ~15 processes per second.
     property int _kbdLevel: -1   // -1 = uninitialized; first read just seeds
     property int _kbdMax:   2
 
-    Process {
-        id: kbdReadProc
-	command: ["bash", "-c",
-	    "b=$(cat /sys/class/leds/tpacpi::kbd_backlight/brightness 2>/dev/null); " +
-            "m=$(cat /sys/class/leds/tpacpi::kbd_backlight/max_brightness 2>/dev/null); " +
-            "s=$([ -f /tmp/kbd-osd-suppress ] && echo 1 || echo 0); " +
-            "echo \"$b $m $s\""]
-        stdout: StdioCollector {
-            onStreamFinished: {
-                let parts = text.trim().split(" ")
-                let cur = parseInt(parts[0])
-		let max = parseInt(parts[1])
-		let suppress = parseInt(parts[2]) === 1
-                if (isNaN(cur) || isNaN(max) || max <= 0) return
-
-                if (root._kbdLevel === -1) {
-                    // First read: just remember; don't fire an OSD on startup.
-                    root._kbdLevel = cur
-                    root._kbdMax   = max
-                } else if (cur !== root._kbdLevel) {
-                    root._kbdLevel = cur
-		    root._kbdMax   = max
-		    // Skip OSD when change came from hypridle (flag present).
-                    if (suppress) return
-                    let pct = Math.round(cur * 100 / max)
-                    root.showOsd("", "", pct, true)
-                }
+    FileView {
+        id: kbdMaxView
+        path: "/sys/class/leds/tpacpi::kbd_backlight/max_brightness"
+        blockLoading: true
+        printErrors: false
+    }
+    // Tracks /tmp/kbd-osd-suppress by existence (the flag file may be empty):
+    // a successful load means it exists, a failed one means it's gone.
+    property bool _kbdSuppressed: false
+    FileView {
+        id: kbdSuppressView
+        path: "/tmp/kbd-osd-suppress"
+        printErrors: false
+        onLoaded: root._kbdSuppressed = true
+        onLoadFailed: root._kbdSuppressed = false
+    }
+    FileView {
+        id: kbdView
+        path: "/sys/class/leds/tpacpi::kbd_backlight/brightness"
+        printErrors: false
+        onLoaded: {
+            let cur = parseInt(text().trim())
+            if (isNaN(cur)) return
+            if (root._kbdLevel === -1) {
+                // First read: just remember; don't fire an OSD on startup.
+                root._kbdLevel = cur
+            } else if (cur !== root._kbdLevel) {
+                root._kbdLevel = cur
+                // Skip OSD when change came from hypridle (flag present);
+                // reload() below refreshed the flag just before this read.
+                if (root._kbdSuppressed) return
+                let pct = Math.round(cur * 100 / Math.max(1, root._kbdMax))
+                root.showOsd("", "", pct, true)
             }
         }
     }
 
+    Component.onCompleted: {
+        let m = parseInt(kbdMaxView.text().trim())
+        if (!isNaN(m) && m > 0) root._kbdMax = m
+    }
+
     Timer {
-        interval: 200
+        interval: 250
         running: true
         repeat: true
         triggeredOnStart: true
-        onTriggered: kbdReadProc.running = true
+        onTriggered: { kbdSuppressView.reload(); kbdView.reload() }
     }
 }

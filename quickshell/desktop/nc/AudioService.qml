@@ -19,7 +19,7 @@ Singleton {
     // "(null)" descriptions for Bluetooth devices like AirPods.
     property var btNames: ({})
 
-    function refresh() { refreshProc.running = true }
+    function refresh() { if (!refreshProc.running) refreshProc.running = true }
     function refreshDevices() {
         sinksProc.running = true
         defaultProc.running = true
@@ -27,11 +27,16 @@ Singleton {
         defaultSourceProc.running = true
         btNamesProc.running = true
     }
+    // Coalesce slider drags: at most one pactl in flight; the newest value is
+    // applied when the previous write finishes. A drag used to spawn one pactl
+    // per pointer move, and each write echoed back a pactl-subscribe event.
+    property int _pendingVol: -1
     function setVolume(p) {
         let v = Math.round(p)
+        root.vol = v   // optimistic, so the slider holds its dragged position
+        if (setProc.running) { root._pendingVol = v; return }
         setProc.command = ["pactl", "set-sink-volume", "@DEFAULT_SINK@", v + "%"]
         setProc.running = true
-        root.vol = v   // optimistic, so the slider holds its dragged position
     }
     function toggleMute() { muteProc.running = true }
     function openMixer() { Quickshell.execDetached(["pavucontrol"]) }
@@ -73,17 +78,25 @@ Singleton {
         root.defaultSource = name   // optimistic; confirmed on next refresh
     }
 
+    // Debounced event handling: a volume drag fires dozens of sink-change
+    // events per second, and each one used to spawn 6 processes (sinks,
+    // sources, defaults, bluetoothctl, volume). Now sink changes only refresh
+    // the volume (one process, debounced), and the heavier device
+    // re-enumeration runs only for server/card/source topology changes.
+    Timer { id: volDebounce; interval: 50; onTriggered: root.refresh() }
+    Timer { id: devDebounce; interval: 300; onTriggered: root.refreshDevices() }
+
     Process {
         command: ["pactl", "subscribe"]
         running: true
         stdout: SplitParser {
             splitMarker: "\n"
             onRead: data => {
-                if (data.includes("'change' on sink") || data.includes("'change' on server")
-                    || data.includes("'change' on source") || data.includes("'change' on card")) {
-                    root.refresh()
-                    root.refreshDevices()
-                }
+                if (data.includes("'change' on sink") || data.includes("'change' on server"))
+                    volDebounce.restart()
+                if (data.includes("'change' on server") || data.includes("'change' on card")
+                    || data.includes("'change' on source"))
+                    devDebounce.restart()
             }
         }
     }
@@ -183,7 +196,19 @@ Singleton {
         }
     }
 
-    Process { id: setProc; command: ["true"] }
+    Process {
+        id: setProc
+        command: ["true"]
+        // Apply the newest coalesced slider value once the in-flight write ends.
+        onRunningChanged: {
+            if (!running && root._pendingVol >= 0) {
+                let v = root._pendingVol
+                root._pendingVol = -1
+                setProc.command = ["pactl", "set-sink-volume", "@DEFAULT_SINK@", v + "%"]
+                setProc.running = true
+            }
+        }
+    }
     Process {
         id: muteProc
         command: ["pactl", "set-sink-mute", "@DEFAULT_SINK@", "toggle"]

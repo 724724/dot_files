@@ -7,8 +7,8 @@ Rectangle {
     readonly property bool dark: ThemeService.isDark
 
     radius: 14
-    color: dark ? Qt.rgba(1, 1, 1, 0.07) : Qt.rgba(1, 1, 1, 0.62)
-    border.color: dark ? Qt.rgba(1, 1, 1, 0.06) : Qt.rgba(0, 0, 0, 0.05)
+    color: ThemeService.tileBg
+    border.color: ThemeService.tileStroke
     border.width: 1
 
     Behavior on color { ColorAnimation { duration: 200 } }

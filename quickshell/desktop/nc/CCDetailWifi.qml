@@ -40,6 +40,35 @@ Item {
         return "󰤯"
     }
 
+    // Context menu for a network. The connected network gets the full set;
+    // other (list) networks just get Connect.
+    function _wifiMenuItems(net) {
+        if (net.active === true) {
+            return [
+                { label: "Disconnect",
+                  action: function() { WifiService.disconnectSsid(net.ssid) } },
+                { label: "Edit Connection…",
+                  action: function() { WifiService.editConnection(net.ssid) } },
+                { label: "Forget Network", danger: true,
+                  action: function() { WifiService.forget(net.ssid) } }
+            ]
+        }
+        let items = [
+            { label: "Connect",
+              action: function() { WifiService.smartConnect(net.ssid, net.security, "") } }
+        ]
+        // Secured networks: a deterministic way to open the inline password row
+        // (handy when a saved password is wrong, or to avoid the agent dialog
+        // popping under the overlay).
+        if (net.security !== "") {
+            items.push({
+                label: "Enter Password…",
+                action: function() { root.passwordSsid = net.ssid; root.passwordError = "" }
+            })
+        }
+        return items
+    }
+
     // ── PROCESSES ─────────────────────────────────────────────────────────────
     // Inline flip — the swaync helper depended on $SWAYNC_TOGGLE_STATE which
     // we don't pass, so it always ran the off branch. Read the current state
@@ -119,7 +148,7 @@ Item {
             width: parent.width
             height: 48
             radius: 10
-            color: dark ? Qt.rgba(1,1,1,0.05) : Qt.rgba(0,0,0,0.04)
+            color: ThemeService.tileBg
             visible: root.wifiOn && root.activeSsid !== ""
 
             Rectangle {
@@ -148,23 +177,50 @@ Item {
                 }
                 Text {
                     text: root.activeSsid
-                    color: dark ? "#f5f6f8" : "#1c1c1e"
+                    color: ThemeService.textPrimary
                     font.family: "SF Pro Display"
                     font.pixelSize: 12
                     font.weight: Font.DemiBold
                 }
                 Text {
                     text: "Connected"
-                    color: dark ? Qt.rgba(1,1,1,0.5) : Qt.rgba(0,0,0,0.50)
+                    color: ThemeService.textSecondary
                     font.family: "SF Pro Display"
                     font.pixelSize: 11
+                }
+            }
+
+            // Right-click anywhere, or click the ⋮ button, for the menu.
+            MouseArea {
+                id: activeMa
+                anchors.fill: parent
+                acceptedButtons: Qt.RightButton
+                cursorShape: Qt.PointingHandCursor
+                onClicked: function(mouse) {
+                    let pt = activeMa.mapToItem(root, mouse.x, mouse.y)
+                    ctxMenu.openAt(pt.x, pt.y, root._wifiMenuItems(
+                        { ssid: root.activeSsid, active: true, security: "" }))
+                }
+            }
+
+            CCMenuDots {
+                id: wifiKebab
+                anchors {
+                    right: parent.right
+                    rightMargin: 8
+                    verticalCenter: parent.verticalCenter
+                }
+                onClicked: {
+                    let pt = wifiKebab.mapToItem(root, wifiKebab.width, wifiKebab.height)
+                    ctxMenu.openAt(pt.x, pt.y, root._wifiMenuItems(
+                        { ssid: root.activeSsid, active: true, security: "" }))
                 }
             }
         }
 
         Text {
             text: root.scanning ? "Scanning…" : "Other Networks"
-            color: dark ? Qt.rgba(1,1,1,0.55) : Qt.rgba(0,0,0,0.55)
+            color: ThemeService.textSecondary
             font.family: "SF Pro Display"
             font.pixelSize: 11
             font.weight: Font.DemiBold
@@ -247,11 +303,10 @@ Item {
                                 anchors.fill: parent
                                 radius: 6
                                 color: rowWrap.expanded
-                                    ? (dark ? Qt.rgba(10/255, 132/255, 255/255, 0.12)
-                                            : Qt.rgba(0, 122/255, 255/255, 0.08))
+                                    ? ThemeService.rowBgActive
                                     : (rowMa.containsMouse
-                                        ? (dark ? Qt.rgba(1,1,1,0.06) : Qt.rgba(0,0,0,0.04))
-                                        : "transparent")
+                                        ? ThemeService.rowBgHover
+                                        : ThemeService.rowBgHoverClear)
                                 Behavior on color { ColorAnimation { duration: 100 } }
                             }
 
@@ -276,7 +331,7 @@ Item {
                                     verticalCenter: parent.verticalCenter
                                 }
                                 text: rowWrap.modelData.ssid
-                                color: dark ? "#f0f3f6" : "#1c1c1e"
+                                color: ThemeService.textPrimary
                                 font.family: "SF Pro Display"
                                 font.pixelSize: 12
                                 elide: Text.ElideRight
@@ -293,7 +348,7 @@ Item {
 
                                 Text {
                                     text: rowWrap.connecting ? "Connecting…" : ""
-                                    color: dark ? Qt.rgba(1,1,1,0.5) : Qt.rgba(0,0,0,0.45)
+                                    color: ThemeService.textSecondary
                                     font.family: "SF Pro Display"
                                     font.pixelSize: 10
                                     visible: rowWrap.connecting
@@ -302,7 +357,7 @@ Item {
 
                                 Text {
                                     text: rowWrap.modelData.security !== "" ? "󰌾" : ""
-                                    color: dark ? Qt.rgba(1,1,1,0.4) : Qt.rgba(0,0,0,0.40)
+                                    color: ThemeService.textTertiary
                                     font.family: "JetBrainsMono Nerd Font Propo"
                                     font.pixelSize: 12
                                     anchors.verticalCenter: parent.verticalCenter
@@ -313,8 +368,14 @@ Item {
                                 id: rowMa
                                 anchors.fill: parent
                                 hoverEnabled: true
+                                acceptedButtons: Qt.LeftButton | Qt.RightButton
                                 cursorShape: Qt.PointingHandCursor
-                                onClicked: {
+                                onClicked: function(mouse) {
+                                    if (mouse.button === Qt.RightButton) {
+                                        let pt = rowMa.mapToItem(root, mouse.x, mouse.y)
+                                        ctxMenu.openAt(pt.x, pt.y, root._wifiMenuItems(rowWrap.modelData))
+                                        return
+                                    }
                                     if (rowWrap.expanded) {
                                         // toggle close
                                         root.passwordSsid = ""
@@ -348,9 +409,8 @@ Item {
                                 anchors.topMargin: 4
                                 anchors.bottomMargin: 4
                                 radius: 8
-                                color: dark ? Qt.rgba(1,1,1,0.05) : Qt.rgba(0,0,0,0.03)
-                                border.color: dark ? Qt.rgba(1,1,1,0.08) : Qt.rgba(0,0,0,0.08)
-                                border.width: 1
+                                color: ThemeService.fieldBg
+                                border.width: 0
 
                                 TextField {
                                     id: pwField
@@ -366,8 +426,8 @@ Item {
                                         : "Password"
                                     placeholderTextColor: root.passwordError !== ""
                                         ? "#FF453A"
-                                        : (dark ? Qt.rgba(1,1,1,0.4) : Qt.rgba(0,0,0,0.40))
-                                    color: dark ? "#f0f3f6" : "#1c1c1e"
+                                        : ThemeService.textTertiary
+                                    color: ThemeService.textPrimary
                                     font.family: "SF Pro Display"
                                     font.pixelSize: 12
                                     echoMode: TextInput.Password
@@ -420,7 +480,7 @@ Item {
         Text {
             visible: root.wifiOn && root.networks.length === 0
             text: root.scanning ? "Searching…" : "No networks found"
-            color: dark ? Qt.rgba(1,1,1,0.4) : Qt.rgba(0,0,0,0.40)
+            color: ThemeService.textTertiary
             font.family: "SF Pro Display"
             font.pixelSize: 11
             leftPadding: 8
@@ -434,8 +494,8 @@ Item {
             height: 36
             radius: 8
             color: settingsMa.containsMouse
-                ? (dark ? Qt.rgba(1,1,1,0.06) : Qt.rgba(0,0,0,0.04))
-                : "transparent"
+                ? ThemeService.rowBgHover
+                : ThemeService.rowBgHoverClear
             Behavior on color { ColorAnimation { duration: 100 } }
 
             Text {
@@ -460,4 +520,7 @@ Item {
             }
         }
     }
+
+    // Right-click context menu overlay (fills the panel, renders above the list).
+    CCContextMenu { id: ctxMenu }
 }

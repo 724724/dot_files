@@ -27,14 +27,14 @@ Item {
         width: 28; height: 28
         radius: 14
         color: backMa.containsMouse
-            ? (dark ? Qt.rgba(1,1,1,0.10) : Qt.rgba(0,0,0,0.06))
-            : "transparent"
+            ? ThemeService.rowBgHover
+            : ThemeService.rowBgHoverClear
         Behavior on color { ColorAnimation { duration: 100 } }
 
         Text {
             anchors.centerIn: parent
             text: "󰅁"
-            color: dark ? "#f0f3f6" : "#1c1c1e"
+            color: ThemeService.textPrimary
             font.family: "JetBrainsMono Nerd Font Propo"
             font.pixelSize: 16
         }
@@ -55,7 +55,7 @@ Item {
             verticalCenter: parent.verticalCenter
         }
         text: root.title
-        color: dark ? "#f5f6f8" : "#1c1c1e"
+        color: ThemeService.textPrimary
         font.family: "SF Pro Display"
         font.pixelSize: 15
         font.weight: Font.Bold
@@ -84,7 +84,7 @@ Item {
                     width: 2
                     height: 4
                     radius: 1
-                    color: root.dark ? "#f0f3f6" : "#1c1c1e"
+                    color: ThemeService.textPrimary
                     // Fading trail: one bar leads at full opacity, the rest fade.
                     opacity: (index + 1) / 12
                     x: spinner.width / 2 - width / 2
@@ -111,15 +111,15 @@ Item {
             visible: root.actionIcon !== ""
             width: 28; height: 28; radius: 14
             color: actionMa.containsMouse
-                ? (dark ? Qt.rgba(1,1,1,0.10) : Qt.rgba(0,0,0,0.06))
-                : (dark ? Qt.rgba(1,1,1,0.05) : Qt.rgba(0,0,0,0.03))
+                ? ThemeService.rowBgHover
+                : ThemeService.rowBg
             Behavior on color { ColorAnimation { duration: 100 } }
 
             Text {
                 id: actionGlyph
                 anchors.centerIn: parent
                 text: root.actionIcon
-                color: dark ? "#f0f3f6" : "#1c1c1e"
+                color: ThemeService.textPrimary
                 font.family: "JetBrainsMono Nerd Font Propo"
                 font.pixelSize: 14
             }

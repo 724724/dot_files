@@ -85,10 +85,46 @@ Singleton {
     }
     Process { id: rmProc; command: ["true"]; onRunningChanged: if (!running) root.rescanSets() }
 
-    // ── device info (model names), queried once when the panel opens ─────────
+    // ── device info (model names) ────────────────────────────────────────────
+    // Persisted to disk (sysusage-info.json) so the panel renders instantly on
+    // open; a background re-query runs once per session and rewrites the cache
+    // only if the hardware actually changed.
     property string cpuModel: ""
     property string diskInfo: ""
     property string netInterface: ""
+    property bool _infoChecked: false
+
+    // ── per-detail data, polled only while that row is expanded ─────────────
+    // Which metric row is expanded in the Usage panel ("" = none). Drives all
+    // the detail pollers below so nothing runs for collapsed rows.
+    property string expandedDetail: ""
+
+    property var coreUsages: []        // per-core % (CPU row)
+    property var _prevCoreTot: []
+    property var _prevCoreIdle: []
+
+    property real dgpuPower: 0         // W
+    property real dgpuClock: 0         // MHz (graphics)
+    property string dgpuPState: ""     // P0..P12
+    property var gpuProcs: []          // [{name, mem(MiB)}]
+
+    property var memTop: []            // [{name, bytes}] top-7 by RSS (grouped)
+
+    property var diskTop: []           // [{path, bytes}] largest folders in ~
+    property real diskTopTs: 0         // epoch s of last du scan (persisted)
+    property bool duScanning: false
+
+    property var netDetail: ({})       // {ip,gw,dns,ssid,signal,rate,rx,tx}
+
+    onExpandedDetailChanged: {
+        // Kick an immediate sample so the freshly expanded row fills right away;
+        // the matching Timer below keeps it updated afterwards.
+        if (expandedDetail === "cpu") statView.reload()
+        else if (expandedDetail === "mem" && !memTopProc.running) memTopProc.running = true
+        else if (expandedDetail === "gpu" && !gpuDetailProc.running) gpuDetailProc.running = true
+        else if (expandedDetail === "net" && !netDetailProc.running) netDetailProc.running = true
+        else if (expandedDetail === "disk") refreshDiskTop(false)
+    }
 
     // ── add a RunCat style by picking a folder (validated). The Usage panel
     //    listens to addResult to refresh or show an error. ─────────────────────
@@ -113,12 +149,13 @@ Singleton {
     }
 
     function refresh() {
-        cpuProc.running = true
+        statView.reload()
         if (root.detailActive) {
             statsProc.running = true
             gpuProc.running = true
             if (root.igpuAvailable) igpuProc.running = true
-            if (root.cpuModel === "") infoProc.running = true
+            // Model names come from the disk cache; re-verify once per session.
+            if (!root._infoChecked) { root._infoChecked = true; infoProc.running = true }
         }
     }
 
@@ -142,10 +179,38 @@ Singleton {
         blockLoading: true
         printErrors: false
     }
+    // Cached hardware info + last du scan, so the panel never opens empty.
+    FileView {
+        id: infoStore
+        path: Quickshell.stateDir + "/sysusage-info.json"
+        blockLoading: true
+        printErrors: false
+    }
+    FileView {
+        id: duStore
+        path: Quickshell.stateDir + "/sysusage-du.json"
+        blockLoading: true
+        printErrors: false
+    }
     Component.onCompleted: {
         root.runcatEnabled = (runcatStore.text().trim() === "1")
         let s = runcatSetStore.text().trim()
         if (s) root.runcatSet = s
+        try {
+            let d = JSON.parse(infoStore.text())
+            root.cpuModel = d.cpu  || ""
+            root.igpuName = d.igpu || ""
+            root.dgpuName = d.dgpu || ""
+            root.diskInfo = d.disk || ""
+            root.netInterface = d.net || ""
+        } catch (e) {}
+        try {
+            let d = JSON.parse(duStore.text())
+            if (d && d.rows && d.rows.length > 0) {
+                root.diskTop = d.rows
+                root.diskTopTs = d.ts || 0
+            }
+        } catch (e) {}
         scanProc.running = true
         driverProc.running = true
     }
@@ -230,30 +295,58 @@ Singleton {
                     }
                     else if (k === "net") root.netInterface = v
                 }
+                // Persist so the next panel open (or session) renders instantly.
+                let j = JSON.stringify({ cpu: root.cpuModel, igpu: root.igpuName,
+                    dgpu: root.dgpuName, disk: root.diskInfo, net: root.netInterface })
+                if (j !== infoStore.text()) infoStore.setText(j)
             }
         }
     }
 
     // ── CPU (drives RunCat speed + the Usage panel) ──────────────────────────
+    // Read /proc/stat in-process via FileView — no `head` fork per sample, so
+    // the 1s cadence below is essentially free.
     property real _prevTotal: 0
     property real _prevIdle: 0
-    Process {
-        id: cpuProc
-        command: ["head", "-1", "/proc/stat"]
-        stdout: StdioCollector {
-            onStreamFinished: {
-                let p = text.trim().split(/\s+/)   // cpu user nice system idle iowait …
-                if (p.length < 5) return
-                let idle = (parseInt(p[4]) || 0) + (parseInt(p[5]) || 0)
-                let total = 0
-                for (let i = 1; i < p.length; ++i) total += parseInt(p[i]) || 0
-                let dt = total - root._prevTotal
-                let di = idle - root._prevIdle
-                if (root._prevTotal > 0 && dt > 0)
-                    root.cpu = Math.max(0, Math.min(100, (1 - di / dt) * 100))
-                root._prevTotal = total
-                root._prevIdle = idle
+    FileView {
+        id: statView
+        path: "/proc/stat"
+        printErrors: false
+        onLoaded: {
+            let lines = text().split("\n")
+            let p = lines[0].trim().split(/\s+/)   // cpu user nice system idle iowait …
+            if (p.length < 5) return
+            let idle = (parseInt(p[4]) || 0) + (parseInt(p[5]) || 0)
+            let total = 0
+            for (let i = 1; i < p.length; ++i) total += parseInt(p[i]) || 0
+            let dt = total - root._prevTotal
+            let di = idle - root._prevIdle
+            if (root._prevTotal > 0 && dt > 0)
+                root.cpu = Math.max(0, Math.min(100, (1 - di / dt) * 100))
+            root._prevTotal = total
+            root._prevIdle = idle
+
+            // Per-core breakdown — same file, parsed only while the CPU row
+            // is expanded, so the RunCat-driven 1s cadence stays as cheap as
+            // before.
+            if (root.expandedDetail !== "cpu") return
+            let us = []
+            for (let li of lines) {
+                if (!/^cpu[0-9]/.test(li)) continue
+                let c = li.trim().split(/\s+/)
+                let n = parseInt(c[0].substring(3))
+                if (isNaN(n) || c.length < 5) continue
+                let cIdle = (parseInt(c[4]) || 0) + (parseInt(c[5]) || 0)
+                let cTot = 0
+                for (let i = 1; i < c.length; ++i) cTot += parseInt(c[i]) || 0
+                let cdt = cTot - (root._prevCoreTot[n] || 0)
+                let cdi = cIdle - (root._prevCoreIdle[n] || 0)
+                us[n] = (root._prevCoreTot[n] > 0 && cdt > 0)
+                    ? Math.max(0, Math.min(100, (1 - cdi / cdt) * 100)) : 0
+                root._prevCoreTot[n] = cTot
+                root._prevCoreIdle[n] = cIdle
             }
+            root.coreUsages = us
         }
     }
 
@@ -311,6 +404,142 @@ Singleton {
         }
     }
 
+    // ── Detail pollers — each runs ONLY while its row is expanded ────────────
+
+    // RAM: top-7 by RSS, grouped by command name (comm can contain spaces).
+    Process {
+        id: memTopProc
+        command: ["bash", "-c",
+            "ps -eo rss=,comm= | awk '{c=$2; for(i=3;i<=NF;i++) c=c\" \"$i; a[c]+=$1} " +
+            "END{for(k in a) printf \"%d|%s\\n\", a[k]*1024, k}' | sort -rn | head -7"]
+        stdout: StdioCollector {
+            onStreamFinished: {
+                let rows = []
+                for (let line of text.trim().split("\n")) {
+                    let i = line.indexOf("|"); if (i < 0) continue
+                    rows.push({ bytes: parseFloat(line.substring(0, i)) || 0,
+                                name: line.substring(i + 1) })
+                }
+                if (JSON.stringify(rows) !== JSON.stringify(root.memTop))
+                    root.memTop = rows
+            }
+        }
+    }
+    Timer {
+        interval: 3000; repeat: true
+        running: root.detailActive && root.expandedDetail === "mem"
+        onTriggered: if (!memTopProc.running) memTopProc.running = true
+    }
+
+    // GPU extras: power/clock/P-state + per-process VRAM (pmon shows both
+    // compute and graphics clients; fb column is MiB).
+    Process {
+        id: gpuDetailProc
+        command: ["bash", "-c",
+            "nvidia-smi --query-gpu=power.draw,clocks.gr,pstate --format=csv,noheader,nounits 2>/dev/null | head -1; " +
+            "echo ---; " +
+            "nvidia-smi pmon -c 1 -s m 2>/dev/null | " +
+            "awk 'NR>2 && $2 ~ /^[0-9]+$/ {cmd=$6; for(i=7;i<=NF;i++) cmd=cmd\" \"$i; " +
+            "if (cmd != \"-\" && cmd != \"\") print $4+0 \"|\" cmd}' | sort -rn | head -5"]
+        stdout: StdioCollector {
+            onStreamFinished: {
+                let parts = text.split("---")
+                let g = parts[0].trim().split(",")
+                if (g.length >= 3) {
+                    root.dgpuPower  = parseFloat(g[0]) || 0
+                    root.dgpuClock  = parseFloat(g[1]) || 0
+                    root.dgpuPState = g[2].trim()
+                }
+                let rows = []
+                if (parts.length > 1) {
+                    for (let line of parts[1].trim().split("\n")) {
+                        let i = line.indexOf("|"); if (i < 0) continue
+                        rows.push({ mem: parseFloat(line.substring(0, i)) || 0,
+                                    name: line.substring(i + 1) })
+                    }
+                }
+                if (JSON.stringify(rows) !== JSON.stringify(root.gpuProcs))
+                    root.gpuProcs = rows
+            }
+        }
+    }
+    Timer {
+        interval: 2000; repeat: true
+        running: root.detailActive && root.expandedDetail === "gpu"
+        onTriggered: if (!gpuDetailProc.running) gpuDetailProc.running = true
+    }
+
+    // Disk: largest top-level folders in $HOME (one filesystem). A scan takes
+    // seconds, so results are persisted and reused; rescan only when the cache
+    // is older than 10 min (or forced from the UI).
+    function refreshDiskTop(force) {
+        if (duProc.running) return
+        let age = Date.now() / 1000 - root.diskTopTs
+        if (!force && root.diskTop.length > 0 && age < 600) return
+        root.duScanning = true
+        duProc.running = true
+    }
+    Process {
+        id: duProc
+        command: ["bash", "-c",
+            "du -x -B1 -d1 \"$HOME\" 2>/dev/null | sort -rn | " +
+            "awk -F'\\t' -v h=\"$HOME\" '$2 != h' | head -7"]
+        stdout: StdioCollector {
+            onStreamFinished: {
+                root.duScanning = false
+                let rows = []
+                for (let line of text.trim().split("\n")) {
+                    let p = line.split("\t")
+                    if (p.length < 2) continue
+                    rows.push({ bytes: parseFloat(p[0]) || 0, path: p[1] })
+                }
+                if (rows.length === 0) return
+                root.diskTop = rows
+                root.diskTopTs = Date.now() / 1000
+                duStore.setText(JSON.stringify({ ts: root.diskTopTs, rows: rows }))
+            }
+        }
+    }
+
+    // Network: connection details (IP/gateway/DNS/Wi-Fi link) + totals since
+    // boot. All cheap one-shot commands; 5s cadence only while expanded.
+    Process {
+        id: netDetailProc
+        command: ["bash", "-c",
+            "IF=$(ip route get 1.1.1.1 2>/dev/null | awk '{print $5; exit}'); " +
+            "echo \"if|$IF\"; " +
+            "echo \"ip|$(ip -4 addr show dev \"$IF\" 2>/dev/null | awk '/inet /{print $2; exit}')\"; " +
+            "echo \"gw|$(ip route 2>/dev/null | awk '/^default/{print $3; exit}')\"; " +
+            "echo \"dns|$(nmcli -t -f IP4.DNS dev show \"$IF\" 2>/dev/null | cut -d: -f2 | paste -sd ', ')\"; " +
+            "nmcli -t -f active,ssid,signal,rate dev wifi 2>/dev/null | " +
+            "awk -F: '$1==\"yes\"{print \"wifi|\" $2 \"|\" $3 \"|\" $4; exit}'; " +
+            "awk -v i=\"$IF:\" '$1==i {print \"tot|\" $2 \"|\" $10}' /proc/net/dev"]
+        stdout: StdioCollector {
+            onStreamFinished: {
+                let d = {}
+                for (let line of text.trim().split("\n")) {
+                    let p = line.split("|")
+                    if (p[0] === "if")   d.iface = p[1] || ""
+                    else if (p[0] === "ip")  d.ip  = p[1] || ""
+                    else if (p[0] === "gw")  d.gw  = p[1] || ""
+                    else if (p[0] === "dns") d.dns = p[1] || ""
+                    else if (p[0] === "wifi") {
+                        d.ssid = p[1] || ""; d.signal = p[2] || ""; d.rate = p[3] || ""
+                    } else if (p[0] === "tot") {
+                        d.rx = parseFloat(p[1]) || 0; d.tx = parseFloat(p[2]) || 0
+                    }
+                }
+                if (JSON.stringify(d) !== JSON.stringify(root.netDetail))
+                    root.netDetail = d
+            }
+        }
+    }
+    Timer {
+        interval: 5000; repeat: true
+        running: root.detailActive && root.expandedDetail === "net"
+        onTriggered: if (!netDetailProc.running) netDetailProc.running = true
+    }
+
     // ── Add-folder picker + validation (zenity) ──────────────────────────────
     Process {
         id: addProc
@@ -332,8 +561,11 @@ Singleton {
         }
     }
 
+    // 1s so RunCat's pace tracks load changes promptly. The CPU read is a
+    // fork-free FileView reload; the heavier stats still only run with the
+    // Usage panel open (refresh() gates them on detailActive).
     Timer {
-        interval: 1500
+        interval: 1000
         running: root.runcatEnabled || root.detailActive
         repeat: true
         triggeredOnStart: true

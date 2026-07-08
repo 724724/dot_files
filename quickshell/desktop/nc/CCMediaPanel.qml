@@ -52,10 +52,15 @@ Item {
         command: ["/home/sejunlee/.config/hypr/scripts/focus-media-player.sh"]
     }
 
+    // Poll only while the control center is actually on screen — this panel
+    // lives inside the always-loaded (but usually hidden) CC window, and its
+    // unconditional 1.5s poll duplicated MediaService's fetch around the clock.
+    // triggeredOnStart refreshes immediately when the CC opens.
     Timer {
         interval: 1500
-        running: true
+        running: NcServer.controlCenterVisible
         repeat: true
+        triggeredOnStart: true
         onTriggered: if (!mediaProc.running) mediaProc.running = true
     }
 

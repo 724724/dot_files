@@ -34,21 +34,24 @@ Singleton {
         else root.enable()
     }
 
-    // Poll the state file so external toggles (the keybinds) sync within ~1s. A
-    // missing file reads as empty → off.
-    Process {
-        id: readProc
-        command: ["cat", root.stateFile]
-        stdout: StdioCollector {
-            onStreamFinished: root.active = (text.trim() === "on")
-        }
+    // Watch the state file (inotify via FileView) so external toggles (the
+    // keybinds) sync instantly — replaces the old 1s `cat` polling loop that
+    // spawned a process every second. A missing file reads as empty → off.
+    FileView {
+        id: stateView
+        path: root.stateFile
+        watchChanges: true
+        printErrors: false
+        onFileChanged: reload()
+        onLoaded: root.active = (text().trim() === "on")
+        onLoadFailed: root.active = false
     }
 
+    // Slow backstop: some writers replace the file in ways a watch can miss.
     Timer {
-        interval: 1000
+        interval: 10000
         running: true
         repeat: true
-        triggeredOnStart: true
-        onTriggered: readProc.running = true
+        onTriggered: stateView.reload()
     }
 }

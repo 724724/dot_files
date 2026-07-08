@@ -252,6 +252,22 @@ PanelWindow {
     // Reset selection when filter changes
     onFilteredChanged: selectedIndex = 0
 
+    // Launch a desktop entry. GUI apps go through gtk-launch (handles tricky
+    // Exec specs); terminal apps (Terminal=true) are wrapped in kitty because
+    // GLib can't locate a terminal on this setup.
+    function launchApp(app) {
+        if (!app) return
+        if (app.runInTerminal) {
+            let argv = ["kitty"]
+            for (let i = 0; i < app.command.length; ++i)
+                if (app.command[i] && app.command[i].charAt(0) !== "%")
+                    argv.push(app.command[i])
+            Quickshell.execDetached(argv)
+        } else {
+            Quickshell.execDetached(["gtk-launch", app.id])
+        }
+    }
+
     function activateSelected() {
         if (isCurrency) {
             if (currencyValue === "") return
@@ -282,7 +298,11 @@ PanelWindow {
             // Quickshell.execDetached fully reparents the child to PID 1, so
             // slow-starting GTK apps (nwg-look, nwg-displays) aren't killed
             // when the surrounding Process state is torn down.
-            Quickshell.execDetached(["gtk-launch", app.id])
+            //
+            // Terminal apps (Terminal=true, e.g. nvim) can't go through
+            // gtk-launch: GLib's terminal lookup doesn't know kitty and fails
+            // with "Unable to find terminal", so wrap those in kitty instead.
+            win.launchApp(app)
         }
         win.closeRequested()
     }

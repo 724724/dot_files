@@ -22,6 +22,7 @@ import "osd"
 import "nc"
 import "spotlight"
 import "launchpad"
+import "missioncontrol"
 import "switcher"
 import "widgets"
 import "emoji"
@@ -34,6 +35,18 @@ Scope {
     // Clock/calendar popup that drops from the bar clock pill (ClockService
     // singleton owns IpcHandler target "clock").
     ClockPopupWindow {}
+    // Music Recognition (Shazam) popup that drops from the bar Shazam button
+    // (ShazamService singleton owns IpcHandler target "shazam").
+    ShazamPopupWindow {}
+
+    // Launchpad is created *before* the dock so its layer surface sits below the
+    // dock — the dock then rises above the open launchpad instead of being
+    // hidden behind it (LaunchpadController owns IpcHandler target "launchpad").
+    LaunchpadController {}
+
+    // Mission Control overview (overview/MCService owns IpcHandler target "mc").
+    // Created before the dock so the dock's layer rises above its backdrop.
+    MissionControlController {}
 
     // ── Dock (per-screen, like OSD/NC) so it reveals on whichever monitor the
     //    cursor is at the bottom of — not just the primary one ──────────────
@@ -58,7 +71,6 @@ Scope {
 
     // ── Overlays (each Controller wraps its own IpcHandler + state) ─────
     SpotlightController {}
-    LaunchpadController {}
     SwitcherController {}
     WidgetsController {}
     EmojiController {}

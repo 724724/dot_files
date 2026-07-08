@@ -1,6 +1,7 @@
 pragma Singleton
 import Quickshell
 import Quickshell.Io
+import Quickshell.Hyprland
 import QtQuick
 
 Singleton {
@@ -8,6 +9,9 @@ Singleton {
 
     // Windows in MRU order: focused first, then most recently used.
     property var windows: []
+    // Signature of the last published list, so identical polls don't reassign
+    // `windows` (a fresh array would re-trigger every binding downstream).
+    property string _sig: ""
 
     function refresh() { listProc.running = true }
 
@@ -32,10 +36,10 @@ Singleton {
         stdout: StdioCollector {
             onStreamFinished: {
                 let line = text.trim()
-                if (!line) return
+                if (!line || line === root._sig) return
                 try {
                     let arr = JSON.parse(line)
-                    if (Array.isArray(arr)) root.windows = arr
+                    if (Array.isArray(arr)) { root._sig = line; root.windows = arr }
                 } catch(e) {}
             }
         }
@@ -48,12 +52,19 @@ Singleton {
     // the switcher appear empty for the first press).
     Component.onCompleted: refresh()
 
-    // Frequent poll keeps focusHistoryID-based MRU close to current state. The
-    // shell's openOrAdvance() also kicks an explicit refresh on every open;
-    // this poll is a defensive backstop for edge cases (apps closed/created
-    // outside of focus events).
+    // Event-driven instead of the old 300ms blind poll (which spawned
+    // bash+hyprctl+jq ~3×/sec forever and hit the compositor's IPC each time):
+    // any Hyprland event that can affect the MRU list schedules one debounced
+    // refresh. openOrAdvance() still kicks an explicit refresh on every open.
+    Connections {
+        target: Hyprland
+        function onRawEvent(event) { debounce.restart() }
+    }
+    Timer { id: debounce; interval: 120; onTriggered: root.refresh() }
+
+    // Slow defensive backstop in case an event is ever missed.
     Timer {
-        interval: 300
+        interval: 10000
         running: true
         repeat: true
         onTriggered: if (!listProc.running) listProc.running = true

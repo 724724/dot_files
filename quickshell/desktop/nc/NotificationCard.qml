@@ -52,9 +52,8 @@ Rectangle {
     implicitHeight: cardContent.implicitHeight + 32
     radius: 14
 
-    // Fully opaque so cards stacked behind never bleed through the front one.
-    color: ThemeService.bg
-    border.color: ThemeService.stroke
+    color: ThemeService.notificationBg
+    border.color: ThemeService.notificationStroke
     border.width: 1
 
     Behavior on implicitHeight { NumberAnimation { duration: 150 } }
@@ -77,7 +76,7 @@ Rectangle {
             topMargin: 16
         }
         text: NcServer.relativeTime(card.notification.id)
-        color: dark ? Qt.rgba(1,1,1,0.4) : Qt.rgba(0,0,0,0.40)
+        color: dark ? Qt.rgba(1,1,1,0.4) : Qt.rgba(0,0,0,0.52)
         font.family: "SF Pro Display"
         font.pixelSize: 10
         opacity: hoverArea.containsMouse || closeMa.containsMouse ? 0 : 1
@@ -94,10 +93,10 @@ Rectangle {
             rightMargin: 12
             topMargin: 12
         }
-        width: 18; height: 18
-        radius: 9
-        color: dark ? Qt.rgba(1,1,1,0.18) : Qt.rgba(0,0,0,0.10)
-        border.color: dark ? Qt.rgba(1,1,1,0.12) : Qt.rgba(0,0,0,0.10)
+            width: 18; height: 18
+            radius: 9
+            color: dark ? Qt.rgba(1,1,1,0.18) : Qt.rgba(0,0,0,0.10)
+            border.color: dark ? Qt.rgba(1,1,1,0.12) : Qt.rgba(0,0,0,0.14)
         border.width: 1
         opacity: hoverArea.containsMouse || closeMa.containsMouse ? 1 : 0
         Behavior on opacity { NumberAnimation { duration: 100 } }
@@ -142,7 +141,7 @@ Rectangle {
             Layout.preferredHeight: 36
             radius: 8
             clip: true
-            color: dark ? Qt.rgba(1,1,1,0.07) : Qt.rgba(0,0,0,0.05)
+            color: dark ? Qt.rgba(1,1,1,0.07) : Qt.rgba(0,0,0,0.04)
 
             // Themed app icon
             Image {
@@ -170,11 +169,20 @@ Rectangle {
             Text {
                 anchors.centerIn: parent
                 text: (card.notification.appName || "?").charAt(0).toUpperCase()
-                color: dark ? Qt.rgba(1,1,1,0.5) : Qt.rgba(0,0,0,0.45)
+                color: dark ? Qt.rgba(1,1,1,0.5) : Qt.rgba(0,0,0,0.56)
                 font.family: "SF Pro Display"
                 font.pixelSize: 16
                 font.weight: Font.DemiBold
                 visible: !card.hasAppIcon && !card.hasImage
+            }
+
+            Rectangle {
+                anchors.fill: parent
+                radius: parent.radius
+                color: "transparent"
+                border.color: dark ? Qt.rgba(1,1,1,0.10) : Qt.rgba(0,0,0,0.14)
+                border.width: 1
+                z: 10
             }
         }
 
@@ -188,7 +196,7 @@ Rectangle {
                 // in the top-right corner (no right-hand image pushes it in now).
                 Layout.rightMargin: 36
                 text: (card.notification.appName || "Notification").toUpperCase()
-                color: dark ? Qt.rgba(1,1,1,0.55) : Qt.rgba(0,0,0,0.50)
+                color: dark ? Qt.rgba(1,1,1,0.55) : Qt.rgba(0,0,0,0.62)
                 font.family: "SF Pro Display"
                 font.pixelSize: 10
                 font.weight: Font.DemiBold
@@ -212,7 +220,7 @@ Rectangle {
             Text {
                 Layout.fillWidth: true
                 text: card.notification.body
-                color: dark ? Qt.rgba(1,1,1,0.65) : Qt.rgba(0,0,0,0.60)
+                color: dark ? Qt.rgba(1,1,1,0.65) : Qt.rgba(0,0,0,0.74)
                 font.family: "SF Pro Display"
                 font.pixelSize: 12
                 wrapMode: Text.WordWrap

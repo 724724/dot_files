@@ -24,9 +24,9 @@ Rectangle {
     readonly property bool hasIconColor: tile.iconColor.a > 0
 
     color: active
-        ? (dark ? Qt.rgba(1,1,1,0.18) : Qt.rgba(1,1,1,0.85))
-        : (dark ? Qt.rgba(1,1,1,0.07) : Qt.rgba(1,1,1,0.62))
-    border.color: dark ? Qt.rgba(1,1,1,0.06) : Qt.rgba(0,0,0,0.05)
+        ? ThemeService.tileBgActive
+        : ThemeService.tileBg
+    border.color: ThemeService.tileStroke
     border.width: 1
     Behavior on color { ColorAnimation { duration: 150 } }
 

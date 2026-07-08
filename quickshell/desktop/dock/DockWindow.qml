@@ -27,7 +27,7 @@ PanelWindow {
     anchors.bottom: true
     anchors.left: true
     anchors.right: true
-    exclusionMode: ExclusionMode.Ignore
+    exclusiveZone: DockService.pinnedVisible ? dockReservedH : 0
     color: "transparent"
 
     // Confine pointer input to the dock's own column (see triggerColumn): the
@@ -109,10 +109,31 @@ PanelWindow {
     // Hide by sliding the dock card off the bottom, leaving a ~4px trigger sliver.
     // Offset is tied to the trigger band height (not the full surface) so the now
     // much taller surface still tucks away with a short, natural slide.
-    margins.bottom: (DockService.pinnedVisible || showDock || previewOpen || menuOpen || dragActive || launchingCount > 0)
-        ? 8 : -(dockTriggerH - 4)
+    // While the launchpad is open on THIS screen the dock rises and stays put —
+    // it's the one real dock, floating above the launchpad backdrop (no replica).
+    readonly property bool launchpadHere:
+        (DockService.launchpadOpen && DockService.launchpadScreen === (win.screen ? win.screen.name : ""))
+        || (DockService.overviewOpen
+            && (DockService.overviewScreen === "" || DockService.overviewScreen === (win.screen ? win.screen.name : "")))
+    readonly property int dockVisibleBottomMargin: 10
+    readonly property int dockCardH: 68
+    readonly property int dockReservedH: dockCardH
+    margins.bottom: (DockService.pinnedVisible || launchpadHere || showDock || previewOpen || menuOpen || dragActive || launchingCount > 0)
+        ? dockVisibleBottomMargin : -(dockTriggerH - 4)
     Behavior on margins.bottom {
         NumberAnimation { duration: 220; easing.type: Easing.OutCubic }
+    }
+
+    // The launchpad (same Overlay layer) re-maps above the dock every time it
+    // opens, since the dock is mapped once and never again. Re-map our surface
+    // right after the launchpad appears so the one real dock floats on top of its
+    // backdrop instead of being buried behind it. The dock is off-screen at that
+    // instant (about to slide up), so the brief unmap isn't visible.
+    onLaunchpadHereChanged: if (launchpadHere) { win.visible = false; remapTimer.restart() }
+    Timer {
+        id: remapTimer
+        interval: 48   // let the unmap process + the launchpad map, then re-map on top
+        onTriggered: win.visible = true
     }
 
     // Invisible band at the BOTTOM matching the dock card's footprint. The mask
@@ -157,76 +178,16 @@ PanelWindow {
     readonly property string kakaoIcon:
         Quickshell.iconPath("KakaoTalk", true) !== "" ? "KakaoTalk" : "DDB7_KakaoTalk.0"
 
-    // Seed list, used only the first time (no store file yet). After that the
-    // pinned set is user-managed through the right-click "Keep in Dock" toggle
-    // and persisted to disk, so edits survive a reload/restart.
-    readonly property var defaultPins: [
-        { name: "Files",     wmClass: "org.gnome.Nautilus", iconName: "org.gnome.Nautilus", execCmd: ["gtk-launch", "org.gnome.Nautilus"] },
-        { name: "Chrome",    wmClass: "google-chrome",      iconName: "google-chrome",      execCmd: ["gtk-launch", "google-chrome"] },
-        { name: "KakaoTalk", wmClass: "kakaotalk.exe",      iconName: win.kakaoIcon,        execCmd: ["gtk-launch", "wine-Programs-KakaoTalk"] },
-        { name: "Spotify",   wmClass: "spotify",            iconName: "spotify-client",     execCmd: ["gtk-launch", "spotify"] }
-    ]
+    // Pinned state lives in DockService — the single source of truth shared with
+    // the launchpad — so a pin made in either place shows up here instantly. This
+    // window is just a view + thin delegates over it.
+    readonly property var pinnedApps: DockService.pinnedApps
+    readonly property var pinnedClasses: DockService.pinnedClasses
 
-    // Live pinned set — populated from the store in onCompleted (briefly empty
-    // before that). Reassign a fresh array on every change so bindings refresh.
-    property var pinnedApps: []
-    readonly property var pinnedClasses: pinnedApps.map(a => (a.wmClass || "").toLowerCase())
-
-    // Same persistence convention as NcServer: a blockLoading FileView read
-    // synchronously in onCompleted, written back via setText(JSON).
-    FileView {
-        id: pinStore
-        path: Quickshell.stateDir + "/dock-pinned.json"
-        blockLoading: true   // synchronous read so data is ready in onCompleted
-        printErrors: false   // a missing file on first run is expected
-    }
-
-    Component.onCompleted: win._loadPins()
-
-    function _loadPins() {
-        let raw = pinStore.text()
-        if (raw) {
-            try {
-                let parsed = JSON.parse(raw)
-                if (Array.isArray(parsed)) { win.pinnedApps = parsed; return }
-            } catch (e) { /* corrupt — fall through to defaults */ }
-        }
-        win.pinnedApps = win.defaultPins
-        win._persistPins()
-    }
-
-    function _persistPins() {
-        pinStore.setText(JSON.stringify(win.pinnedApps))
-    }
-
-    function isPinned(cls) {
-        return win.pinnedClasses.includes((cls || "").toLowerCase())
-    }
-
-    // Resolve a runnable launch command for an app we only know by window class,
-    // reusing the same desktop-entry heuristic the dock already uses for icons.
-    function _guessExec(wmClass) {
-        let m = win._remapClass(wmClass)
-        let de = DesktopEntries.heuristicLookup(m.base)
-        if (de && de.id) return ["gtk-launch", de.id]
-        return []
-    }
-
-    function pinApp(app) {
-        let cls = (app.wmClass || "").toLowerCase()
-        if (!cls || win.isPinned(cls)) return
-        let cmd = (app.execCmd && app.execCmd.length > 0) ? app.execCmd : win._guessExec(app.wmClass)
-        win.pinnedApps = win.pinnedApps.concat([{
-            name: app.name, wmClass: app.wmClass, iconName: app.iconName, execCmd: cmd
-        }])
-        win._persistPins()
-    }
-
-    function unpinApp(cls) {
-        cls = (cls || "").toLowerCase()
-        win.pinnedApps = win.pinnedApps.filter(a => (a.wmClass || "").toLowerCase() !== cls)
-        win._persistPins()
-    }
+    function isPinned(cls)        { return DockService.isPinned(cls) }
+    function pinApp(app)          { DockService.pinApp(app) }
+    function unpinApp(cls)        { DockService.unpinApp(cls) }
+    function pinAppAt(app, idx)   { DockService.pinAppAt(app, idx) }
 
     // ── Drag to reorder / pin / unpin ────────────────────────────────────────
     // Press ANY dock icon and drag. Drop in the pinned section to pin/reorder;
@@ -240,6 +201,22 @@ PanelWindow {
     property int dropIndex: -1         // target pinned slot, or -1 = running side (unpin / no-op)
     readonly property int pitch: 60    // 58px icon slot + 2px Row spacing
     readonly property var rowItem: dockRow   // pointer maths happen in this Row's coords
+
+    // ── Launchpad drag-to-pin: open a gap under the cursor ───────────────────
+    // While the launchpad drags an app over this screen's dock, work out which
+    // slot it would drop into from the cursor's screen X (DockService.launchpadDragX)
+    // mapped into dockRow. Pinned icons at/after that slot slide aside (DockItem),
+    // and the slot is published back so the launchpad pins exactly there on drop.
+    readonly property bool launchpadDropActive: DockService.launchpadDragActive
+        && DockService.launchpadScreen === (win.screen ? win.screen.name : "")
+    readonly property int launchpadDropIndex: {
+        if (!launchpadDropActive) return -1
+        let rowX = dockRow.mapFromItem(null, DockService.launchpadDragX, 0).x
+        let n = win.pinnedApps.length
+        return Math.max(0, Math.min(n, Math.round(rowX / pitch)))
+    }
+    readonly property real launchpadRightSideShift: launchpadDropActive ? pitch / 2 : 0
+    onLaunchpadDropIndexChanged: if (launchpadDropActive) DockService.launchpadDropIndex = launchpadDropIndex
 
     function beginDrag(app, sourceIndex: int) {
         win.previewOpen = false
@@ -275,31 +252,11 @@ PanelWindow {
         if (!active) return
 
         if (src >= 0) {                            // dragged a pinned app
-            if (drop < 0) {
-                win.unpinApp((app.wmClass || "").toLowerCase())          // → running side: unpin
-            } else {
-                let to = Math.min(drop, win.pinnedApps.length - 1)       // reorder within pinned
-                if (to !== src) {
-                    let arr = win.pinnedApps.slice()
-                    arr.splice(to, 0, arr.splice(src, 1)[0])
-                    win.pinnedApps = arr
-                    win._persistPins()
-                }
-            }
+            if (drop < 0) win.unpinApp((app.wmClass || "").toLowerCase())  // → running side: unpin
+            else          DockService.reorderPins(src, drop)              // reorder within pinned
         } else if (drop >= 0) {                    // dragged a running app onto the pinned side: pin
             win.pinAppAt(app, drop)
         }
-    }
-
-    function pinAppAt(app, idx) {
-        let cls = (app.wmClass || "").toLowerCase()
-        if (!cls || win.isPinned(cls)) return
-        let cmd = (app.execCmd && app.execCmd.length > 0) ? app.execCmd : win._guessExec(app.wmClass)
-        let arr = win.pinnedApps.slice()
-        arr.splice(Math.max(0, Math.min(arr.length, idx)), 0,
-                   { name: app.name, wmClass: app.wmClass, iconName: app.iconName, execCmd: cmd })
-        win.pinnedApps = arr
-        win._persistPins()
     }
 
     // ── Right-click menu state ───────────────────────────────────────────────
@@ -323,7 +280,7 @@ PanelWindow {
     readonly property bool menuPinned: win.isPinned(menuClass)
     // A launch command for "New Window"/"Open": prefer the app's own, else guess.
     readonly property var menuExec: (menuApp.execCmd && menuApp.execCmd.length > 0)
-        ? menuApp.execCmd : win._guessExec(menuApp.wmClass || "")
+        ? menuApp.execCmd : DockService._guessExec(menuApp.wmClass || "")
     // Set of workspace names this app currently has windows on — the Move-to-
     // Workspace flyout checks the workspace(s) where the app actually lives.
     readonly property var menuAppWorkspaces: {
@@ -497,8 +454,19 @@ PanelWindow {
         id: dockCard
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.bottom: parent.bottom
-        implicitWidth: dockRow.implicitWidth + 20
-        height: 68; radius: 22
+        // Grow by one slot while a launchpad app is dragged over the dock so the
+        // opened gap fits inside the card instead of the icons poking out. The card
+        // grows symmetrically about the window centre and dockRow stays centred in
+        // it, so dockRow's position — the slot-calc reference — doesn't move.
+        // Only the drop gap (a discrete 0 → pitch jump) needs easing, so animate
+        // just that. The rest of the width tracks dockRow directly — the icons
+        // already animate their own width on hover (130ms), so the card grows
+        // *with* them instead of chasing the moving total a beat behind, which is
+        // what made the hover-grow look laggy/wobbly.
+        property real dropGap: win.launchpadDropActive ? win.pitch : 0
+        Behavior on dropGap { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
+        implicitWidth: dockRow.implicitWidth + 20 + dropGap
+        height: win.dockCardH; radius: 22
         color: ThemeService.bg
         border.color: ThemeService.stroke
         border.width: 1
@@ -526,6 +494,10 @@ PanelWindow {
                 visible: win.extraApps.length > 0
                 anchors.verticalCenter: parent.verticalCenter
                 width: 14; height: 52
+                transform: Translate {
+                    x: win.launchpadRightSideShift
+                    Behavior on x { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
+                }
                 Rectangle {
                     anchors.centerIn: parent
                     width: 1; height: 36
@@ -540,6 +512,7 @@ PanelWindow {
                     required property var modelData
                     name: modelData.name; wmClass: modelData.wmClass
                     iconName: modelData.iconName; execCmd: []
+                    launchpadRightSide: true
                     dark: win.dark; dockWin: win
                 }
             }
@@ -573,7 +546,7 @@ PanelWindow {
         width: cardGrid.implicitWidth + win.previewPadding * 2
         height: cardGrid.implicitHeight + win.previewPadding * 2
         radius: 18
-        color: ThemeService.bg
+        color: ThemeService.popupBg
         border.color: ThemeService.stroke
         border.width: 1
 
@@ -751,8 +724,8 @@ PanelWindow {
 
         readonly property bool dark: win.dark
         // Dock card's top edge in this full-screen surface: the dock sits at the
-        // screen bottom (8px margin) and its card is 68px tall.
-        readonly property real dockTopY: height - 8 - 68
+        // screen bottom (visible margin) and its card height.
+        readonly property real dockTopY: height - win.dockVisibleBottomMargin - win.dockCardH
         // The right-clicked icon stays magnified (1.75×) while its menu is open,
         // lifting ~19px above the dock card top. Raise the menu by that much so it
         // sits just above the enlarged icon instead of overlapping it.
@@ -777,7 +750,7 @@ PanelWindow {
         width: win.menuWidth
         height: win.menuHeight
         radius: 12
-        color: ThemeService.bg
+        color: ThemeService.popupBg
         border.color: ThemeService.stroke
         border.width: 1
 

@@ -30,6 +30,23 @@ PanelWindow {
     property real topInset: barContentTop
     Behavior on topInset { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
 
+    component StackPeek: Item {
+        id: peek
+        property color fill: "transparent"
+        property real cornerRadius: 12
+        clip: true
+
+        Rectangle {
+            anchors.left: parent.left
+            anchors.right: parent.right
+            y: -peek.cornerRadius
+            height: peek.height + peek.cornerRadius
+            radius: peek.cornerRadius
+            color: peek.fill
+            antialiasing: true
+        }
+    }
+
     readonly property int cardHeight: {
         if (win.detail !== "") {
             let d = win.detail, h = 600
@@ -61,6 +78,11 @@ PanelWindow {
     readonly property bool dark: ThemeService.isDark
 
     property string detail: ""
+
+    // "Turn off Optimized Battery Charging?" confirmation modal. Reset whenever
+    // the detail page changes so it never lingers behind another panel.
+    property bool batteryConfirm: false
+    onDetailChanged: batteryConfirm = false
 
     // Display dropdown (Dark Mode / Night Shift) — the round button at the right
     // end of the brightness slider expands the Display tile downward to reveal it.
@@ -232,7 +254,10 @@ PanelWindow {
                 anchors.fill: parent
                 active: win.detail === "battery"
                 visible: active
-                sourceComponent: CCDetailBattery { onBack: win.detail = "" }
+                sourceComponent: CCDetailBattery {
+                    onBack: win.detail = ""
+                    onRequestDisableConfirm: win.batteryConfirm = true
+                }
             }
             Loader {
                 id: detailPower
@@ -820,6 +845,9 @@ PanelWindow {
                             readonly property string appKey: modelData.appName || "?"
                             readonly property bool expanded:
                                 stackColumn.expandedGroups[appKey] === true
+                            readonly property int peekStep: 7
+                            readonly property int peekH: 7
+                            readonly property int peekJoinOverlap: 1
 
                             // Top card lives at y=4 so the count badge at top
                             // (rendered at y=0) doesn't get clipped by Flickable.
@@ -828,41 +856,31 @@ PanelWindow {
                             // Height: collapsed shows top + peek edges; expanded
                             // stacks all cards vertically.
                             height: expanded
-                                ? (topPad + topCard.implicitHeight
+                                ? (topCard.y + topCard.implicitHeight
                                     + (notifs.length > 1 ? expandedCol.implicitHeight + 8 : 0))
-                                : (topPad + topCard.implicitHeight + extra * 6)
+                                : (topCard.y + topCard.implicitHeight
+                                    + extra * peekStep - (extra > 0 ? peekJoinOverlap : 0))
                             Behavior on height { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
 
-                            // Peek card 2
-                            Rectangle {
+                            StackPeek {
                                 visible: !stackDelegate.expanded && stackDelegate.extra >= 2
                                 anchors.horizontalCenter: parent.horizontalCenter
-                                width: parent.width - 24
-                                height: 18
-                                y: stackDelegate.topPad + topCard.implicitHeight - 4
-                                radius: 14
-                                // Deepest sheet in the stack — the darkest of the
-                                // three (a touch darker than peek 1) so the cards
-                                // read as receding into depth.
-                                color: dark ? "#151515" : "#d6d6d6"
-                                border.color: dark ? Qt.rgba(1,1,1,0.12) : Qt.rgba(0,0,0,0.08)
-                                border.width: 1
+                                width: parent.width - 40
+                                height: stackDelegate.peekH
+                                y: topCard.y + topCard.implicitHeight
+                                    + stackDelegate.peekStep - stackDelegate.peekJoinOverlap
+                                fill: ThemeService.notificationStackBg2
                                 z: 0
                             }
 
-                            // Peek card 1
-                            Rectangle {
+                            StackPeek {
                                 visible: !stackDelegate.expanded && stackDelegate.extra >= 1
                                 anchors.horizontalCenter: parent.horizontalCenter
-                                width: parent.width - 12
-                                height: 18
-                                y: stackDelegate.topPad + topCard.implicitHeight - 10
-                                radius: 14
-                                // One sheet below the top card — slightly darker
-                                // than the top, lighter than the bottom peek.
-                                color: dark ? "#1b1b1b" : "#e1e1e1"
-                                border.color: dark ? Qt.rgba(1,1,1,0.14) : Qt.rgba(0,0,0,0.10)
-                                border.width: 1
+                                width: parent.width - 22
+                                height: stackDelegate.peekH
+                                y: topCard.y + topCard.implicitHeight
+                                    - stackDelegate.peekJoinOverlap
+                                fill: ThemeService.notificationStackBg1
                                 z: 1
                             }
 
@@ -996,13 +1014,10 @@ PanelWindow {
                     width: clearAllLabel.implicitWidth + 24
                     height: 28
                     radius: 14
-                    // Solid (opaque) so it reads as a real button instead
-                    // of a faint translucent sheet over the blurred desktop.
                     color: clearAllMa.containsMouse
-                        ? (dark ? Qt.rgba(92/255, 92/255, 100/255, 1.0) : Qt.rgba(236/255, 236/255, 238/255, 1.0))
-                        : (dark ? Qt.rgba(72/255, 72/255, 80/255, 1.0)  : Qt.rgba(255/255, 255/255, 255/255, 1.0))
-                    border.color: dark ? Qt.rgba(1,1,1,0.14) : Qt.rgba(0,0,0,0.12)
-                    border.width: 1
+                        ? ThemeService.tileBgHover
+                        : ThemeService.tileBg
+                    border.width: 0
                     Behavior on color { ColorAnimation { duration: 120 } }
 
                     Text {
@@ -1021,6 +1036,103 @@ PanelWindow {
                         hoverEnabled: true
                         cursorShape: Qt.PointingHandCursor
                         onClicked: NcServer.dismissAll()
+                    }
+                }
+            }
+        }
+
+        // ── Optimized Battery Charging: turn-off confirmation (modal) ─────────
+        Item {
+            anchors.fill: card
+            visible: win.batteryConfirm
+            z: 1000
+
+            component DlgBtn: Rectangle {
+                id: db
+                property string label: ""
+                property bool primary: false
+                signal activated()
+                width: parent ? parent.width : 0
+                height: 34
+                radius: 9
+                color: db.primary
+                    ? (dbMa.containsMouse ? "#0A74E0" : "#0A84FF")
+                    : (dbMa.containsMouse ? (win.dark ? Qt.rgba(1,1,1,0.16) : Qt.rgba(0,0,0,0.10))
+                                          : (win.dark ? Qt.rgba(1,1,1,0.10) : Qt.rgba(0,0,0,0.06)))
+                Behavior on color { ColorAnimation { duration: 100 } }
+                Text {
+                    anchors.centerIn: parent
+                    text: db.label
+                    color: db.primary ? "#ffffff" : (win.dark ? "#f5f6f8" : "#1c1c1e")
+                    font.family: "SF Pro Display"; font.pixelSize: 12
+                    font.weight: db.primary ? Font.DemiBold : Font.Medium
+                }
+                MouseArea {
+                    id: dbMa
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: db.activated()
+                }
+            }
+
+            // Dim + tap-outside-to-cancel.
+            Rectangle {
+                anchors.fill: parent
+                radius: card.radius
+                color: Qt.rgba(0, 0, 0, win.dark ? 0.45 : 0.28)
+                MouseArea { anchors.fill: parent; onClicked: win.batteryConfirm = false }
+            }
+
+            Rectangle {
+                id: confirmBox
+                anchors.centerIn: parent
+                width: Math.min(300, card.width - 48)
+                radius: 16
+                color: win.dark ? "#2c2c2e" : "#ffffff"
+                border.color: win.dark ? Qt.rgba(1,1,1,0.10) : Qt.rgba(0,0,0,0.08)
+                border.width: 1
+                implicitHeight: confirmCol.implicitHeight + 36
+                MouseArea { anchors.fill: parent }   // swallow clicks on the box
+
+                Column {
+                    id: confirmCol
+                    anchors { top: parent.top; left: parent.left; right: parent.right; margins: 18 }
+                    spacing: 12
+
+                    Text {
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        text: ""   // nf-fa-warning
+                        color: "#FFCC00"
+                        font.family: "JetBrainsMono Nerd Font Propo"
+                        font.pixelSize: 34
+                    }
+                    Text {
+                        width: parent.width
+                        horizontalAlignment: Text.AlignHCenter
+                        text: "Optimized Battery Charging\nhelps reduce battery aging"
+                        color: win.dark ? "#f5f6f8" : "#1c1c1e"
+                        font.family: "SF Pro Display"; font.pixelSize: 13; font.weight: Font.Bold
+                        wrapMode: Text.WordWrap
+                        lineHeight: 1.2
+                    }
+
+                    Column {
+                        width: parent.width
+                        spacing: 8
+                        topPadding: 4
+                        DlgBtn {
+                            label: "Turn Off Until Tomorrow"; primary: true
+                            onActivated: { BatteryService.snoozeOptimized(); win.batteryConfirm = false }
+                        }
+                        DlgBtn {
+                            label: "Turn Off"
+                            onActivated: { BatteryService.disableOptimized(); win.batteryConfirm = false }
+                        }
+                        DlgBtn {
+                            label: "Cancel"
+                            onActivated: win.batteryConfirm = false
+                        }
                     }
                 }
             }

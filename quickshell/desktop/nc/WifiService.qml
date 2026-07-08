@@ -43,13 +43,19 @@ Singleton {
         }
     }
 
-    function tryConnect(ssid, password) {
+    // Secure connect: hand the PSK to nmcli's own secret agent via stdin using
+    // `--ask`. The password never appears in argv (so `ps` / /proc can't leak it
+    // to other local users) and never passes through a shell string (no command
+    // injection). nmcli saves the profile, so later connects reuse it silently.
+    function _connectSecure(ssid, password) {
         root.pendingSsid = ssid
-        let cmd = "nmcli dev wifi connect '" + ssid.replace(/'/g, "'\\''") + "'"
-        if (password && password.length > 0)
-            cmd += " password '" + password.replace(/'/g, "'\\''") + "'"
-        connectProc.command = ["bash", "-c", cmd]
+        connectProc._pw = password || ""
+        connectProc.command = ["nmcli", "--ask", "device", "wifi", "connect", ssid]
         connectProc.running = true
+    }
+
+    function tryConnect(ssid, password) {
+        _connectSecure(ssid, password)
     }
 
     // Row-click connect. A bare `nmcli dev wifi connect` on a *secured* network
@@ -61,20 +67,55 @@ Singleton {
     // secret, no prompt) if one exists, otherwise exit 100 so the UI opens the
     // inline field and we reconnect with the typed password instead.
     function smartConnect(ssid, security, password) {
+        if (password && password.length > 0) { _connectSecure(ssid, password); return }
         root.pendingSsid = ssid
-        let s = ssid.replace(/'/g, "'\\''")
-        let cmd
-        if (password && password.length > 0) {
-            cmd = "nmcli dev wifi connect '" + s + "' password '"
-                + password.replace(/'/g, "'\\''") + "'"
-        } else if (security === "") {
-            cmd = "nmcli dev wifi connect '" + s + "'"
+        connectProc._pw = ""
+        if (security === "") {
+            connectProc.command = ["nmcli", "device", "wifi", "connect", ssid]
         } else {
-            cmd = "if nmcli -t -f NAME connection show | grep -Fxq '" + s + "'; then "
-                + "nmcli con up id '" + s + "'; else exit 100; fi"
+            // Secured, no typed password: silently reuse a saved profile if one
+            // exists, otherwise exit 100 so the UI opens the inline password row
+            // (instead of NetworkManager waking nm-applet under our overlay).
+            // SSID is passed as $1 — never interpolated into the script — so even
+            // exotic SSIDs can't inject shell.
+            connectProc.command = ["bash", "-c",
+                "if nmcli -t -f NAME connection show | grep -Fxq -- \"$1\"; then " +
+                "nmcli connection up id \"$1\"; else exit 100; fi", "bash", ssid]
         }
-        connectProc.command = ["bash", "-c", cmd]
         connectProc.running = true
+    }
+
+    // ── Per-network management (context menu) ─────────────────────────────────
+    // Delete the saved profile for this SSID ("Forget"). No-ops harmlessly if
+    // the network was never saved.
+    function forget(ssid) {
+        let s = ssid.replace(/'/g, "'\\''")
+        actionProc.command = ["bash", "-c",
+            "nmcli connection delete id '" + s + "' 2>/dev/null"]
+        actionProc.running = true
+    }
+
+    // Drop the current connection without forgetting the saved profile.
+    function disconnectSsid(ssid) {
+        let s = ssid.replace(/'/g, "'\\''")
+        actionProc.command = ["bash", "-c",
+            "nmcli connection down id '" + s + "' 2>/dev/null"]
+        actionProc.running = true
+    }
+
+    // Open nm-connection-editor focused on this network's saved profile when one
+    // exists, otherwise the editor's connection list.
+    function editConnection(ssid) {
+        let s = ssid.replace(/'/g, "'\\''")
+        Quickshell.execDetached(["bash", "-c",
+            "uuid=$(nmcli -t -f UUID,NAME connection show | awk -F: -v n='" + s + "' '$2==n{print $1; exit}'); " +
+            "if [ -n \"$uuid\" ]; then nm-connection-editor --edit=\"$uuid\"; else nm-connection-editor; fi"])
+    }
+
+    Process {
+        id: actionProc
+        command: ["true"]
+        onRunningChanged: if (!running) root.refresh()
     }
 
     Process {
@@ -110,16 +151,37 @@ Singleton {
     Process {
         id: connectProc
         command: ["true"]
-        onRunningChanged: {
-            if (!running) {
-                // Clear the pending marker before notifying so a failed attempt
-                // doesn't leave the row stuck on "Connecting…".
-                let ssid = root.pendingSsid
-                root.pendingSsid = ""
-                root.connectFinished(ssid, exitCode)
-                // Refresh after a successful connect so the active flag updates
-                if (exitCode === 0) scanProc.running = true
-            }
+        stdinEnabled: true
+        // Plaintext PSK held only between launch and the first stdin write, then
+        // wiped. Lives in-process only; never reaches argv or a shell.
+        property string _pw: ""
+        onStarted: {
+            connectTimeout.restart()
+            if (_pw.length > 0) { write(_pw + "\n"); _pw = "" }
         }
+        // exitCode is a parameter of exited() — not a Process property — so the
+        // completion logic must run here, not in onRunningChanged (where
+        // referencing exitCode throws ReferenceError and skips connectFinished,
+        // which is what opens the inline password row on the exit-100 sentinel).
+        onExited: function(exitCode, exitStatus) {
+            connectTimeout.stop()
+            _pw = ""
+            // Clear the pending marker before notifying so a failed attempt
+            // doesn't leave the row stuck on "Connecting…".
+            let ssid = root.pendingSsid
+            root.pendingSsid = ""
+            root.connectFinished(ssid, exitCode)
+            // Refresh after a successful connect so the active flag updates
+            if (exitCode === 0) scanProc.running = true
+        }
+    }
+
+    // Backstop: if nmcli --ask ever blocks waiting for an unexpected extra secret
+    // (e.g. enterprise 802.1x), don't leave the row stuck on "Connecting…"
+    // forever — terminate it so the failure surfaces.
+    Timer {
+        id: connectTimeout
+        interval: 40000
+        onTriggered: if (connectProc.running) connectProc.signal(15)
     }
 }

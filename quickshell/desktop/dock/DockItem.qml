@@ -11,6 +11,7 @@ Item {
     property bool dark: true
     // Direct reference to DockWindow — avoids signals with complex var types
     property var dockWin: null
+    property bool launchpadRightSide: false
 
     // Magnify on hover, macOS-style. hoverScale drives both the visual Scale
     // (below) and the layout width here, so the widened slot shoves neighbouring
@@ -50,6 +51,7 @@ Item {
     property bool _dragging: false
     property bool _didDrag: false    // suppress the click that ends a drag
     readonly property bool anyDragActive: dockWin ? dockWin.dragActive : false
+    readonly property bool anyLaunchpadDropActive: dockWin ? dockWin.launchpadDropActive : false
     // Identify the dragged icon by class (unique across the dock) so pinned AND
     // running icons can be the one being dragged.
     readonly property bool isDragged: anyDragActive
@@ -68,10 +70,24 @@ Item {
     readonly property real visualDragX: !anyDragActive ? 0
         : (isDragged ? dockWin.dragDeltaX : dragShift)
 
+    // Gap for a launchpad app being dragged over the dock: the icons spread apart
+    // around the hovered insertion slot — those before it ease half a pitch left,
+    // those at/after it ease half a pitch right — opening a full-pitch space
+    // centred on the cursor. Unlike the dock's own snap-reorder this one animates
+    // (Behavior below) so the icons glide apart, macOS-style.
+    readonly property real launchpadShift: {
+        if (!dockWin || !dockWin.launchpadDropActive) return 0
+        let dp = dockWin.launchpadDropIndex
+        if (dp < 0) return 0
+        let half = dockWin.pitch / 2
+        if (pinnedIndex < 0) return launchpadRightSide ? half : 0
+        return pinnedIndex >= dp ? half : -half
+    }
+
     // Also stays enlarged for the whole launch bounce, not just on hover. No
     // hover magnify while a preview / menu / drag is in progress.
     readonly property bool magnified: previewActive || menuActive || launching
-        || (hover.hovered && !anyPreviewOpen && !anyMenuOpen && !anyDragActive)
+        || (hover.hovered && !anyPreviewOpen && !anyMenuOpen && !anyDragActive && !anyLaunchpadDropActive)
     z: isDragged ? 1000 : 0
 
     // Launch feedback: a slow, gentle hop that repeats until the launched app's
@@ -131,6 +147,11 @@ Item {
                 x: item.visualDragX
                 y: item.bounceY + (item.isDragged ? -8 : 0)
             },
+            Translate {
+                // Animated "make room" gap for a launchpad app dragged over the dock.
+                x: item.launchpadShift
+                Behavior on x { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
+            },
             Scale {
                 // Grow upward from the icon's base (not its center), macOS-style,
                 // so the icon lifts out of the dock on hover instead of bloating
@@ -152,14 +173,14 @@ Item {
         id: tooltip
         z: 200
         visible: opacity > 0
-        opacity: (hover.hovered && !item.anyPreviewOpen && !item.anyMenuOpen && !item.anyDragActive) ? 1 : 0
+        opacity: (hover.hovered && !item.anyPreviewOpen && !item.anyMenuOpen && !item.anyDragActive && !item.anyLaunchpadDropActive) ? 1 : 0
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.bottom: parent.top
         anchors.bottomMargin: 24
         width: tipLabel.implicitWidth + 16
         height: tipLabel.implicitHeight + 8
         radius: 7
-        color: ThemeService.bg
+        color: ThemeService.popupBg
         border.color: ThemeService.stroke
         border.width: 1
         Behavior on opacity { NumberAnimation { duration: 120; easing.type: Easing.OutQuad } }
@@ -189,10 +210,15 @@ Item {
             : (dark ? Qt.rgba(1, 1, 1, 0.92) : Qt.rgba(0, 0, 0, 0.50))
         Behavior on width  { NumberAnimation { duration: 140; easing.type: Easing.OutQuad } }
         Behavior on color  { ColorAnimation  { duration: 140 } }
-        // Travel with the icon while dragging / sliding aside (snap, no glide).
-        transform: Translate {
-            x: item.visualDragX
-        }
+        // Travel with the icon while dragging / sliding aside (snap, no glide),
+        // and animate apart when a launchpad app opens a gap.
+        transform: [
+            Translate { x: item.visualDragX },
+            Translate {
+                x: item.launchpadShift
+                Behavior on x { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
+            }
+        ]
 
         // Subtle glow when focused
         Rectangle {
@@ -290,6 +316,10 @@ Item {
             // If this app's windows are Hidden (special:minimized), a left click
             // brings them back to the current workspace instead of the normal
             // focus/launch path — mirroring "click a minimised Dock icon".
+            // Acting on a dock icon while the launchpad is open dismisses it, so
+            // the app we focus/launch isn't left buried behind the launchpad.
+            if (DockService.launchpadOpen) DockService.launchpadCloseRequested()
+
             let hidden = item.hiddenWindows
             if (hidden.length > 0) {
                 if (item.dockWin) item.dockWin.previewOpen = false

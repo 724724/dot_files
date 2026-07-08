@@ -22,6 +22,24 @@ PanelWindow {
     color: "transparent"
     exclusionMode: ExclusionMode.Ignore
 
+    // Map the surface only while an OSD is showing (plus a grace period so the
+    // fade-out finishes) — previously this stayed mapped on every screen
+    // forever, compositing an invisible card and swallowing clicks in its area.
+    property bool _surfaceVisible: false
+    visible: _surfaceVisible
+    Connections {
+        target: OsdService
+        function onVisibleChanged() {
+            if (OsdService.visible) {
+                win._surfaceVisible = true
+                unmapTimer.stop()
+            } else {
+                unmapTimer.restart()
+            }
+        }
+    }
+    Timer { id: unmapTimer; interval: 250; onTriggered: win._surfaceVisible = false }
+
     readonly property bool dark: ThemeService.isDark
     // Hard cap for the card; long media titles get truncated past this.
     readonly property int maxOsdWidth: Math.min(720,

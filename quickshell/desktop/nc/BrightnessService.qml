@@ -28,10 +28,14 @@ Singleton {
 
     Process { id: setProc; command: ["true"] }
 
+    // Poll only while the control center (the sole consumer) is open; keybind
+    // changes are pushed in directly by OsdService.brightness() instead.
+    // triggeredOnStart syncs the slider the moment the CC opens.
     Timer {
         interval: 4000
-        running: true
+        running: NcServer.controlCenterVisible
         repeat: true
+        triggeredOnStart: true
         onTriggered: refreshProc.running = true
     }
 

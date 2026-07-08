@@ -498,9 +498,10 @@ Singleton {
     Component.onCompleted: loadProc.running = true
 
     // ── Load persisted history on startup ────────────────────────────────────
+    // Also makes sure the data dir exists so the FileView below can write to it.
     Process {
         id: loadProc
-        command: ["bash", "-c", "cat '" + root.dataFile + "' 2>/dev/null"]
+        command: ["bash", "-c", "mkdir -p '" + root.dataDir + "'; cat '" + root.dataFile + "' 2>/dev/null"]
         stdout: StdioCollector {
             onStreamFinished: {
                 let loaded = ({}), loadedHours = ({})
@@ -573,13 +574,14 @@ Singleton {
     }
 
     // ── Persist ──────────────────────────────────────────────────────────────
-    // base64 round-trips the JSON through the shell without quoting hazards.
-    Process { id: saveProc; command: ["true"] }
+    // Direct FileView write — the old path spawned bash + base64 for every
+    // 20-second tick just to write a JSON file the process can write itself.
+    FileView {
+        id: dataStore
+        path: root.dataFile
+        printErrors: false
+    }
     function _persist() {
-        let b64 = Qt.btoa(JSON.stringify({ days: root.days, hours: root.hours }))
-        saveProc.command = ["bash", "-c",
-            "mkdir -p '" + root.dataDir + "'; " +
-            "echo '" + b64 + "' | base64 -d > '" + root.dataFile + "'"]
-        saveProc.running = true
+        dataStore.setText(JSON.stringify({ days: root.days, hours: root.hours }))
     }
 }
