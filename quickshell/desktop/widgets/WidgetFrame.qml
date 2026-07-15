@@ -28,9 +28,11 @@ Item {
         try { return JSON.parse(payload || "{}") } catch (e) { return ({}) }
     }
     readonly property bool isNote: type === "note"
+    readonly property bool isXSmallNews: type === "news" && Number(dataObj.layout || 0) === 4
     readonly property bool collapsed: isNote && dataObj.collapsed === true
     readonly property color swatch: dataObj.swatch || WidgetsService.palette[0]
     readonly property int headerH: 24
+    readonly property real cardRadius: isNote ? 0 : (isXSmallNews ? 26 : 13)
     readonly property color neutralCard: Qt.rgba(0.17, 0.19, 0.24, 0.64)
 
     // Content-provided appearance (clocks set these).
@@ -41,10 +43,51 @@ Item {
     y: ny
     width: nw
     height: collapsed ? headerH : nh
-    z: index + 1
+    readonly property bool positionTracking: noteDrag.pressed || editDrag.pressed
+    readonly property bool sizeTracking: resizer.pressed
+    Behavior on x { enabled: !wf.positionTracking; AppleSpring { spring: 18; epsilon: 0.15 } }
+    Behavior on y { enabled: !wf.positionTracking; AppleSpring { spring: 18; epsilon: 0.15 } }
+    Behavior on width { enabled: !wf.sizeTracking; AppleSpring { spring: 18; epsilon: 0.15 } }
+    Behavior on height { enabled: !wf.sizeTracking; AppleSpring { spring: 18; epsilon: 0.15 } }
+    // Two z bands: grid widgets live in [1, 50000), sticky notes in
+    // [50000, …) — notes always float above every widget (board overlays
+    // like the toolbar/gallery sit at 100000+).
+    z: isNote ? 50000 + index : index + 1
+
+    // ── Edit mode (grid widgets only) ───────────────────────────────────
+    // iOS jiggle: a gentle rotation wobble, phase-varied per widget so the
+    // board doesn't oscillate in lockstep. The amplitude shrinks with widget
+    // size — the wobble is a rotation, so on a big card the same angle throws
+    // the corners (and the delete badge) much further.
+    readonly property bool inEditMode: !isNote && boardItem && boardItem.editMode === true
+    readonly property bool jigEnabled: inEditMode && !editDrag.pressed
+    readonly property real jigAmp: 1.1 * Math.min(1, 260 / Math.max(nw, nh))
+    property real jigTarget: 0
+    rotation: jigEnabled ? jigTarget : 0
+    onJigEnabledChanged: jigTarget = jigEnabled
+        ? ((wid % 2 === 0) ? jigAmp : -jigAmp) : 0
+    Behavior on rotation {
+        AppleSpring {
+            id: jigMotion
+            spring: 22
+            damping: ThemeService.momentumDamping
+            epsilon: 0.035
+            onRunningChanged: if (!running && wf.jigEnabled)
+                Qt.callLater(() => wf.jigTarget = wf.jigTarget > 0 ? -wf.jigAmp : wf.jigAmp)
+        }
+    }
+    function rubberBand(value, lower, upper, dimension) {
+        let overshoot = value < lower ? value - lower : (value > upper ? value - upper : 0)
+        if (overshoot === 0) return value
+        let resisted = (overshoot * dimension * 0.55) / (dimension + 0.55 * Math.abs(overshoot))
+        return (value < lower ? lower : upper) + resisted
+    }
 
     function save(patch) { WidgetsService.setData(index, patch) }
-    function bringToFront() { z = boardItem.topZ; boardItem.topZ += 1 }
+    function bringToFront() {
+        if (isNote) { z = boardItem.topNoteZ; boardItem.topNoteZ += 1 }
+        else { z = Math.min(boardItem.topZ, 49999); boardItem.topZ += 1 }
+    }
 
     // macOS-style zoom: toggle between the note's normal size and a larger
     // "full" size. We stash the pre-zoom geometry so it restores exactly.
@@ -73,7 +116,7 @@ Item {
     Rectangle {
         x: 1; y: 5
         width: wf.width; height: wf.height
-        radius: wf.isNote ? 0 : 13
+        radius: wf.cardRadius
         color: Qt.rgba(0, 0, 0, 0.28)
         z: -1
     }
@@ -81,14 +124,14 @@ Item {
     Rectangle {
         id: card
         anchors.fill: parent
-        radius: wf.isNote ? 0 : 13
+        radius: wf.cardRadius
         clip: true
         color: wf.isNote ? wf.swatch
              : (wf.contentItem && wf.contentItem.cardColor) ? wf.contentItem.cardColor : wf.neutralCard
-        border.color: wf.lightCard ? Qt.rgba(0, 0, 0, 0.10)
+        border.color: wf.isXSmallNews ? "transparent"
+                    : wf.lightCard ? Qt.rgba(0, 0, 0, 0.10)
                     : (wf.isNote ? Qt.rgba(0, 0, 0, 0.10) : Qt.rgba(1, 1, 1, 0.10))
-        border.width: 1
-        Behavior on color { ColorAnimation { duration: 150 } }
+        border.width: wf.isXSmallNews ? 0 : 1
 
         // ── Content ────────────────────────────────────────────────────────
         Loader {
@@ -102,6 +145,9 @@ Item {
                            : wf.type === "weather"   ? weatherComp
                            : wf.type === "reminders" ? remindersComp
                            : wf.type === "news"      ? newsComp
+                           : wf.type === "calendar"  ? calendarComp
+                           : wf.type === "stock"     ? stockComp
+                           : wf.type === "youtube"   ? youtubeComp
                            : noteComp
         }
         Component { id: noteComp;      NoteWidget      { frame: wf } }
@@ -109,6 +155,9 @@ Item {
         Component { id: weatherComp;   WeatherWidget   { frame: wf } }
         Component { id: remindersComp; RemindersWidget { frame: wf } }
         Component { id: newsComp;      NewsWidget      { frame: wf } }
+        Component { id: calendarComp;  CalendarWidget  { frame: wf } }
+        Component { id: stockComp;     StockWidget     { frame: wf } }
+        Component { id: youtubeComp;   YoutubeWidget { frame: wf } }
 
         // ── Note title bar (macOS Stickies: close left, zoom + collapse
         //    right). Hover-only — the strip is hidden until you point at the
@@ -134,12 +183,16 @@ Item {
                 }
                 onPositionChanged: (m) => {
                     let p = noteDrag.mapToItem(wf.boardItem, m.x, m.y)
-                    let nxx = Math.max(0, Math.min(wf.boardItem.width  - wf.width,  p.x - grabX))
-                    let nyy = Math.max(0, Math.min(wf.boardItem.height - wf.height, p.y - grabY))
+                    let nxx = wf.rubberBand(p.x - grabX, 0, Math.max(0, wf.boardItem.width - wf.width), wf.boardItem.width)
+                    let nyy = wf.rubberBand(p.y - grabY, 0, Math.max(0, wf.boardItem.height - wf.height), wf.boardItem.height)
                     WidgetsService.setPosition(wf.index, nxx, nyy, false)
                 }
-                onReleased: WidgetsService.persist()
-                onDoubleClicked: wf.save({ collapsed: !wf.dataObj.collapsed })
+                onReleased: {
+                    WidgetsService.setPosition(wf.index,
+                        Math.max(0, Math.min(wf.boardItem.width - wf.width, wf.x)),
+                        Math.max(0, Math.min(wf.boardItem.height - wf.height, wf.y)), false)
+                    WidgetsService.persist()
+                }
             }
 
             // Left: close box
@@ -148,8 +201,10 @@ Item {
                 anchors.left: parent.left; anchors.leftMargin: 8
                 text: "✕"; font.pixelSize: 12; font.family: "SF Pro Display"
                 color: closeHover.hovered ? Qt.rgba(0, 0, 0, 0.78) : Qt.rgba(0, 0, 0, 0.38)
+                scale: noteCloseMa.pressed ? ThemeService.pressScale : 1.0
+                Behavior on scale { AppleSpring { spring: 18 } }
                 HoverHandler { id: closeHover }
-                MouseArea { anchors.fill: parent; anchors.margins: -5
+                MouseArea { id: noteCloseMa; anchors.fill: parent; anchors.margins: -5
                             cursorShape: Qt.PointingHandCursor; onClicked: wf.requestClose() }
             }
 
@@ -172,74 +227,30 @@ Item {
                 Text {
                     text: wf.zoomed ? "⤡" : "⤢"; font.pixelSize: 12; font.family: "SF Pro Display"
                     color: zoomHover.hovered ? Qt.rgba(0, 0, 0, 0.78) : Qt.rgba(0, 0, 0, 0.38)
+                    scale: zoomMa.pressed ? ThemeService.pressScale : 1.0
+                    Behavior on scale { AppleSpring { spring: 18 } }
                     HoverHandler { id: zoomHover }
-                    MouseArea { anchors.fill: parent; anchors.margins: -5
+                    MouseArea { id: zoomMa; anchors.fill: parent; anchors.margins: -5
                                 cursorShape: Qt.PointingHandCursor; onClicked: wf.toggleZoom() }
                 }
                 Text {
                     text: wf.collapsed ? "▾" : "▴"; font.pixelSize: 12; font.family: "SF Pro Display"
                     color: collapseHover.hovered ? Qt.rgba(0, 0, 0, 0.78) : Qt.rgba(0, 0, 0, 0.38)
+                    scale: collapseMa.pressed ? ThemeService.pressScale : 1.0
+                    Behavior on scale { AppleSpring { spring: 18 } }
                     HoverHandler { id: collapseHover }
-                    MouseArea { anchors.fill: parent; anchors.margins: -5
+                    MouseArea { id: collapseMa; anchors.fill: parent; anchors.margins: -5
                                 cursorShape: Qt.PointingHandCursor
                                 onClicked: wf.save({ collapsed: !wf.dataObj.collapsed }) }
                 }
             }
         }
 
-        // ── Hover chrome for non-note widgets ──────────────────────────────
-        Item {
-            id: hoverChrome
-            visible: !wf.isNote && (frameHover.hovered || chromeDrag.pressed)
-            anchors { left: parent.left; right: parent.right; top: parent.top }
-            height: 22
-
-            Rectangle {
-                anchors.fill: parent
-                color: wf.lightCard ? Qt.rgba(0, 0, 0, 0.06) : Qt.rgba(0, 0, 0, 0.22)
-            }
-            MouseArea {
-                id: chromeDrag
-                anchors.fill: parent
-                cursorShape: Qt.OpenHandCursor
-                property real grabX: 0
-                property real grabY: 0
-                onPressed: (m) => {
-                    wf.bringToFront()
-                    let p = chromeDrag.mapToItem(wf.boardItem, m.x, m.y)
-                    grabX = p.x - wf.x; grabY = p.y - wf.y
-                }
-                onPositionChanged: (m) => {
-                    let p = chromeDrag.mapToItem(wf.boardItem, m.x, m.y)
-                    let nxx = Math.max(0, Math.min(wf.boardItem.width  - wf.width,  p.x - grabX))
-                    let nyy = Math.max(0, Math.min(wf.boardItem.height - wf.height, p.y - grabY))
-                    WidgetsService.setPosition(wf.index, nxx, nyy, false)
-                }
-                onReleased: WidgetsService.persist()
-            }
-            Text {
-                anchors.verticalCenter: parent.verticalCenter
-                anchors.left: parent.left; anchors.leftMargin: 8
-                text: "⠿"; font.pixelSize: 13; font.family: "SF Pro Display"
-                color: wf.lightCard ? Qt.rgba(0, 0, 0, 0.4) : Qt.rgba(1, 1, 1, 0.55)
-            }
-            Text {
-                anchors.verticalCenter: parent.verticalCenter
-                anchors.right: parent.right; anchors.rightMargin: 8
-                text: "✕"; font.pixelSize: 12; font.family: "SF Pro Display"
-                color: wf.lightCard
-                    ? (chromeDel.hovered ? Qt.rgba(0, 0, 0, 0.75) : Qt.rgba(0, 0, 0, 0.4))
-                    : (chromeDel.hovered ? Qt.rgba(1, 1, 1, 0.9)  : Qt.rgba(1, 1, 1, 0.5))
-                HoverHandler { id: chromeDel }
-                MouseArea { anchors.fill: parent; anchors.margins: -5
-                            cursorShape: Qt.PointingHandCursor; onClicked: WidgetsService.removeAt(wf.index) }
-            }
-        }
-
-        // ── Resize grip (hover) ────────────────────────────────────────────
+        // ── Resize grip (hover) — sticky notes only; everything else is
+        //    fixed to the board grid ─────────────────────────────────────────
         MouseArea {
             id: resizer
-            visible: !wf.collapsed && (frameHover.hovered || resizer.pressed)
+            visible: wf.isNote && !wf.collapsed && (frameHover.hovered || resizer.pressed)
             width: 18; height: 18
             anchors.right: parent.right
             anchors.bottom: parent.bottom
@@ -248,30 +259,25 @@ Item {
             property real startMY: 0
             property real startW: 0
             property real startH: 0
-            property real startAspect: 1
             onPressed: (m) => {
                 wf.bringToFront()
                 let p = resizer.mapToItem(wf.boardItem, m.x, m.y)
                 startMX = p.x; startMY = p.y; startW = wf.width; startH = wf.height
-                startAspect = startH > 0 ? startW / startH : 1
             }
             onPositionChanged: (m) => {
                 let p = resizer.mapToItem(wf.boardItem, m.x, m.y)
                 let dw = p.x - startMX, dh = p.y - startMY
-                let nww = Math.max(110, startW + dw)
-                let nhh = Math.max(80, startH + dh)
-                // Hold Shift to keep the widget's aspect ratio (drive by the
-                // dominant drag axis, then re-derive the other side).
-                if (m.modifiers & Qt.ShiftModifier) {
-                    if (Math.abs(dw) >= Math.abs(dh)) { nww = Math.max(110, startW + dw); nhh = nww / startAspect }
-                    else { nhh = Math.max(80, startH + dh); nww = nhh * startAspect }
-                    if (nww < 110) { nww = 110; nhh = nww / startAspect }
-                    if (nhh < 80)  { nhh = 80;  nww = nhh * startAspect }
-                }
+                let nww = wf.rubberBand(startW + dw, 110,
+                    Math.max(110, wf.boardItem.width - wf.x), wf.boardItem.width)
+                let nhh = wf.rubberBand(startH + dh, 80,
+                    Math.max(80, wf.boardItem.height - wf.y), wf.boardItem.height)
                 WidgetsService.setSize(wf.index, nww, nhh, false)
             }
             onReleased: {
                 if (wf.zoomed) wf.save({ zoomed: false })
+                WidgetsService.setSize(wf.index,
+                    Math.max(110, Math.min(wf.boardItem.width - wf.x, wf.width)),
+                    Math.max(80, Math.min(wf.boardItem.height - wf.y, wf.height)), false)
                 WidgetsService.persist()
             }
             Canvas {
@@ -295,6 +301,65 @@ Item {
                 let p = mapToItem(wf.boardItem, m.x, m.y)
                 wf.boardItem.openContext(wf.index, p.x, p.y)
             }
+        }
+
+        // ── Edit-mode drag: grab anywhere to move. A translucent preview on
+        //    the board shows the snapped drop slot; dropping on a free slot
+        //    places the widget there, anywhere else springs it back ──────────
+        MouseArea {
+            id: editDrag
+            visible: wf.inEditMode
+            anchors.fill: parent
+            cursorShape: pressed ? Qt.ClosedHandCursor : Qt.OpenHandCursor
+            property real grabX: 0
+            property real grabY: 0
+            property real origX: 0
+            property real origY: 0
+            property bool moved: false
+            onPressed: (m) => {
+                wf.bringToFront()
+                let p = editDrag.mapToItem(wf.boardItem, m.x, m.y)
+                grabX = p.x - wf.x; grabY = p.y - wf.y
+                origX = wf.x; origY = wf.y
+                moved = false
+            }
+            onPositionChanged: (m) => {
+                moved = true
+                let p = editDrag.mapToItem(wf.boardItem, m.x, m.y)
+                WidgetsService.setPosition(wf.index,
+                    wf.rubberBand(p.x - grabX, 0, Math.max(0, wf.boardItem.width - wf.width), wf.boardItem.width),
+                    wf.rubberBand(p.y - grabY, 0, Math.max(0, wf.boardItem.height - wf.height), wf.boardItem.height), false)
+                wf.boardItem.updateDragPreview(wf.index, wf.x + wf.width / 2, wf.y + wf.height / 2)
+            }
+            onReleased: {
+                if (moved) wf.boardItem.dropWidgetAt(wf.index, wf.x + wf.width / 2, wf.y + wf.height / 2, origX, origY)
+                else wf.boardItem.endDragPreview()
+            }
+        }
+    }
+
+    // ── Edit-mode delete badge (top-left, iOS jiggle style) ────────────────
+    // Only for grid widgets; notes keep their own Stickies title-bar close box.
+    Rectangle {
+        id: deleteBadge
+        visible: wf.inEditMode
+        x: -9; y: -9; z: 10
+        width: 26; height: 26; radius: 13
+        color: delHover.hovered ? "#FF453A" : "#FF3B30"
+        border.color: Qt.rgba(1, 1, 1, 0.35); border.width: 1
+        scale: delMa.pressed ? ThemeService.pressScale : 1.0
+        Behavior on scale { AppleSpring { spring: 18 } }
+        Text {
+            anchors.centerIn: parent
+            text: "✕"; color: "#ffffff"
+            font.family: "SF Pro Display"; font.pixelSize: 13; font.weight: Font.Medium
+        }
+        HoverHandler { id: delHover }
+        MouseArea {
+            id: delMa
+            anchors.fill: parent
+            cursorShape: Qt.PointingHandCursor
+            onClicked: WidgetsService.removeAt(wf.index)
         }
     }
 }

@@ -26,10 +26,11 @@ Item {
         }
         width: 28; height: 28
         radius: 14
+        scale: backMa.pressed ? ThemeService.pressScale : 1
+        Behavior on scale { AppleSpring { spring: 13 } }
         color: backMa.containsMouse
             ? ThemeService.rowBgHover
             : ThemeService.rowBgHoverClear
-        Behavior on color { ColorAnimation { duration: 100 } }
 
         Text {
             anchors.centerIn: parent
@@ -108,12 +109,14 @@ Item {
 
         // Action button (refresh / scan)
         Rectangle {
+            id: actionButton
             visible: root.actionIcon !== ""
             width: 28; height: 28; radius: 14
+            scale: actionMa.pressed ? ThemeService.pressScale : 1
+            Behavior on scale { AppleSpring { spring: 13 } }
             color: actionMa.containsMouse
                 ? ThemeService.rowBgHover
                 : ThemeService.rowBg
-            Behavior on color { ColorAnimation { duration: 100 } }
 
             Text {
                 id: actionGlyph

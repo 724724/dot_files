@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Controls
+import "kinetic.js" as Kinetic
 
 // "View All" panel for a reminders widget (right-click → View All). Shows the
 // FULL list including completed items (checkmark + strikethrough), each with a
@@ -69,7 +70,47 @@ Item {
         interactive: !vw.dragging
         cacheBuffer: 1000
         model: lm
+        boundsBehavior: Flickable.DragAndOvershootBounds
+        boundsMovement: Flickable.FollowBoundsBehavior
+        flickDeceleration: 6000
+        maximumFlickVelocity: 6000
+        rebound: Transition {
+            SpringAnimation {
+                properties: "x,y"
+                spring: 18
+                damping: ThemeService.momentumDamping
+                epsilon: 0.25
+            }
+        }
         ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+
+        // Kinetic scroll (kinetic.js) — same feel as the emoji/nc lists.
+        property var _ks: ({})
+        WheelHandler {
+            acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
+            enabled: !vw.dragging
+            onWheel: (ev) => {
+                lvGlide.stop()
+                if (Kinetic.onWheel(lv, ev, lv._ks, { gain: 44 }))
+                    lvEndTimer.restart()
+            }
+        }
+        Timer {
+            id: lvEndTimer
+            interval: 48
+            onTriggered: {
+                let g = Kinetic.fling(lv, lv._ks, {})
+                if (g) { lvGlide.from = g.from; lvGlide.to = g.to; lvGlide.restart() }
+            }
+        }
+        SpringAnimation {
+            id: lvGlide
+            target: lv
+            property: "contentY"
+            spring: 18
+            damping: ThemeService.momentumDamping
+            epsilon: 0.25
+        }
 
         Text {
             anchors.centerIn: parent

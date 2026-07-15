@@ -202,11 +202,14 @@ Item {
                 }
 
                 MouseArea {
+                    id: dayMa
                     anchors.fill: parent
                     enabled: !dayCol.future
                     cursorShape: Qt.PointingHandCursor
                     onClicked: graph.daySelected(modelData.key)
                 }
+                scale: dayMa.pressed ? ThemeService.pressScale : 1
+                Behavior on scale { AppleSpring { spring: 13 } }
             }
         }
     }

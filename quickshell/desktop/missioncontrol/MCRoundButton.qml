@@ -10,6 +10,8 @@ Rectangle {
     color: ma.containsMouse ? "#ff5b54" : Qt.rgba(0, 0, 0, 0.72)
     border.color: Qt.rgba(1, 1, 1, 0.75)
     border.width: 1
+    scale: ma.pressed ? ThemeService.pressScale : 1.0
+    Behavior on scale { AppleSpring { spring: 18 } }
 
     Text {
         anchors.centerIn: parent

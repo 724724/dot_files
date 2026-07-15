@@ -33,7 +33,6 @@ Item {
     // ── ACTION DEFINITIONS ───────────────────────────────────────────────────
     readonly property var actions: [
         { id: "lock",      label: "Lock",      icon: "󰌾", color: "#0A84FF", needsConfirm: false },
-        { id: "hibernate", label: "Hibernate", icon: "󰒲", color: "#64D2FF", needsConfirm: false },
         { id: "logout",    label: "Logout",    icon: "󰍃", color: "#5E5CE6", needsConfirm: true },
         { id: "reboot",    label: "Reboot",    icon: "󰜉", color: "#FF9F0A", needsConfirm: true },
         { id: "shutdown",  label: "Shutdown",  icon: "󰐥", color: "#FF453A", needsConfirm: true }
@@ -150,14 +149,16 @@ Item {
             Repeater {
                 model: root.actions
                 delegate: Rectangle {
+                    id: actionRow
                     required property var modelData
                     width: parent.width
                     height: 44
                     radius: 10
+                    scale: rowMa.pressed ? ThemeService.pressScale : 1
+                    Behavior on scale { AppleSpring { spring: 13 } }
                     color: rowMa.containsMouse
                         ? ThemeService.rowBgHover
                         : ThemeService.rowBg
-                    Behavior on color { ColorAnimation { duration: 100 } }
 
                     Rectangle {
                         id: pwrIcon
@@ -296,6 +297,7 @@ Item {
 
                 // Track
                 Rectangle {
+                    id: countdownTrack
                     anchors {
                         left: parent.left
                         right: parent.right
@@ -319,7 +321,10 @@ Item {
                         // per-second countdown shrink.
                         Behavior on width {
                             enabled: root.countdownLeft < root.countdownTotal
-                            NumberAnimation { duration: 950; easing.type: Easing.Linear }
+                            SmoothedAnimation {
+                                velocity: countdownTrack.width
+                                    / Math.max(1, root.countdownTotal) * 1.1
+                            }
                         }
                     }
                 }
@@ -334,10 +339,11 @@ Item {
                     width: (parent.width - 10) / 2
                     height: 38
                     radius: 10
+                    scale: cancelMa.pressed ? ThemeService.pressScale : 1
+                    Behavior on scale { AppleSpring { spring: 13 } }
                     color: cancelMa.containsMouse
                         ? ThemeService.rowBgHover
                         : ThemeService.rowBg
-                    Behavior on color { ColorAnimation { duration: 100 } }
 
                     Text {
                         anchors.centerIn: parent
@@ -358,11 +364,13 @@ Item {
                 }
 
                 Rectangle {
+                    id: confirmButton
                     width: (parent.width - 10) / 2
                     height: 38
                     radius: 10
+                    scale: confirmMa.pressed ? ThemeService.pressScale : 1
+                    Behavior on scale { AppleSpring { spring: 13 } }
                     color: confirmMa.containsMouse ? "#ff5e58" : "#FF453A"
-                    Behavior on color { ColorAnimation { duration: 100 } }
 
                     Text {
                         anchors.centerIn: parent

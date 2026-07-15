@@ -20,7 +20,7 @@ Singleton {
         // Use the wrapper script so the cursor is also moved onto the focused
         // window — without that, `follow_mouse = 1` causes the focus to be
         // stolen back by whichever window happens to sit under the cursor.
-        focusProc.command = ["/home/sejunlee/.config/hypr/scripts/focus-window.sh", addr]
+        focusProc.command = [Quickshell.shellDir + "/../scripts/switcher-focus-window.sh", addr]
         focusProc.running = true
     }
 
@@ -60,7 +60,7 @@ Singleton {
         target: Hyprland
         function onRawEvent(event) { debounce.restart() }
     }
-    Timer { id: debounce; interval: 120; onTriggered: root.refresh() }
+    Timer { id: debounce; interval: 48; onTriggered: root.refresh() }
 
     // Slow defensive backstop in case an event is ever missed.
     Timer {

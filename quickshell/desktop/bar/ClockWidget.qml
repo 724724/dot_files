@@ -5,6 +5,7 @@ import QtQuick.Layouts
 PillContainer {
     id: root
     clickable: true
+    pressed: tap.pressed
     implicitHeight: 33
     implicitWidth: row.implicitWidth + 24
 
@@ -15,6 +16,7 @@ PillContainer {
     active: ClockService.popupVisible
 
     TapHandler {
+        id: tap
         acceptedButtons: Qt.LeftButton
         onTapped: {
             ClockService.targetScreen = root.screen

@@ -236,9 +236,18 @@ Item {
             clip: true
             visible: root.wifiOn && root.networks.length > 0
             interactive: contentHeight > height
-            boundsBehavior: Flickable.StopAtBounds
+            boundsBehavior: Flickable.DragAndOvershootBounds
+            boundsMovement: Flickable.FollowBoundsBehavior
             flickDeceleration: 6000
             maximumFlickVelocity: 6000
+            rebound: Transition {
+                SpringAnimation {
+                    properties: "x,y"
+                    spring: 13
+                    damping: ThemeService.momentumDamping
+                    epsilon: 0.25
+                }
+            }
 
             WheelHandler {
                 target: null
@@ -253,11 +262,6 @@ Item {
                 }
             }
 
-            Behavior on contentY {
-                enabled: !listFlick.dragging && !listFlick.flicking
-                NumberAnimation { duration: 90; easing.type: Easing.OutCubic }
-            }
-
             ScrollBar.vertical: ScrollBar {
                 id: wifiBar
                 policy: listFlick.contentHeight > listFlick.height
@@ -267,7 +271,7 @@ Item {
                     radius: 1.5
                     color: dark ? "#ffffff" : "#000000"
                     opacity: wifiBar.pressed ? 0.45 : (wifiBar.active ? 0.30 : 0.15)
-                    Behavior on opacity { NumberAnimation { duration: 150 } }
+                    Behavior on opacity { AppleSpring { spring: 13 } }
                 }
             }
 
@@ -296,8 +300,11 @@ Item {
 
                         // Main row
                         Item {
+                            id: networkRow
                             width: parent.width
                             height: 40
+                            scale: rowMa.pressed ? 0.985 : 1
+                            Behavior on scale { AppleSpring { spring: 13 } }
 
                             Rectangle {
                                 anchors.fill: parent
@@ -307,7 +314,6 @@ Item {
                                     : (rowMa.containsMouse
                                         ? ThemeService.rowBgHover
                                         : ThemeService.rowBgHoverClear)
-                                Behavior on color { ColorAnimation { duration: 100 } }
                             }
 
                             Text {
@@ -400,9 +406,9 @@ Item {
                             width: parent.width
                             height: rowWrap.expanded ? 56 : 0
                             clip: true
-                            Behavior on height { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+                            Behavior on height { AppleSpring { spring: 11; epsilon: 0.25 } }
                             opacity: rowWrap.expanded ? 1 : 0
-                            Behavior on opacity { NumberAnimation { duration: 180 } }
+                            Behavior on opacity { AppleSpring { spring: 13 } }
 
                             Rectangle {
                                 anchors.fill: parent
@@ -449,8 +455,9 @@ Item {
                                         rightMargin: 6
                                     }
                                     width: 64; height: 28; radius: 14
+                                    scale: cMa.pressed ? ThemeService.pressScale : 1
+                                    Behavior on scale { AppleSpring { spring: 13 } }
                                     color: cMa.containsMouse ? "#1a8cff" : "#0A84FF"
-                                    Behavior on color { ColorAnimation { duration: 100 } }
 
                                     Text {
                                         anchors.centerIn: parent
@@ -490,13 +497,15 @@ Item {
 
         // Wi-Fi Settings link
         Rectangle {
+            id: wifiSettingsButton
             width: parent.width
             height: 36
             radius: 8
+            scale: settingsMa.pressed ? 0.985 : 1
+            Behavior on scale { AppleSpring { spring: 13 } }
             color: settingsMa.containsMouse
                 ? ThemeService.rowBgHover
                 : ThemeService.rowBgHoverClear
-            Behavior on color { ColorAnimation { duration: 100 } }
 
             Text {
                 anchors {

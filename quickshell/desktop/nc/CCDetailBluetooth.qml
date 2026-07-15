@@ -208,9 +208,18 @@ Item {
             clip: true
             visible: root.btOn && root.devices.length > 0
             interactive: contentHeight > height
-            boundsBehavior: Flickable.StopAtBounds
+            boundsBehavior: Flickable.DragAndOvershootBounds
+            boundsMovement: Flickable.FollowBoundsBehavior
             flickDeceleration: 6000
             maximumFlickVelocity: 6000
+            rebound: Transition {
+                SpringAnimation {
+                    properties: "x,y"
+                    spring: 13
+                    damping: ThemeService.momentumDamping
+                    epsilon: 0.25
+                }
+            }
 
             WheelHandler {
                 target: null
@@ -225,11 +234,6 @@ Item {
                 }
             }
 
-            Behavior on contentY {
-                enabled: !btFlick.dragging && !btFlick.flicking
-                NumberAnimation { duration: 90; easing.type: Easing.OutCubic }
-            }
-
             ScrollBar.vertical: ScrollBar {
                 id: btBar
                 policy: btFlick.contentHeight > btFlick.height
@@ -239,7 +243,7 @@ Item {
                     radius: 1.5
                     color: dark ? "#ffffff" : "#000000"
                     opacity: btBar.pressed ? 0.45 : (btBar.active ? 0.30 : 0.15)
-                    Behavior on opacity { NumberAnimation { duration: 150 } }
+                    Behavior on opacity { AppleSpring { spring: 13 } }
                 }
             }
 
@@ -251,9 +255,12 @@ Item {
                 Repeater {
                     model: root.btOn ? root.devices : []
                     delegate: Item {
+                        id: deviceRow
                         required property var modelData
                         width: dCol.width
                         height: 42
+                        scale: dRowMa.pressed ? 0.985 : 1
+                        Behavior on scale { AppleSpring { spring: 13 } }
 
                         Rectangle {
                             anchors.fill: parent
@@ -261,7 +268,6 @@ Item {
                             color: dRowMa.containsMouse
                                 ? ThemeService.rowBgHover
                                 : ThemeService.rowBgHoverClear
-                            Behavior on color { ColorAnimation { duration: 100 } }
                         }
 
                         Rectangle {
@@ -400,13 +406,15 @@ Item {
         }
 
         Rectangle {
+            id: bluetoothSettingsButton
             width: parent.width
             height: 36
             radius: 8
+            scale: bSetMa.pressed ? 0.985 : 1
+            Behavior on scale { AppleSpring { spring: 13 } }
             color: bSetMa.containsMouse
                 ? ThemeService.rowBgHover
                 : ThemeService.rowBgHoverClear
-            Behavior on color { ColorAnimation { duration: 100 } }
 
             Text {
                 anchors {

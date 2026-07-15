@@ -20,7 +20,7 @@ Item {
     readonly property real hoverScale: 1.75
     implicitWidth: 42 * (magnified ? hoverScale : 1) + 16
     implicitHeight: 66
-    Behavior on implicitWidth { NumberAnimation { duration: 130; easing.type: Easing.OutQuad } }
+    Behavior on implicitWidth { AppleSpring { spring: 13 } }
 
     readonly property bool isRunning: DockService.runningClasses.indexOf(wmClass.toLowerCase()) >= 0
     readonly property bool isFocused: DockService.focusedClass === wmClass.toLowerCase()
@@ -67,8 +67,8 @@ Item {
         if (src > dp && pinnedIndex >= dp && pinnedIndex < src) return dockWin.pitch
         return 0
     }
-    readonly property real visualDragX: !anyDragActive ? 0
-        : (isDragged ? dockWin.dragDeltaX : dragShift)
+    readonly property real directDragX: isDragged ? dockWin.dragDeltaX : 0
+    readonly property real reorderShift: anyDragActive && !isDragged ? dragShift : 0
 
     // Gap for a launchpad app being dragged over the dock: the icons spread apart
     // around the hovered insertion slot — those before it ease half a pitch left,
@@ -88,14 +88,18 @@ Item {
     // hover magnify while a preview / menu / drag is in progress.
     readonly property bool magnified: previewActive || menuActive || launching
         || (hover.hovered && !anyPreviewOpen && !anyMenuOpen && !anyDragActive && !anyLaunchpadDropActive)
+    readonly property real iconScale: isDragged ? 1.15
+        : (magnified ? hoverScale : 1) * (_pressed ? ThemeService.pressScale : 1)
     z: isDragged ? 1000 : 0
 
-    // Launch feedback: a slow, gentle hop that repeats until the launched app's
-    // window shows up (or a safety timeout fires), instead of a fixed bounce.
+    // Launch feedback retargets a critically damped spring until the app appears.
     property real bounceY: 0
     property bool launching: false
+    property bool launchLifted: false
 
-    // The window appearing (DockService polls ~every 500ms) ends the bounce.
+    Behavior on bounceY { AppleSpring { spring: 11 } }
+
+    // The event-driven window refresh ends launch feedback as soon as it appears.
     onIsRunningChanged: if (isRunning) launching = false
 
     Timer {
@@ -104,23 +108,17 @@ Item {
         onTriggered: item.launching = false
     }
 
-    SequentialAnimation {
-        id: bounceAnim
+    Timer {
+        id: launchPulse
         running: item.launching
-        loops: Animation.Infinite
-        NumberAnimation { target: item; property: "bounceY"; to: -16; duration: 160; easing.type: Easing.OutQuad }
-        NumberAnimation { target: item; property: "bounceY"; to: 0;   duration: 180; easing.type: Easing.InQuad }
-        PauseAnimation { duration: 100 }
+        repeat: true
+        interval: 336
+        onTriggered: item.launchLifted = !item.launchLifted
     }
-
-    // Settle smoothly if the loop is cut mid-hop when the window appears.
-    NumberAnimation {
-        id: settleAnim
-        target: item; property: "bounceY"; to: 0; duration: 160; easing.type: Easing.OutQuad
-    }
+    onLaunchLiftedChanged: bounceY = launchLifted ? -16 : 0
     onLaunchingChanged: {
-        if (launching) settleAnim.stop()
-        else settleAnim.restart()
+        launchLifted = launching
+        if (!launching) bounceY = 0
         // Keep the dock revealed for the whole bounce (DockWindow watches this).
         if (dockWin) dockWin.launchingCount += launching ? 1 : -1
     }
@@ -140,27 +138,36 @@ Item {
         transform: [
             Translate {
                 // The dragged icon tracks the cursor 1:1 (and lifts slightly); the
-                // others ease as they slide aside to open the drop gap.
-                // No Behavior on x: the dragged icon tracks the cursor and the
-                // others snap aside / back. Animating it made dropped icons glide
-                // sideways into place, which read as a glitch.
-                x: item.visualDragX
+                // release spring is disabled during the grab so tracking stays 1:1.
+                x: item.directDragX
                 y: item.bounceY + (item.isDragged ? -8 : 0)
+                Behavior on x {
+                    enabled: !item.isDragged
+                    SpringAnimation {
+                        spring: ThemeService.spring
+                        damping: ThemeService.momentumDamping
+                        epsilon: 0.25
+                    }
+                }
+            },
+            Translate {
+                x: item.reorderShift
+                Behavior on x { AppleSpring {} }
             },
             Translate {
                 // Animated "make room" gap for a launchpad app dragged over the dock.
                 x: item.launchpadShift
-                Behavior on x { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
+                Behavior on x { AppleSpring {} }
             },
             Scale {
                 // Grow upward from the icon's base (not its center), macOS-style,
                 // so the icon lifts out of the dock on hover instead of bloating
                 // in place. The running dot below is anchored separately and stays.
                 origin.x: iconImg.width / 2; origin.y: iconImg.height
-                xScale: item.isDragged ? 1.15 : (item.magnified ? item.hoverScale : 1.0)
-                yScale: item.isDragged ? 1.15 : (item.magnified ? item.hoverScale : 1.0)
-                Behavior on xScale { NumberAnimation { duration: 130; easing.type: Easing.OutQuad } }
-                Behavior on yScale { NumberAnimation { duration: 130; easing.type: Easing.OutQuad } }
+                xScale: item.iconScale
+                yScale: item.iconScale
+                Behavior on xScale { AppleSpring { spring: 13 } }
+                Behavior on yScale { AppleSpring { spring: 13 } }
             }
         ]
     }
@@ -183,7 +190,7 @@ Item {
         color: ThemeService.popupBg
         border.color: ThemeService.stroke
         border.width: 1
-        Behavior on opacity { NumberAnimation { duration: 120; easing.type: Easing.OutQuad } }
+        Behavior on opacity { AppleSpring { spring: 13 } }
 
         Text {
             id: tipLabel
@@ -208,15 +215,27 @@ Item {
         color: item.isFocused
             ? "#0A84FF"
             : (dark ? Qt.rgba(1, 1, 1, 0.92) : Qt.rgba(0, 0, 0, 0.50))
-        Behavior on width  { NumberAnimation { duration: 140; easing.type: Easing.OutQuad } }
-        Behavior on color  { ColorAnimation  { duration: 140 } }
-        // Travel with the icon while dragging / sliding aside (snap, no glide),
-        // and animate apart when a launchpad app opens a gap.
+        Behavior on width { AppleSpring { spring: 13 } }
+        // Travel 1:1 during drag, then inherit the same release/spacing springs.
         transform: [
-            Translate { x: item.visualDragX },
+            Translate {
+                x: item.directDragX
+                Behavior on x {
+                    enabled: !item.isDragged
+                    SpringAnimation {
+                        spring: ThemeService.spring
+                        damping: ThemeService.momentumDamping
+                        epsilon: 0.25
+                    }
+                }
+            },
+            Translate {
+                x: item.reorderShift
+                Behavior on x { AppleSpring {} }
+            },
             Translate {
                 x: item.launchpadShift
-                Behavior on x { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
+                Behavior on x { AppleSpring {} }
             }
         ]
 
@@ -249,6 +268,7 @@ Item {
     Process { id: restoreProc; command: ["true"] }
 
     MouseArea {
+        id: pointer
         anchors.fill: parent
         acceptedButtons: Qt.LeftButton | Qt.RightButton
         cursorShape: Qt.PointingHandCursor
@@ -259,8 +279,8 @@ Item {
         // the dock's content item — stable on Wayland, unlike global coords.
         onPressed: (mouse) => {
             item._didDrag = false
+            item._pressed = true
             if (mouse.button === Qt.LeftButton && item.dockWin) {
-                item._pressed = true
                 item._dragging = false
                 item._pressX = item.mapToItem(item.dockWin.rowItem, mouse.x, mouse.y).x
             }

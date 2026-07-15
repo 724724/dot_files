@@ -11,8 +11,6 @@ Rectangle {
     border.color: ThemeService.tileStroke
     border.width: 1
 
-    Behavior on color { ColorAnimation { duration: 200 } }
-
     Item {
         id: inner
         anchors.fill: parent

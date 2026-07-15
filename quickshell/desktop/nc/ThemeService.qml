@@ -7,45 +7,40 @@ Singleton {
     id: root
     property bool isDark: true
 
-    readonly property real materialAlpha: 0.75
+    readonly property real materialAlpha: 0.88
     readonly property color bg: isDark ? Qt.rgba(28 / 255, 28 / 255, 30 / 255, materialAlpha)
                                        : Qt.rgba(242 / 255, 242 / 255, 247 / 255, materialAlpha)
-    readonly property color popupBg: bg
-    readonly property color stroke: isDark ? Qt.rgba(1, 1, 1, 0.08) : Qt.rgba(0, 0, 0, 0.06)
-    readonly property color tileBg: isDark ? Qt.rgba(44 / 255, 44 / 255, 46 / 255, materialAlpha)
-                                           : Qt.rgba(1, 1, 1, materialAlpha)
-    readonly property color tileBgHover: isDark ? Qt.rgba(58 / 255, 58 / 255, 60 / 255, materialAlpha)
-                                                : Qt.rgba(248 / 255, 248 / 255, 250 / 255, materialAlpha)
-    readonly property color tileBgActive: isDark ? Qt.rgba(72 / 255, 72 / 255, 74 / 255, materialAlpha)
-                                                 : Qt.rgba(1, 1, 1, materialAlpha)
-    readonly property color notificationBg: isDark ? Qt.rgba(44 / 255, 44 / 255, 46 / 255, 0.84)
-                                                   : Qt.rgba(1, 1, 1, 0.92)
-    readonly property color notificationStackBg1: isDark ? Qt.rgba(38 / 255, 38 / 255, 40 / 255, 0.86)
-                                                         : Qt.rgba(235 / 255, 235 / 255, 240 / 255, 0.94)
-    readonly property color notificationStackBg2: isDark ? Qt.rgba(32 / 255, 32 / 255, 34 / 255, 0.88)
-                                                         : Qt.rgba(218 / 255, 218 / 255, 224 / 255, 0.94)
+    readonly property color popupBg: isDark ? Qt.rgba(28 / 255, 28 / 255, 30 / 255, 0.95)
+                                            : Qt.rgba(246 / 255, 246 / 255, 248 / 255, 0.93)
+    readonly property color stroke: isDark ? Qt.rgba(1, 1, 1, 0.10) : Qt.rgba(0, 0, 0, 0.10)
+    readonly property color tileBg: isDark ? "#2c2c2e" : "#ffffff"
+    readonly property color tileBgHover: isDark ? "#3a3a3c" : "#f2f2f7"
+    readonly property color tileBgActive: isDark ? "#48484a" : "#ffffff"
+    readonly property color notificationBg: isDark ? "#2c2c2e" : "#ffffff"
+    readonly property color notificationStackBg1: isDark ? "#262628" : "#ebebf0"
+    readonly property color notificationStackBg2: isDark ? "#202022" : "#dadae0"
     readonly property color tileStroke: "transparent"
     readonly property color notificationStroke: "transparent"
-    readonly property color subtleTileBg: isDark ? Qt.rgba(58 / 255, 58 / 255, 60 / 255, materialAlpha)
-                                                 : Qt.rgba(242 / 255, 242 / 255, 247 / 255, materialAlpha)
-    readonly property color subtleTileBgHover: isDark ? Qt.rgba(72 / 255, 72 / 255, 74 / 255, materialAlpha)
-                                                      : Qt.rgba(229 / 255, 229 / 255, 234 / 255, materialAlpha)
+    readonly property color subtleTileBg: isDark ? "#3a3a3c" : "#f2f2f7"
+    readonly property color subtleTileBgHover: isDark ? "#48484a" : "#e5e5ea"
     readonly property color subtleTileBgHoverClear: isDark ? Qt.rgba(72 / 255, 72 / 255, 74 / 255, 0)
                                                            : Qt.rgba(229 / 255, 229 / 255, 234 / 255, 0)
-    readonly property color rowBg: isDark ? Qt.rgba(44 / 255, 44 / 255, 46 / 255, 0.64)
-                                          : Qt.rgba(1, 1, 1, 0.64)
-    readonly property color rowBgHover: isDark ? Qt.rgba(58 / 255, 58 / 255, 60 / 255, 0.78)
-                                               : Qt.rgba(229 / 255, 229 / 255, 234 / 255, 0.86)
+    readonly property color rowBg: isDark ? "#2c2c2e" : "#ffffff"
+    readonly property color rowBgHover: isDark ? "#3a3a3c" : "#e5e5ea"
     readonly property color rowBgHoverClear: isDark ? Qt.rgba(58 / 255, 58 / 255, 60 / 255, 0)
                                                     : Qt.rgba(229 / 255, 229 / 255, 234 / 255, 0)
     readonly property color rowBgActive: isDark ? Qt.rgba(10 / 255, 132 / 255, 255 / 255, 0.24)
                                                 : Qt.rgba(0, 122 / 255, 255 / 255, 0.18)
-    readonly property color fieldBg: isDark ? Qt.rgba(58 / 255, 58 / 255, 60 / 255, 0.72)
-                                            : Qt.rgba(1, 1, 1, 0.72)
+    readonly property color fieldBg: isDark ? "#3a3a3c" : "#ffffff"
     readonly property color textPrimary: isDark ? "#f5f6f8" : "#1c1c1e"
     readonly property color textSecondary: isDark ? Qt.rgba(1, 1, 1, 0.68) : Qt.rgba(0, 0, 0, 0.62)
     readonly property color textTertiary: isDark ? Qt.rgba(1, 1, 1, 0.48) : Qt.rgba(0, 0, 0, 0.46)
     readonly property color separator: isDark ? Qt.rgba(1, 1, 1, 0.10) : Qt.rgba(0, 0, 0, 0.08)
+
+    readonly property real pressScale: 0.97
+    readonly property real spring: 8
+    readonly property real criticalDamping: 1
+    readonly property real momentumDamping: 0.8
 
     // Single source of truth for the GTK theme paired with each color scheme.
     // Stock Adwaita: GTK3/Qt follow the theme name, GTK4/libadwaita follow

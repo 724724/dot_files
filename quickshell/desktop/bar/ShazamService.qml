@@ -30,6 +30,24 @@ Singleton {
     // Empty string falls back to the "N Songs" count.
     property string statusMsg: ""
 
+    // Where recognition listens: "internal" fingerprints the default sink's
+    // monitor (what the desktop is playing), "external" the default source
+    // (microphone — music playing in the room). Persisted across restarts.
+    property string audioSource: "internal"
+
+    function setAudioSource(src) {
+        if (src !== "internal" && src !== "external") return
+        root.audioSource = src
+        prefs.setText(JSON.stringify({ audioSource: src }))
+    }
+
+    FileView {
+        id: prefs
+        path: Quickshell.stateDir + "/shazam-prefs.json"
+        blockLoading: true
+        printErrors: false   // a missing file on first run is expected
+    }
+
     // ── Filesystem paths ─────────────────────────────────────────────────
     // Real absolute paths (NOT Qt.resolvedUrl, which Quickshell maps to a
     // virtual qrc path that breaks shell commands) — matches SysUsageService.
@@ -55,11 +73,17 @@ Singleton {
 
     function _load() {
         let raw = store.text()
-        if (!raw) return
+        if (raw) {
+            try {
+                let p = JSON.parse(raw)
+                if (Array.isArray(p)) root.history = p
+            } catch (e) { /* empty or corrupt — start fresh */ }
+        }
         try {
-            let p = JSON.parse(raw)
-            if (Array.isArray(p)) root.history = p
-        } catch (e) { /* empty or corrupt — start fresh */ }
+            let s = JSON.parse(prefs.text() || "")
+            if (s && (s.audioSource === "internal" || s.audioSource === "external"))
+                root.audioSource = s.audioSource
+        } catch (e) { /* first run — keep the "internal" default */ }
     }
     function _persist() { store.setText(JSON.stringify(root.history)) }
 
@@ -73,7 +97,7 @@ Singleton {
 
     Process {
         id: recognizeProc
-        command: ["bash", root.scriptsDir + "/shazam-recognize.sh", "8"]
+        command: ["bash", root.scriptsDir + "/shazam-recognize.sh", "8", root.audioSource]
         stdout: StdioCollector { onStreamFinished: root._onResult(text) }
         // Safety net: never leave the spinner stuck on if the script dies
         // without producing parseable output.
@@ -169,5 +193,6 @@ Singleton {
         function show()      { root.popupVisible = true }
         function hide()      { root.popupVisible = false }
         function recognize() { root.recognize() }
+        function setSource(src: string): void { root.setAudioSource(src) }
     }
 }

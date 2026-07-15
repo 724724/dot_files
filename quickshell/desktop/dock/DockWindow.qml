@@ -2,6 +2,8 @@ import Quickshell
 import Quickshell.Io
 import Quickshell.Wayland
 import QtQuick
+import Qt5Compat.GraphicalEffects
+import "../missioncontrol" as MC
 
 PanelWindow {
     id: win
@@ -27,7 +29,7 @@ PanelWindow {
     anchors.bottom: true
     anchors.left: true
     anchors.right: true
-    exclusiveZone: DockService.pinnedVisible ? dockReservedH : 0
+    exclusiveZone: pinnedEffective ? dockReservedH : 0
     color: "transparent"
 
     // Confine pointer input to the dock's own column (see triggerColumn): the
@@ -112,16 +114,38 @@ PanelWindow {
     // While the launchpad is open on THIS screen the dock rises and stays put —
     // it's the one real dock, floating above the launchpad backdrop (no replica).
     readonly property bool launchpadHere:
-        (DockService.launchpadOpen && DockService.launchpadScreen === (win.screen ? win.screen.name : ""))
+        (DockService.launchpadOpen && DockService.launchpadScreen === (win.modelData ? win.modelData.name : ""))
         || (DockService.overviewOpen
-            && (DockService.overviewScreen === "" || DockService.overviewScreen === (win.screen ? win.screen.name : "")))
+            && (DockService.overviewScreen === "" || DockService.overviewScreen === (win.modelData ? win.modelData.name : "")))
+    // True while THIS screen's active workspace has a real fullscreen window
+    // (game, video player, etc.) — see poll-clients.sh. Even with "Turn Hiding
+    // Off" pinned on, the dock should still tuck away here so it doesn't sit
+    // over fullscreen content; it still reveals on hover like the normal
+    // auto-hide dock.
+    readonly property bool fullscreenHere:
+        DockService.fullscreenMonitors.includes(win.modelData ? win.modelData.name : "")
+    // True while THIS screen's active workspace is a Mission-Control Split View
+    // space — treated like fullscreen: the dock tucks away (still hover-
+    // revealable) and its reserved zone is released so the split tiles get the
+    // full screen.
+    readonly property bool splitViewHere:
+        MC.MCService.splitViewActiveOn(win.modelData ? win.modelData.name : "")
+    // The pinned/always-visible toggle (Super+V), minus fullscreen/split-view —
+    // so those always win over "pinned".
+    readonly property bool pinnedEffective:
+        DockService.pinnedVisible && !fullscreenHere && !splitViewHere
     readonly property int dockVisibleBottomMargin: 10
     readonly property int dockCardH: 68
     readonly property int dockReservedH: dockCardH
-    margins.bottom: (DockService.pinnedVisible || launchpadHere || showDock || previewOpen || menuOpen || dragActive || launchingCount > 0)
-        ? dockVisibleBottomMargin : -(dockTriggerH - 4)
+    readonly property bool dockRaised:
+        pinnedEffective || launchpadHere || showDock || previewOpen
+        || menuOpen || dragActive || launchingCount > 0
+    margins.bottom: dockRaised ? dockVisibleBottomMargin : -(dockTriggerH - 4)
     Behavior on margins.bottom {
-        NumberAnimation { duration: 220; easing.type: Easing.OutCubic }
+        AppleSpring {
+            spring: win.dockRaised ? 22 : 13
+            epsilon: 0.25
+        }
     }
 
     // The launchpad (same Overlay layer) re-maps above the dock every time it
@@ -262,6 +286,7 @@ PanelWindow {
     // ── Right-click menu state ───────────────────────────────────────────────
 
     property bool menuOpen: false
+    property bool menuSurfaceVisible: false
     property var menuApp: ({})          // {name, wmClass, iconName, execCmd}
     property real menuAnchorX: 0        // clicked icon centre, panel coords
     property bool submenuOpen: false    // Assign-To flyout
@@ -272,6 +297,7 @@ PanelWindow {
     readonly property int menuPadV: 6
     readonly property int submenuWidth: 180
     readonly property int submenuRowH: 28
+    readonly property int submenuGap: 8
     readonly property int wsCount: 10
 
     readonly property string menuClass: (menuApp.wmClass || "").toLowerCase()
@@ -334,6 +360,7 @@ PanelWindow {
         win.menuApp = app
         win.menuAnchorX = anchorX
         win.submenuOpen = false
+        win.menuSurfaceVisible = true
         win.menuOpen = true
         win.showDock = true
         hideTimer.stop()
@@ -458,19 +485,18 @@ PanelWindow {
         // opened gap fits inside the card instead of the icons poking out. The card
         // grows symmetrically about the window centre and dockRow stays centred in
         // it, so dockRow's position — the slot-calc reference — doesn't move.
-        // Only the drop gap (a discrete 0 → pitch jump) needs easing, so animate
-        // just that. The rest of the width tracks dockRow directly — the icons
-        // already animate their own width on hover (130ms), so the card grows
+        // Only the drop gap (a discrete 0 → pitch jump) needs its own spring. The
+        // rest of the width tracks dockRow directly — the icons spring their own
+        // width on hover, so the card grows
         // *with* them instead of chasing the moving total a beat behind, which is
         // what made the hover-grow look laggy/wobbly.
         property real dropGap: win.launchpadDropActive ? win.pitch : 0
-        Behavior on dropGap { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
+        Behavior on dropGap { AppleSpring {} }
         implicitWidth: dockRow.implicitWidth + 20 + dropGap
         height: win.dockCardH; radius: 22
         color: ThemeService.bg
         border.color: ThemeService.stroke
         border.width: 1
-        Behavior on color { ColorAnimation { duration: 200 } }
 
         Row {
             id: dockRow
@@ -496,7 +522,7 @@ PanelWindow {
                 width: 14; height: 52
                 transform: Translate {
                     x: win.launchpadRightSideShift
-                    Behavior on x { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
+                    Behavior on x { AppleSpring {} }
                 }
                 Rectangle {
                     anchors.centerIn: parent
@@ -519,20 +545,57 @@ PanelWindow {
         }
     }
 
+    DropShadow {
+        anchors.fill: dockCard
+        source: dockCard
+        z: -1
+        transparentBorder: true
+        radius: 18
+        samples: 37
+        verticalOffset: 6
+        color: Qt.rgba(0, 0, 0, dark ? 0.42 : 0.20)
+    }
+
     // ── Preview popup ──────────────────────────────────────────────────────
+
+    PanelWindow {
+        id: previewDismissWin
+        screen: win.screen
+        visible: true
+        WlrLayershell.namespace: "qs-dock-preview-dismiss"
+        WlrLayershell.layer: WlrLayer.Top
+        WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
+        anchors { top: true; bottom: true; left: true; right: true }
+        exclusionMode: ExclusionMode.Ignore
+        color: "transparent"
+        mask: win.previewOpen ? null : closedPreviewRegion
+        Region { id: closedPreviewRegion }
+
+        MouseArea {
+            anchors.fill: parent
+            enabled: win.previewOpen
+            acceptedButtons: Qt.LeftButton | Qt.RightButton
+            onPressed: win.previewOpen = false
+        }
+    }
 
     // Dismiss overlay
     MouseArea {
         anchors.fill: parent
         visible: win.previewOpen
         z: 90
-        onClicked: win.previewOpen = false
+        onPressed: win.previewOpen = false
     }
 
     // Preview popup — instant, anchored to the clicked icon
     Rectangle {
         id: previewPopup
-        visible: win.previewOpen && win.previewWindows.length > 0
+        visible: opacity > 0.002
+        opacity: win.previewOpen && win.previewWindows.length > 0 ? 1 : 0
+        scale: win.previewOpen && win.previewWindows.length > 0 ? 1 : 0.97
+        transformOrigin: Item.Bottom
+        Behavior on opacity { AppleSpring { spring: 11 } }
+        Behavior on scale { AppleSpring { spring: 10 } }
         z: 100
 
         // Anchor horizontally to the clicked icon, clamped to panel edges
@@ -550,8 +613,7 @@ PanelWindow {
         border.color: ThemeService.stroke
         border.width: 1
 
-        // No fade/scale: the popup just appears/disappears with `visible` so
-        // opening and closing carry no animation (no bounce, no grow-in).
+        // Materializes from its dock anchor with a critically damped fade/scale.
 
         // Tail pointer — tracks the icon center even when popup is clamped
         Canvas {
@@ -603,19 +665,17 @@ PanelWindow {
                     required property var modelData
                     width: win.cardW; height: win.cardH; radius: 12
                     color: cardHover.hovered
-                        ? (dark ? Qt.rgba(1,1,1,0.10) : Qt.rgba(0,0,0,0.06))
-                        : (dark ? Qt.rgba(1,1,1,0.04) : Qt.rgba(0,0,0,0.03))
+                        ? (dark ? "#3a3a3c" : "#ffffff")
+                        : (dark ? "#303033" : "#f5f5f7")
                     border.color: cardHover.hovered
                         ? Qt.rgba(10/255, 132/255, 255/255, 0.55)
                         : (dark ? Qt.rgba(1,1,1,0.10) : Qt.rgba(0,0,0,0.08))
                     border.width: 1
 
-                    Behavior on color        { ColorAnimation { duration: 90 } }
-                    Behavior on border.color { ColorAnimation { duration: 120 } }
-
                     HoverHandler { id: cardHover }
-                    scale: cardHover.hovered ? 1.03 : 1.0
-                    Behavior on scale { NumberAnimation { duration: 120; easing.type: Easing.OutQuad } }
+                    scale: cardMa.pressed ? ThemeService.pressScale
+                        : cardHover.hovered ? 1.03 : 1
+                    Behavior on scale { AppleSpring { spring: 13 } }
 
                     Row {
                         anchors.fill: parent
@@ -676,6 +736,7 @@ PanelWindow {
                     }
 
                     MouseArea {
+                        id: cardMa
                         anchors.fill: parent
                         cursorShape: Qt.PointingHandCursor
                         onClicked: {
@@ -687,6 +748,18 @@ PanelWindow {
                 }
             }
         }
+    }
+
+    DropShadow {
+        anchors.fill: previewPopup
+        source: previewPopup
+        visible: previewPopup.visible
+        z: 99
+        transparentBorder: true
+        radius: 24
+        samples: 49
+        verticalOffset: 9
+        color: Qt.rgba(0, 0, 0, dark ? 0.50 : 0.26)
     }
 
     Process {
@@ -713,7 +786,7 @@ PanelWindow {
     // only at a thin edge); a dedicated surface hit-tests correctly.
     PanelWindow {
         id: menuWin
-        visible: win.menuOpen
+        visible: win.menuSurfaceVisible
         screen: win.screen
         WlrLayershell.namespace: "qs-dock-menu"
         WlrLayershell.layer: WlrLayer.Overlay
@@ -721,6 +794,8 @@ PanelWindow {
         anchors { top: true; bottom: true; left: true; right: true }
         exclusionMode: ExclusionMode.Ignore
         color: "transparent"
+        mask: win.menuOpen ? null : closedMenuRegion
+        Region { id: closedMenuRegion }
 
         readonly property bool dark: win.dark
         // Dock card's top edge in this full-screen surface: the dock sits at the
@@ -734,18 +809,20 @@ PanelWindow {
     // Click-outside to dismiss.
     MouseArea {
         anchors.fill: parent
+        enabled: win.menuOpen
         acceptedButtons: Qt.LeftButton | Qt.RightButton
-        onClicked: win.closeMenu()
+        onPressed: win.closeMenu()
     }
 
     Rectangle {
         id: menuPopup
-        // Plain fade only. A Scale transform here left the layer surface's input
+        // Critically damped fade only. A Scale transform here left the layer surface's input
         // region misaligned with the rendered menu — rows were only clickable at a
         // thin edge, dead in the middle — so the geometry is kept identity.
         visible: opacity > 0
         opacity: win.menuOpen ? 1 : 0
-        Behavior on opacity { NumberAnimation { duration: 110; easing.type: Easing.OutQuad } }
+        Behavior on opacity { AppleSpring { spring: 11 } }
+        onOpacityChanged: if (!win.menuOpen && opacity <= 0.002) win.menuSurfaceVisible = false
         z: 200
         width: win.menuWidth
         height: win.menuHeight
@@ -764,7 +841,8 @@ PanelWindow {
         y: menuWin.dockTopY - menuWin.menuIconLift - height
 
         // Flip the Assign-To flyout to the left when it would overflow the screen.
-        readonly property bool submenuLeft: (x + width + win.submenuWidth - 6) > (menuWin.width - 8)
+        readonly property bool submenuLeft:
+            (x + width + win.submenuGap + win.submenuWidth) > (menuWin.width - 8)
 
         // Swallow clicks that land on the menu's own padding / separators so they
         // don't fall through to the dismiss overlay behind it — previously a
@@ -791,6 +869,8 @@ PanelWindow {
                     readonly property bool isSep: modelData.id === "sep"
                     readonly property bool active: rowMa.containsMouse
                         || (modelData.id === "assign" && win.submenuOpen)
+                    scale: rowMa.pressed ? 0.985 : 1
+                    Behavior on scale { AppleSpring { spring: 13 } }
 
                     Rectangle {   // separator
                         visible: row.isSep
@@ -802,11 +882,13 @@ PanelWindow {
                     }
 
                     Rectangle {   // hover highlight — translucent, not a solid blue
-                        visible: !row.isSep && row.active
+                        visible: opacity > 0
+                        opacity: !row.isSep && row.active ? 1 : 0
                         anchors.fill: parent
                         anchors.leftMargin: 4; anchors.rightMargin: 4
                         radius: 6
                         color: dark ? Qt.rgba(1,1,1,0.13) : Qt.rgba(0,0,0,0.08)
+                        Behavior on opacity { AppleSpring { spring: 13 } }
                     }
 
                     Text {   // checkmark — shown for "Keep in Dock" when pinned
@@ -864,16 +946,16 @@ PanelWindow {
         id: submenuFlyout
         visible: opacity > 0
         opacity: (win.menuOpen && win.submenuOpen) ? 1 : 0
-        Behavior on opacity { NumberAnimation { duration: 90; easing.type: Easing.OutQuad } }
+        Behavior on opacity { AppleSpring { spring: 11 } }
         z: 210
         width: win.submenuWidth
         height: win.submenuHeight
         radius: 12
-        color: menuPopup.color
+        color: ThemeService.menuBg
         border.color: menuPopup.border.color
         border.width: 1
-        x: menuPopup.submenuLeft ? (menuPopup.x - width + 6)
-                                 : (menuPopup.x + menuPopup.width - 6)
+        x: menuPopup.submenuLeft ? (menuPopup.x - width - win.submenuGap)
+                                 : (menuPopup.x + menuPopup.width + win.submenuGap)
         // Top-align to the "Move to Workspace" row, but never let the bottom run
         // past the dock card — shift it up so all workspaces stay on screen
         // (this is what was getting clipped before).
@@ -903,13 +985,17 @@ PanelWindow {
                         width: submenuFlyout.width
                         height: win.submenuRowH
                         readonly property int ws: index + 1
+                        scale: wsMa.pressed ? 0.985 : 1
+                        Behavior on scale { AppleSpring { spring: 13 } }
 
                         Rectangle {
-                            visible: wsMa.containsMouse
+                            visible: opacity > 0
+                            opacity: wsMa.containsMouse ? 1 : 0
                             anchors.fill: parent
                             anchors.leftMargin: 4; anchors.rightMargin: 4
                             radius: 6
                             color: dark ? Qt.rgba(1,1,1,0.13) : Qt.rgba(0,0,0,0.08)
+                            Behavior on opacity { AppleSpring { spring: 13 } }
                         }
                         Text {   // check on the workspace(s) this app's windows are on
                             visible: win.menuAppWorkspaces[String(wsRow.ws)] === true

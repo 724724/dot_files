@@ -30,9 +30,6 @@ case "$ACTION" in
         sleep 1.2
         systemctl reboot
         ;;
-    hibernate)
-        systemctl hibernate
-        ;;
     logout)
         graceful_close
         sleep 1.2
@@ -47,7 +44,7 @@ case "$ACTION" in
         fi
         ;;
     *)
-        echo "usage: $0 {shutdown|reboot|hibernate|logout|lock}" >&2
+        echo "usage: $0 {shutdown|reboot|logout|lock}" >&2
         exit 1
         ;;
 esac

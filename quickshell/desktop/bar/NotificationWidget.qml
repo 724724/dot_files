@@ -5,6 +5,7 @@ import "../nc" as Nc
 PillContainer {
     id: root
     clickable: true
+    pressed: leftTap.pressed || rightTap.pressed
     implicitHeight: 33
     implicitWidth: row.implicitWidth + 24
 
@@ -15,11 +16,13 @@ PillContainer {
     readonly property bool hasNotif: Nc.NcServer.count > 0
 
     TapHandler {
+        id: leftTap
         acceptedButtons: Qt.LeftButton
         onTapped: Nc.NcServer.controlCenterVisible = !Nc.NcServer.controlCenterVisible
     }
 
     TapHandler {
+        id: rightTap
         acceptedButtons: Qt.RightButton
         onTapped: Nc.NcServer.toggleDnd()
     }

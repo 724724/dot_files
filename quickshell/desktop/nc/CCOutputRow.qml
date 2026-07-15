@@ -11,6 +11,8 @@ Item {
 
     readonly property bool dark: ThemeService.isDark
     implicitHeight: 40
+    scale: ma.pressed ? 0.985 : 1
+    Behavior on scale { AppleSpring { spring: 13 } }
 
     // Hover highlight spanning the row.
     Rectangle {
@@ -21,7 +23,6 @@ Item {
         color: ma.containsMouse
             ? (dark ? Qt.rgba(1,1,1,0.06) : Qt.rgba(0,0,0,0.04))
             : "transparent"
-        Behavior on color { ColorAnimation { duration: 100 } }
     }
 
     Rectangle {
@@ -31,7 +32,6 @@ Item {
         color: root.active
             ? "#0A84FF"
             : (dark ? Qt.rgba(1,1,1,0.14) : Qt.rgba(0,0,0,0.08))
-        Behavior on color { ColorAnimation { duration: 150 } }
 
         Text {
             anchors.centerIn: parent
@@ -39,7 +39,6 @@ Item {
             color: root.active ? "#ffffff" : (dark ? "#e0e8f0" : "#3a3a3c")
             font.family: "JetBrainsMono Nerd Font Propo"
             font.pixelSize: 15
-            Behavior on color { ColorAnimation { duration: 150 } }
         }
     }
 

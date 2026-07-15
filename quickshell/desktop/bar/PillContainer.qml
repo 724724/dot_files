@@ -6,6 +6,7 @@ Rectangle {
     property bool hovered: false
     // Lit like a hover while an attached popup is open (set by ClockWidget).
     property bool active: false
+    property bool pressed: false
     // Pills that respond to clicks opt in to a pointing-hand cursor on hover.
     property bool clickable: false
 
@@ -13,9 +14,10 @@ Rectangle {
     border.color: (hovered || active) ? ThemeService.pillBorderHover : ThemeService.pillBorder
     border.width: 1
     radius: 999
+    scale: pressed ? ThemeService.pressScale : 1
+    transformOrigin: Item.Center
 
-    Behavior on color { ColorAnimation { duration: 200 } }
-    Behavior on border.color { ColorAnimation { duration: 200 } }
+    Behavior on scale { AppleSpring { spring: 13 } }
 
     HoverHandler {
         cursorShape: root.clickable ? Qt.PointingHandCursor : Qt.ArrowCursor

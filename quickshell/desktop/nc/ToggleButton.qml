@@ -22,8 +22,8 @@ Rectangle {
         ? (dark ? Qt.rgba(10/255, 132/255, 255/255, 0.5) : Qt.rgba(0, 122/255, 255/255, 0.4))
         : (dark ? Qt.rgba(1,1,1,0.10) : Qt.rgba(0,0,0,0.08))
     border.width: 1
-
-    Behavior on color { ColorAnimation { duration: 150 } }
+    scale: buttonMa.pressed ? ThemeService.pressScale : 1
+    Behavior on scale { AppleSpring { spring: 13 } }
 
     Process {
         id: toggleProc
@@ -73,6 +73,7 @@ Rectangle {
     }
 
     MouseArea {
+        id: buttonMa
         anchors.fill: parent
         cursorShape: Qt.PointingHandCursor
         onClicked: toggleProc.running = true

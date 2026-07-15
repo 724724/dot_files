@@ -21,6 +21,7 @@ Singleton {
         { id: "world", label: "World" }
     ]
     readonly property var layoutOptions: [
+        { id: 4, label: "X-Small" },
         { id: 1, label: "Small" },
         { id: 2, label: "Medium" },
         { id: 3, label: "Large" }

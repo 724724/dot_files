@@ -60,17 +60,15 @@ PanelWindow {
             queryField.text = ""
             win.activeCat = EmojiService.recents.length > 0 ? "recents" : "smileys"
             grid.contentY = 0
-            unmapTimer.stop()
             let m = Hyprland.focusedMonitor      // default screen; refined by posProc
             if (m && m.screen) win.screen = m.screen
             _surfaceVisible = true               // map now; position async
-            queryField.forceActiveFocus()
+            Qt.callLater(() => queryField.forceActiveFocus())
             posProc.running = true
             showFallback.restart()
         } else {
             posProc.running = false
             showFallback.stop()
-            unmapTimer.restart()
         }
     }
     function _applyPos(text) {
@@ -120,15 +118,15 @@ PanelWindow {
         interval: 280
         onTriggered: { win.popover = false; win.ready = true }
     }
-    Timer { id: unmapTimer; interval: 160; onTriggered: win._surfaceVisible = false }
-
     WlrLayershell.namespace: "qs-emoji"
     WlrLayershell.layer: WlrLayer.Overlay
-    WlrLayershell.keyboardFocus: WlrKeyboardFocus.OnDemand
+    WlrLayershell.keyboardFocus: win.show ? WlrKeyboardFocus.OnDemand : WlrKeyboardFocus.None
 
     anchors { top: true; bottom: true; left: true; right: true }
     color: "transparent"
     exclusionMode: ExclusionMode.Ignore
+    mask: show ? null : closedRegion
+    Region { id: closedRegion }
 
     // The set of emoji chars shown in the grid right now.
     readonly property var gridChars: {
@@ -187,8 +185,9 @@ PanelWindow {
         opacity: (win.show && win.ready) ? 1.0 : 0.0
         scale: (win.show && win.ready) ? 1.0 : 0.96
         transformOrigin: win.popover ? (win.placeBelow ? Item.Top : Item.Bottom) : Item.Top
-        Behavior on opacity { NumberAnimation { duration: 120; easing.type: Easing.OutCubic } }
-        Behavior on scale   { NumberAnimation { duration: 130; easing.type: Easing.OutCubic } }
+        Behavior on opacity { AppleSpring { spring: 18 } }
+        Behavior on scale { AppleSpring { spring: 18 } }
+        onOpacityChanged: if (!win.show && opacity <= 0.002) win._surfaceVisible = false
 
         // Subtle macOS-like glow toward the bottom.
         Rectangle {
@@ -208,7 +207,7 @@ PanelWindow {
             anchors.leftMargin: 12; anchors.rightMargin: 12; anchors.topMargin: 12
             height: 34
             radius: 9
-            color: win.dark ? Qt.rgba(1, 1, 1, 0.08) : Qt.rgba(0, 0, 0, 0.05)
+            color: ThemeService.controlBg
             border.color: queryField.activeFocus ? Qt.rgba(0.30, 0.52, 0.95, 0.65)
                                                   : (win.dark ? Qt.rgba(1, 1, 1, 0.08) : Qt.rgba(0, 0, 0, 0.06))
             border.width: 1
@@ -248,8 +247,18 @@ PanelWindow {
             cellWidth: Math.floor((width - 4) / 5)
             cellHeight: cellWidth
             model: win.gridChars
-            boundsBehavior: Flickable.StopAtBounds
+            boundsBehavior: Flickable.DragAndOvershootBounds
+            boundsMovement: Flickable.FollowBoundsBehavior
             flickDeceleration: 6000
+            maximumFlickVelocity: 6000
+            rebound: Transition {
+                SpringAnimation {
+                    properties: "x,y"
+                    spring: 18
+                    damping: ThemeService.momentumDamping
+                    epsilon: 0.25
+                }
+            }
             ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
 
             // Kinetic scroll shared via kinetic.js (touchpad momentum, crisp mouse).
@@ -264,13 +273,20 @@ PanelWindow {
             }
             Timer {
                 id: endTimer
-                interval: 70
+                interval: 48
                 onTriggered: {
                     let g = Kinetic.fling(grid, grid._ks, {})
-                    if (g) { glide.from = g.from; glide.to = g.to; glide.duration = g.duration; glide.restart() }
+                    if (g) { glide.from = g.from; glide.to = g.to; glide.restart() }
                 }
             }
-            NumberAnimation { id: glide; target: grid; property: "contentY"; easing.type: Easing.OutCubic }
+            SpringAnimation {
+                id: glide
+                target: grid
+                property: "contentY"
+                spring: 18
+                damping: ThemeService.momentumDamping
+                epsilon: 0.25
+            }
 
             Text {
                 anchors.centerIn: parent
@@ -285,14 +301,16 @@ PanelWindow {
             }
 
             delegate: Item {
+                id: emojiCell
                 required property var modelData
                 width: grid.cellWidth; height: grid.cellHeight
+                scale: cellMa.pressed ? ThemeService.pressScale : (cellHover.hovered ? 1.04 : 1.0)
+                Behavior on scale { AppleSpring { spring: 18 } }
                 Rectangle {
                     anchors.centerIn: parent
                     width: parent.width - 6; height: parent.height - 6
                     radius: 9
-                    color: cellHover.hovered ? (win.dark ? Qt.rgba(1, 1, 1, 0.12) : Qt.rgba(0, 0, 0, 0.08))
-                                             : "transparent"
+                    color: cellHover.hovered ? ThemeService.cellHover : "transparent"
                 }
                 Text {
                     anchors.centerIn: parent
@@ -306,6 +324,7 @@ PanelWindow {
                 }
                 HoverHandler { id: cellHover }
                 MouseArea {
+                    id: cellMa
                     anchors.fill: parent
                     cursorShape: Qt.PointingHandCursor
                     onClicked: win.pick(parent.modelData)
@@ -318,7 +337,7 @@ PanelWindow {
             id: catbar
             anchors { left: parent.left; right: parent.right; bottom: parent.bottom }
             height: 40
-            color: win.dark ? Qt.rgba(1, 1, 1, 0.04) : Qt.rgba(0, 0, 0, 0.03)
+            color: ThemeService.barBg
 
             Rectangle {
                 anchors.top: parent.top; anchors.left: parent.left; anchors.right: parent.right
@@ -335,12 +354,15 @@ PanelWindow {
                         required property var modelData
                         readonly property bool active: !win.query.trim() && win.activeCat === modelData.key
                         width: 34; height: 30; radius: 7
-                        color: active ? (win.dark ? Qt.rgba(1, 1, 1, 0.14) : Qt.rgba(0, 0, 0, 0.10))
+                        color: active ? ThemeService.selectionBg
                              : (tabHover.hovered ? (win.dark ? Qt.rgba(1, 1, 1, 0.07) : Qt.rgba(0, 0, 0, 0.05)) : "transparent")
+                        scale: tabMa.pressed ? ThemeService.pressScale : 1.0
+                        Behavior on scale { AppleSpring { spring: 18 } }
                         Text { anchors.centerIn: parent; text: modelData.icon; font.pixelSize: 16
                                opacity: active ? 1.0 : 0.85 }
                         HoverHandler { id: tabHover }
                         MouseArea {
+                            id: tabMa
                             anchors.fill: parent
                             cursorShape: Qt.PointingHandCursor
                             onClicked: { queryField.text = ""; win.activeCat = modelData.key; grid.contentY = 0 }
@@ -355,6 +377,7 @@ PanelWindow {
     MouseArea {
         anchors.fill: parent
         z: -1
-        onClicked: win.closeRequested()
+        enabled: win.show
+        onPressed: win.closeRequested()
     }
 }

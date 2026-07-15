@@ -26,17 +26,8 @@ PanelWindow {
             queryField.text = ""
             win.selectedIndex = 0
             _surfaceVisible = true
-            unmapTimer.stop()
-            queryField.forceActiveFocus()
-        } else {
-            unmapTimer.restart()
+            Qt.callLater(() => queryField.forceActiveFocus())
         }
-    }
-
-    Timer {
-        id: unmapTimer
-        interval: 220
-        onTriggered: win._surfaceVisible = false
     }
 
     // ── Layer / placement ───────────────────────────────────────────────
@@ -56,6 +47,8 @@ PanelWindow {
     anchors.right: true
     color: "transparent"
     exclusionMode: ExclusionMode.Ignore
+    mask: show ? null : closedRegion
+    Region { id: closedRegion }
 
     readonly property bool dark: ThemeService.isDark
     readonly property string query: queryField.text
@@ -312,19 +305,22 @@ PanelWindow {
         id: card
         width: 720
         height: 64 + win.bodyHeight
+        Behavior on height { AppleSpring { spring: 11; epsilon: 0.25 } }
         anchors.horizontalCenter: parent.horizontalCenter
         y: Math.max(120, Math.round((parent ? parent.height : 1080) * 0.22))
         radius: 18
         color: ThemeService.bg
         border.color: ThemeService.stroke
         border.width: 1
+        clip: true
 
         // Open: fade + scale-up from 0.96. Close: fade + slight scale-down.
         opacity: win.show ? 1.0 : 0.0
         scale: win.show ? 1.0 : 0.96
         transformOrigin: Item.Top
-        Behavior on opacity { NumberAnimation { duration: 120; easing.type: Easing.OutCubic } }
-        Behavior on scale   { NumberAnimation { duration: 130; easing.type: Easing.OutCubic } }
+        Behavior on opacity { AppleSpring { spring: 13 } }
+        Behavior on scale { AppleSpring { spring: 13 } }
+        onOpacityChanged: if (!win.show && opacity <= 0.002) win._surfaceVisible = false
 
         // Search row
         Item {
@@ -413,7 +409,9 @@ PanelWindow {
             anchors.topMargin: 10 + win.bodyTopPad
             height: win.rowH - 4
             radius: 12
-            color: Qt.rgba(10/255, 132/255, 255/255, 0.18)
+            scale: fxMa.pressed ? ThemeService.pressScale : 1
+            Behavior on scale { AppleSpring { spring: 13 } }
+            color: dark ? "#173b5f" : "#dceeff"
 
             Row {
                 anchors.fill: parent
@@ -462,10 +460,8 @@ PanelWindow {
             height: win.rowH - 4
             radius: 12
             color: fxHover.hovered && win.currencyResult !== ""
-                ? (dark ? Qt.rgba(48/255, 209/255, 88/255, 0.26) : Qt.rgba(48/255, 209/255, 88/255, 0.22))
-                : Qt.rgba(48/255, 209/255, 88/255, 0.16)
-            Behavior on color { ColorAnimation { duration: 80 } }
-
+                ? (dark ? "#2b5a36" : "#d4f2dc")
+                : (dark ? "#21472c" : "#dcf6e3")
             HoverHandler { id: fxHover }
 
             Row {
@@ -506,6 +502,7 @@ PanelWindow {
             }
 
             MouseArea {
+                id: fxMa
                 anchors.fill: parent
                 enabled: win.currencyResult !== ""
                 cursorShape: Qt.PointingHandCursor
@@ -524,11 +521,11 @@ PanelWindow {
             anchors.topMargin: 10 + win.bodyTopPad
             height: win.rowH - 4
             radius: 12
+            scale: googleMa.pressed ? ThemeService.pressScale : 1
+            Behavior on scale { AppleSpring { spring: 13 } }
             color: googleHover.hovered
-                ? (dark ? Qt.rgba(1, 1, 1, 0.10) : Qt.rgba(0, 0, 0, 0.06))
+                ? (dark ? "#3a3a3c" : "#f2f2f7")
                 : "transparent"
-            Behavior on color { ColorAnimation { duration: 80 } }
-
             HoverHandler { id: googleHover }
 
             Row {
@@ -583,6 +580,7 @@ PanelWindow {
             }
 
             MouseArea {
+                id: googleMa
                 anchors.fill: parent
                 cursorShape: Qt.PointingHandCursor
                 onClicked: win.activateGoogleSearch()
@@ -606,16 +604,17 @@ PanelWindow {
             model: win.filtered
 
             delegate: Rectangle {
+                id: resultRow
                 required property var modelData
                 required property int index
                 width: ListView.view.width
                 height: win.rowH
                 radius: 12
+                scale: resultMa.pressed ? ThemeService.pressScale : 1
+                Behavior on scale { AppleSpring { spring: 13 } }
                 color: index === win.selectedIndex
-                    ? (dark ? Qt.rgba(1, 1, 1, 0.10) : Qt.rgba(0, 0, 0, 0.06))
+                    ? (dark ? "#3a3a3c" : "#f2f2f7")
                     : "transparent"
-                Behavior on color { ColorAnimation { duration: 80 } }
-
                 Row {
                     anchors.fill: parent
                     anchors.leftMargin: 12
@@ -672,6 +671,7 @@ PanelWindow {
                 }
 
                 MouseArea {
+                    id: resultMa
                     anchors.fill: parent
                     cursorShape: Qt.PointingHandCursor
                     hoverEnabled: true
@@ -690,6 +690,7 @@ PanelWindow {
     MouseArea {
         anchors.fill: parent
         z: -1
-        onClicked: win.closeRequested()
+        enabled: win.show
+        onPressed: win.closeRequested()
     }
 }

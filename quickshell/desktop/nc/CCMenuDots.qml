@@ -9,6 +9,8 @@ Item {
     readonly property bool dark: ThemeService.isDark
     implicitWidth: 24
     implicitHeight: 24
+    scale: ma.pressed ? ThemeService.pressScale : 1
+    Behavior on scale { AppleSpring { spring: 13 } }
 
     Rectangle {
         anchors.fill: parent
@@ -16,7 +18,6 @@ Item {
         color: ma.containsMouse
             ? (dots.dark ? Qt.rgba(1, 1, 1, 0.10) : Qt.rgba(0, 0, 0, 0.06))
             : "transparent"
-        Behavior on color { ColorAnimation { duration: 100 } }
     }
 
     Column {

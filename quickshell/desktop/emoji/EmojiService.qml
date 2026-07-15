@@ -68,8 +68,8 @@ Singleton {
         Quickshell.execDetached(["bash", "-c",
             "e=\"$1\"; "
           + "printf %s \"$e\" | wl-copy; "
-          + "if command -v wtype >/dev/null 2>&1; then sleep 0.2; wtype \"$e\"; "
-          + "elif command -v ydotool >/dev/null 2>&1; then sleep 0.2; ydotool type \"$e\"; fi",
+          + "if command -v wtype >/dev/null 2>&1; then sleep 0.08; wtype \"$e\"; "
+          + "elif command -v ydotool >/dev/null 2>&1; then sleep 0.08; ydotool type \"$e\"; fi",
             "_", ch])
     }
 }

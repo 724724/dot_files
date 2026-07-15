@@ -16,7 +16,11 @@ PillContainer {
         spacing: 0
 
         Repeater {
-            model: Hyprland.workspaces
+            // Hyprland.workspaces has no ordering guarantee — it reflects the
+            // order Hyprland reported workspaces in, so a freshly-created ws can
+            // land out of sequence (e.g. 1,4,2,3). Sort a copy by id so the row
+            // is always ascending.
+            model: [...Hyprland.workspaces.values].sort((a, b) => a.id - b.id)
             delegate: WorkspaceButton {
                 required property var modelData
                 workspace: modelData

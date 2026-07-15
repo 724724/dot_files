@@ -28,7 +28,8 @@ Rectangle {
         : ThemeService.tileBg
     border.color: ThemeService.tileStroke
     border.width: 1
-    Behavior on color { ColorAnimation { duration: 150 } }
+    scale: bodyMa.pressed ? ThemeService.pressScale : 1
+    Behavior on scale { AppleSpring { spring: 13 } }
 
     // Body click target — fills the tile and sits beneath the icon's own hitbox,
     // so (when iconToggle is on) clicking the icon toggles while clicking
@@ -50,14 +51,15 @@ Rectangle {
             leftMargin: 12
         }
         width: 32; height: 32; radius: 16
+        scale: iconMa.pressed ? 0.94 : 1
+        Behavior on scale { AppleSpring { spring: 13 } }
         color: tile.hasIconBg ? tile.iconBg
             : (tile.active ? "#0A84FF"
                            : (dark ? Qt.rgba(1,1,1,0.14) : Qt.rgba(0,0,0,0.06)))
         // A subtle ring keeps the circle reading as a button when it has no solid
         // fill of its own (inactive auto tiles); solid blue / coloured fills omit it.
         border.width: (!tile.hasIconBg && !tile.active) ? 1 : 0
-        border.color: dark ? Qt.rgba(1,1,1,0.22) : Qt.rgba(0,0,0,0.16)
-        Behavior on color { ColorAnimation { duration: 150 } }
+        border.color: dark ? Qt.rgba(1,1,1,0.14) : Qt.rgba(0,0,0,0.16)
 
         // Hover / pressed feedback so the icon reads as its own button.
         Rectangle {
@@ -66,7 +68,6 @@ Rectangle {
             radius: parent.radius
             color: iconMa.pressed ? Qt.rgba(0,0,0,0.18)
                  : iconMa.containsMouse ? Qt.rgba(1,1,1,0.12) : "transparent"
-            Behavior on color { ColorAnimation { duration: 100 } }
         }
 
         Text {
@@ -77,7 +78,6 @@ Rectangle {
                                                  : (dark ? "#e0e8f0" : "#3a3a3c"))
             font.family: "JetBrainsMono Nerd Font Propo"
             font.pixelSize: 14
-            Behavior on color { ColorAnimation { duration: 150 } }
         }
 
         MouseArea {
@@ -106,7 +106,7 @@ Rectangle {
         font.family: "JetBrainsMono Nerd Font Propo"
         font.pixelSize: 12
         opacity: bodyMa.containsMouse ? 1.0 : 0.5
-        Behavior on opacity { NumberAnimation { duration: 120 } }
+        Behavior on opacity { AppleSpring { spring: 13 } }
     }
 
     Column {

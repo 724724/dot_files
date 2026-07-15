@@ -11,6 +11,8 @@ Item {
 
     readonly property bool dark: ThemeService.isDark
     implicitHeight: 48
+    scale: bodyMa.pressed ? 0.985 : 1
+    Behavior on scale { AppleSpring { spring: 13 } }
 
     // Body hover background (shows on body hover only)
     Rectangle {
@@ -19,7 +21,6 @@ Item {
         color: bodyMa.containsMouse
             ? (dark ? Qt.rgba(1,1,1,0.06) : Qt.rgba(0,0,0,0.04))
             : "transparent"
-        Behavior on color { ColorAnimation { duration: 100 } }
     }
 
     // Icon hitbox = circle area + a small padding
@@ -32,12 +33,14 @@ Item {
         }
         width: 32; height: 32
         radius: 16
+        scale: iconMa.pressed ? 0.94 : 1
+        Behavior on scale { AppleSpring { spring: 13 } }
         color: root.active ? "#0A84FF"
                            : (dark ? Qt.rgba(1,1,1,0.14) : Qt.rgba(0,0,0,0.06))
         // A ring keeps the circle reading as a button when inactive; the solid
         // blue active fill drops it (matches the Disturb / mini-tile icons).
         border.width: root.active ? 0 : 1
-        border.color: dark ? Qt.rgba(1,1,1,0.22) : Qt.rgba(0,0,0,0.16)
+        border.color: dark ? Qt.rgba(1,1,1,0.14) : Qt.rgba(0,0,0,0.16)
 
         // Hover / pressed feedback so the icon reads as its own button — same
         // treatment as the Disturb (mini-tile) icon.
@@ -46,10 +49,8 @@ Item {
             radius: parent.radius
             color: iconMa.pressed ? Qt.rgba(0,0,0,0.18)
                  : iconMa.containsMouse ? Qt.rgba(1,1,1,0.12) : "transparent"
-            Behavior on color { ColorAnimation { duration: 100 } }
         }
 
-        Behavior on color { ColorAnimation { duration: 150 } }
 
         Text {
             anchors.centerIn: parent
@@ -57,7 +58,6 @@ Item {
             color: root.active ? "#ffffff" : (dark ? "#e0e8f0" : "#3a3a3c")
             font.family: "JetBrainsMono Nerd Font Propo"
             font.pixelSize: 14
-            Behavior on color { ColorAnimation { duration: 150 } }
         }
 
         MouseArea {
@@ -114,7 +114,7 @@ Item {
         font.family: "JetBrainsMono Nerd Font Propo"
         font.pixelSize: 12
         opacity: bodyMa.containsMouse ? 1.0 : 0.0
-        Behavior on opacity { NumberAnimation { duration: 120 } }
+        Behavior on opacity { AppleSpring { spring: 13 } }
     }
 
     // Body MouseArea covers everything; we let the icon MouseArea take priority via z-order

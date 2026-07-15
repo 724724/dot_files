@@ -14,6 +14,10 @@ Singleton {
     // Active workspace id on the focused monitor — used to un-hide windows back
     // onto whatever workspace is currently in view (see DockItem restore).
     property int activeWs: -1
+    // Names of monitors whose active workspace currently has a REAL fullscreen
+    // window (not just maximized) — see poll-clients.sh. Lets the dock auto-hide
+    // on that screen even while pinned/always-visible (Super+V).
+    property var fullscreenMonitors: []
 
     // macOS "Turn Hiding Off": when true every dock stays permanently revealed.
     // Toggled by Super+V via the IpcHandler below; persisted across restarts.
@@ -61,6 +65,7 @@ Singleton {
                     let byClass = data.byClass || {}
                     root.clientsByClass = byClass
                     root.activeWs = (typeof data.activeWs === "number") ? data.activeWs : -1
+                    root.fullscreenMonitors = Array.isArray(data.fullscreenMonitors) ? data.fullscreenMonitors : []
                     root.focusedClass = (data.focused || "").toLowerCase()
                     let classes = Object.keys(byClass).filter(c => c && !excl.includes(c))
                     if (JSON.stringify(classes) !== JSON.stringify(root.runningClasses))
@@ -79,7 +84,7 @@ Singleton {
         target: Hyprland
         function onRawEvent(event) { pollDebounce.restart() }
     }
-    Timer { id: pollDebounce; interval: 100; onTriggered: root.refresh() }
+    Timer { id: pollDebounce; interval: 16; onTriggered: root.refresh() }
 
     // Slow backstop in case an event is ever missed.
     Timer {

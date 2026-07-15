@@ -10,11 +10,13 @@ Rectangle {
 
     implicitWidth: 22
     implicitHeight: 33
+    scale: mouseArea.pressed ? ThemeService.pressScale : 1
+    transformOrigin: Item.Center
     color: mouseArea.containsMouse
         ? (ThemeService.isDark ? Qt.rgba(1, 1, 1, 0.12) : Qt.rgba(0, 0, 0, 0.10))
         : "transparent"
     radius: 4
-    Behavior on color { ColorAnimation { duration: 150 } }
+    Behavior on scale { AppleSpring { spring: 13 } }
 
     readonly property string iconSource: {
         let icon = trayItem.item.icon

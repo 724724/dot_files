@@ -1,8 +1,13 @@
 #!/usr/bin/env bash
-# Music Recognition — identify whatever is currently playing through the
-# speakers. Captures a few seconds of the default sink's monitor (system
-# audio), fingerprints it with songrec (an unofficial Shazam client), and
-# prints a single compact JSON line describing the match.
+# Music Recognition — identify a song and print one JSON line describing it.
+# Captures a few seconds of audio, fingerprints it with songrec (an unofficial
+# Shazam client), and reports the match.
+#
+# Usage: shazam-recognize.sh [duration] [internal|external]
+#   internal (default) — the default sink's monitor: whatever the desktop is
+#                        playing through the speakers.
+#   external           — the default source (microphone): music playing in
+#                        the room around the machine.
 #
 # stdout (exactly one line):
 #   {"status":"ok","title":..,"artist":..,"coverart":..,"coverLocal":..,"spotify":..,"shazamUrl":..}
@@ -14,6 +19,7 @@
 set -uo pipefail
 
 DUR="${1:-8}"                       # seconds of audio to sample
+MODE="${2:-internal}"               # internal = sink monitor, external = microphone
 CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/quickshell/shazam"
 mkdir -p "$CACHE_DIR"
 WAV="$(mktemp "${TMPDIR:-/tmp}/shazam-XXXXXX.wav")"
@@ -25,13 +31,20 @@ command -v jq      >/dev/null 2>&1 || { echo '{"status":"error","message":"jq is
 command -v songrec >/dev/null 2>&1 || emit_err "songrec is not installed. Run: sudo pacman -S songrec"
 command -v ffmpeg  >/dev/null 2>&1 || emit_err "ffmpeg is not installed"
 
-# Monitor of the *current* default sink → whatever is playing right now.
-SINK="$(pactl get-default-sink 2>/dev/null)"
-[ -n "$SINK" ] || emit_err "no default audio sink"
-MON="${SINK}.monitor"
+# Pick the capture device for the requested mode.
+if [ "$MODE" = "external" ]; then
+    # Default source → the microphone, for music playing in the room.
+    CAP="$(pactl get-default-source 2>/dev/null)"
+    [ -n "$CAP" ] || emit_err "no default audio source (microphone)"
+else
+    # Monitor of the *current* default sink → whatever is playing right now.
+    SINK="$(pactl get-default-sink 2>/dev/null)"
+    [ -n "$SINK" ] || emit_err "no default audio sink"
+    CAP="${SINK}.monitor"
+fi
 
-# Sample desktop audio into a WAV songrec can fingerprint.
-if ! ffmpeg -hide_banner -loglevel error -y -f pulse -i "$MON" \
+# Sample the audio into a WAV songrec can fingerprint.
+if ! ffmpeg -hide_banner -loglevel error -y -f pulse -i "$CAP" \
         -t "$DUR" -ac 1 -ar 44100 "$WAV" >/dev/null 2>&1; then
     emit_err "audio capture failed"
 fi

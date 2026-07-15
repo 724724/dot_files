@@ -14,13 +14,14 @@ PanelWindow {
 
     anchors.bottom: true
     margins.bottom: 90
-    // Panel grows with the card so the OSD never gets clipped by a too-small
-    // surface, but stays clamped to a reasonable fraction of screen width.
-    implicitWidth: Math.min(maxOsdWidth + 40, Math.max(320, osdCard.width + 40))
-    implicitHeight: 56
+    // Keep the layer surface stable while the card width springs between modes.
+    implicitWidth: maxOsdWidth + 40
+    implicitHeight: 72
 
     color: "transparent"
     exclusionMode: ExclusionMode.Ignore
+    mask: noInputRegion
+    Region { id: noInputRegion }
 
     // Map the surface only while an OSD is showing (plus a grace period so the
     // fade-out finishes) — previously this stayed mapped on every screen
@@ -32,13 +33,9 @@ PanelWindow {
         function onVisibleChanged() {
             if (OsdService.visible) {
                 win._surfaceVisible = true
-                unmapTimer.stop()
-            } else {
-                unmapTimer.restart()
             }
         }
     }
-    Timer { id: unmapTimer; interval: 250; onTriggered: win._surfaceVisible = false }
 
     readonly property bool dark: ThemeService.isDark
     // Hard cap for the card; long media titles get truncated past this.
@@ -59,7 +56,7 @@ PanelWindow {
         width: OsdService.showProgress
             ? 300
             : Math.min(maxOsdWidth, iconCol + labelCol + 48)
-        Behavior on width { NumberAnimation { duration: 100; easing.type: Easing.OutQuad } }
+        Behavior on width { AppleSpring { spring: 13; epsilon: 0.25 } }
 
         height: 52
         radius: 26
@@ -68,10 +65,16 @@ PanelWindow {
         border.color: ThemeService.stroke
         border.width: 1
 
-        Behavior on color { ColorAnimation { duration: 200 } }
-
         opacity: OsdService.visible ? 1.0 : 0.0
-        Behavior on opacity { NumberAnimation { duration: 180; easing.type: Easing.InOutQuad } }
+        scale: OsdService.visible ? 1 : 0.96
+        transformOrigin: Item.Bottom
+        transform: Translate {
+            y: OsdService.visible ? 0 : 8
+            Behavior on y { AppleSpring { spring: 13; epsilon: 0.25 } }
+        }
+        Behavior on opacity { AppleSpring { spring: 13 } }
+        Behavior on scale { AppleSpring { spring: 13 } }
+        onOpacityChanged: if (!OsdService.visible && opacity <= 0.002) win._surfaceVisible = false
 
         RowLayout {
             anchors.centerIn: parent
@@ -92,7 +95,6 @@ PanelWindow {
                 font.family: "JetBrainsMono Nerd Font Propo"
                 font.pixelSize: 18
                 visible: OsdService.icon !== ""
-                Behavior on color { ColorAnimation { duration: 200 } }
             }
 
             // Progress bar sits between the icon and the label so
@@ -106,11 +108,11 @@ PanelWindow {
                 color: dark ? Qt.rgba(1, 1, 1, 0.15) : Qt.rgba(0, 0, 0, 0.10)
 
                 Rectangle {
-                    width: parent.width * OsdService.progress / 100
+                    width: parent.width * Math.max(0, Math.min(100, OsdService.progress)) / 100
                     height: parent.height
                     radius: parent.radius
                     color: dark ? "#0A84FF" : "#007AFF"
-                    Behavior on width { NumberAnimation { duration: 100 } }
+                    Behavior on width { AppleSpring { spring: 18; epsilon: 0.25 } }
                 }
             }
 
@@ -128,7 +130,6 @@ PanelWindow {
                 // the bar takes the fill space instead.
                 Layout.fillWidth: !OsdService.showProgress
                 elide: Text.ElideRight
-                Behavior on color { ColorAnimation { duration: 200 } }
             }
         }
     }

@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Controls
+import "kinetic.js" as Kinetic
 
 // macOS Reminders-style widget with 3 layouts (small / medium / large), light
 // & dark theming (ThemeService = Apple system colours) and a per-list accent
@@ -152,8 +153,47 @@ Item {
         clip: true
         contentWidth: width
         contentHeight: listCol.implicitHeight
-        boundsBehavior: Flickable.StopAtBounds
+        boundsBehavior: Flickable.DragAndOvershootBounds
+        boundsMovement: Flickable.FollowBoundsBehavior
+        flickDeceleration: 6000
+        maximumFlickVelocity: 6000
+        rebound: Transition {
+            SpringAnimation {
+                properties: "x,y"
+                spring: 18
+                damping: ThemeService.momentumDamping
+                epsilon: 0.25
+            }
+        }
         ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+
+        // Kinetic scroll shared via kinetic.js (touchpad momentum, crisp mouse)
+        // — same feel as the emoji picker / control-center lists.
+        property var _ks: ({})
+        WheelHandler {
+            acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
+            onWheel: (ev) => {
+                ilGlide.stop()
+                if (Kinetic.onWheel(il, ev, il._ks, { gain: 40 }))
+                    ilEndTimer.restart()
+            }
+        }
+        Timer {
+            id: ilEndTimer
+            interval: 48
+            onTriggered: {
+                let g = Kinetic.fling(il, il._ks, {})
+                if (g) { ilGlide.from = g.from; ilGlide.to = g.to; ilGlide.restart() }
+            }
+        }
+        SpringAnimation {
+            id: ilGlide
+            target: il
+            property: "contentY"
+            spring: 18
+            damping: ThemeService.momentumDamping
+            epsilon: 0.25
+        }
         Column {
             id: listCol
             width: il.width
@@ -163,7 +203,14 @@ Item {
                 spacing: il.spacingV
                 // When a row is removed (e.g. a checked item dropping out), the
                 // rows below slide up to fill the gap.
-                move: Transition { NumberAnimation { properties: "y"; duration: 220; easing.type: Easing.OutCubic } }
+                move: Transition {
+                    SpringAnimation {
+                        properties: "y"
+                        spring: 18
+                        damping: ThemeService.criticalDamping
+                        epsilon: 0.25
+                    }
+                }
                 Repeater {
                     model: visModel
                     delegate: ReminderItem {
@@ -222,7 +269,7 @@ Item {
             width: 112
             spacing: 0
             Text { text: remRoot.incompleteCount; color: ThemeService.label
-                   font.family: "SF Pro Display"; font.pixelSize: 34; font.weight: Font.Bold }
+                   font.family: "SF Pro Display"; font.pixelSize: 34; font.weight: Font.Bold; font.letterSpacing: -0.6 }
             Text { width: parent.width; text: remRoot.title; color: remRoot.accentColor
                    font.family: "SF Pro Display"; font.pixelSize: 15; font.weight: Font.DemiBold; elide: Text.ElideRight }
         }
@@ -243,7 +290,7 @@ Item {
             id: lCount
             anchors.left: parent.left; anchors.top: parent.top
             text: remRoot.incompleteCount; color: ThemeService.label
-            font.family: "SF Pro Display"; font.pixelSize: 28; font.weight: Font.Bold
+            font.family: "SF Pro Display"; font.pixelSize: 28; font.weight: Font.Bold; font.letterSpacing: -0.5
         }
         ListIcon { d: 30; anchors.right: parent.right; anchors.top: parent.top }
         Text {

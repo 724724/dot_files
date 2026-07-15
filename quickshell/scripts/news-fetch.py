@@ -235,20 +235,16 @@ def rss_items(text, source, category, filters):
 
 
 def html_items(text, source, category):
-    out = []
-    seen = set()
+    records = {}
+    order = []
     pattern = re.compile(r'<a\b[^>]*href="(https://www\.joongang\.co\.kr/article/\d+)"[^>]*>(.*?)</a>', re.I | re.S)
     for m in pattern.finditer(text):
         url = html.unescape(m.group(1))
-        if url in seen:
-            continue
         title = clean_text(m.group(2))
         image = image_from_html(m.group(2))
         if len(title) < 5:
             alt = re.search(r'alt="([^"]+)"', m.group(2), re.I | re.S)
             title = clean_text(alt.group(1)) if alt else ""
-        if len(title) < 5:
-            continue
         window = text[m.end():m.end() + 1600]
         desc = ""
         dm = re.search(r'<p\s+class="description"[^>]*>(.*?)</p>', window, re.I | re.S)
@@ -258,9 +254,21 @@ def html_items(text, source, category):
         tm = re.search(r'<p\s+class="date"[^>]*>(.*?)</p>', window, re.I | re.S)
         if tm:
             pub = parse_joongang_date(clean_text(tm.group(1)))
-        seen.add(url)
-        out.append(make_item(source, category, title, url, desc, pub, image))
-    return out
+        if url not in records:
+            records[url] = {"title": "", "desc": "", "pub": "", "image": ""}
+            order.append(url)
+        record = records[url]
+        if len(title) >= 5 and not record["title"]:
+            record["title"] = title
+        if image and not record["image"]:
+            record["image"] = image
+        if desc and not record["desc"]:
+            record["desc"] = desc
+        if pub and not record["pub"]:
+            record["pub"] = pub
+    return [make_item(source, category, records[url]["title"], url,
+                      records[url]["desc"], records[url]["pub"], records[url]["image"])
+            for url in order if len(records[url]["title"]) >= 5]
 
 
 def parse_joongang_date(value):

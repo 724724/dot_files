@@ -9,6 +9,11 @@ Singleton {
     property string status: ""      // Charging | Discharging | Full | Not charging
     property string mode: ""        // performance | balanced | power-saver
     property real power: 0          // instantaneous battery power, watts
+    property bool onAcPower: false
+    property bool batteryPresent: false
+    property string _powerContext: ""
+    property string _pendingMode: ""
+    property bool _pendingModeNotification: false
 
     readonly property bool charging: status === "Charging" || status === "Full"
 
@@ -137,16 +142,45 @@ Singleton {
     property double histStart: 0
 
     function refresh() { batProc.running = true; modeProc.running = true; histProc.running = true; healthProc.running = true }
-    function setMode(m) {
-        // Updates immediately so UI reflects the choice; the daemon reconciles.
-        // power-profiles-daemon's profile names (performance | balanced |
-        // power-saver) match our mode values exactly, and powerprofilesctl
-        // talks to it over D-Bus/polkit so no sudo is needed.
+
+    function _validMode(m) {
+        return m === "performance" || m === "balanced" || m === "power-saver"
+    }
+
+    function _queueMode(m, notifyUser) {
+        if (!_validMode(m)) return
         root.mode = m
+        root._pendingMode = m
+        root._pendingModeNotification = notifyUser === true
+        if (!setProc.running) root._writePendingMode()
+    }
+
+    function _writePendingMode() {
+        if (!root._pendingMode || setProc.running) return
+        let m = root._pendingMode
+        let notifyUser = root._pendingModeNotification
+        root._pendingMode = ""
+        root._pendingModeNotification = false
+        let command = "powerprofilesctl set " + m + " >/dev/null 2>&1"
+        if (notifyUser)
+            command += " && notify-send -a power 'Power Mode' '" + m.charAt(0).toUpperCase() + m.slice(1) + "'"
         setProc.command = ["bash", "-c",
-            "powerprofilesctl set " + m + " >/dev/null 2>&1 && " +
-            "notify-send -a power 'Power Mode' '" + m.charAt(0).toUpperCase() + m.slice(1) + "'"]
+            command]
         setProc.running = true
+    }
+
+    function _reconcilePowerContext() {
+        if (!root.batteryPresent && !root.onAcPower) return
+        let context = root.onAcPower ? "ac"
+            : (root.level <= 30 ? "battery-low" : "battery")
+        if (context === root._powerContext) return
+        root._powerContext = context
+        root._queueMode(context === "ac" ? "performance"
+            : (context === "battery-low" ? "power-saver" : "balanced"), false)
+    }
+
+    function setMode(m) {
+        root._queueMode(m, true)
     }
 
     Process {
@@ -161,13 +195,21 @@ Singleton {
             "if [ -z \"$pw\" ]; then c=$(cat \"$b/current_now\" 2>/dev/null);" +
             "v=$(cat \"$b/voltage_now\" 2>/dev/null);" +
             "[ -n \"$c\" ] && [ -n \"$v\" ] && pw=$((c*v/1000000)); fi;" +
-            "echo \"$lvl|$st|$pw\""]
+            "ac=0; for f in /sys/class/power_supply/AC*/online /sys/class/power_supply/ADP*/online; do " +
+            "[ -r \"$f\" ] && [ \"$(cat \"$f\" 2>/dev/null)\" = 1 ] && ac=1; done;" +
+            "[ -n \"$b\" ] && has=1 || has=0;" +
+            "echo \"$lvl|$st|$pw|$ac|$has\""]
         stdout: StdioCollector {
             onStreamFinished: {
                 let p = text.trim().split("|")
                 root.level = parseInt(p[0]) || 0
                 root.status = p[1] || ""
                 root.power = (parseFloat(p[2]) || 0) / 1000000   // µW → W
+                root.batteryPresent = p[4] === "1"
+                root.onAcPower = p[3] === "1"
+                    || root.status === "Charging" || root.status === "Full"
+                    || root.status === "Not charging"
+                root._reconcilePowerContext()
             }
         }
     }
@@ -186,7 +228,10 @@ Singleton {
     }
 
     Process { id: setProc; command: ["true"]
-        onRunningChanged: if (!running) modeProc.running = true
+        onRunningChanged: if (!running) {
+            if (root._pendingMode) Qt.callLater(() => root._writePendingMode())
+            else modeProc.running = true
+        }
     }
 
     // Battery health: cycle count, maximum capacity (full vs design), and the
@@ -317,12 +362,14 @@ Singleton {
         onTriggered: refresh()
     }
 
-    // Fast poll for the live charging level/status/power readout. Only runs
-    // the lightweight battery read, and only while the CC shows it.
+    // Lightweight always-on poll drives automatic profiles on AC/battery
+    // transitions and at the 30% boundary. A manual NC choice remains active
+    // until one of those contexts changes.
     Timer {
         interval: 3000
-        running: NcServer.controlCenterVisible
+        running: true
         repeat: true
+        triggeredOnStart: true
         onTriggered: batProc.running = true
     }
 

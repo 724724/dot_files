@@ -222,7 +222,8 @@ Item {
              : (pillHover.hovered ? Qt.rgba(1, 1, 1, 0.16) : Qt.rgba(1, 1, 1, 0.08))
         border.color: Qt.rgba(1, 1, 1, 0.12)
         border.width: 1
-        Behavior on color { ColorAnimation { duration: 110 } }
+        scale: pillMa.pressed ? ThemeService.pressScale : 1.0
+        Behavior on scale { AppleSpring { spring: 18 } }
         Text {
             id: txt
             anchors.centerIn: parent
@@ -234,6 +235,7 @@ Item {
         }
         HoverHandler { id: pillHover }
         MouseArea {
+            id: pillMa
             anchors.fill: parent
             cursorShape: Qt.PointingHandCursor
             onClicked: pill.triggered()

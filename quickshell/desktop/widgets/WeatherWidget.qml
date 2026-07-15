@@ -141,8 +141,8 @@ Item {
         anchors.fill: parent
         radius: 13
         gradient: Gradient {
-            GradientStop { position: 0.0; color: wRoot.gradTop; Behavior on color { ColorAnimation { duration: 500 } } }
-            GradientStop { position: 1.0; color: wRoot.gradBottom; Behavior on color { ColorAnimation { duration: 500 } } }
+            GradientStop { position: 0.0; color: wRoot.gradTop }
+            GradientStop { position: 1.0; color: wRoot.gradBottom }
         }
     }
 
@@ -155,7 +155,7 @@ Item {
             Text { text: wRoot.locName; color: "#ffffff"
                    font.family: "SF Pro Display"; font.pixelSize: 17; font.weight: Font.DemiBold }
             Text { text: wRoot.temp; color: "#ffffff"
-                   font.family: "SF Pro Display"; font.pixelSize: 46; font.weight: Font.Light }
+                   font.family: "SF Pro Display"; font.pixelSize: 46; font.weight: Font.Light; font.letterSpacing: -0.9 }
         }
         Column {
             anchors.right: parent.right; anchors.top: parent.top
@@ -268,7 +268,7 @@ Item {
             Text { text: wRoot.locName; color: "#ffffff"
                    font.family: "SF Pro Display"; font.pixelSize: 15; font.weight: Font.DemiBold }
             Text { text: wRoot.temp; color: "#ffffff"
-                   font.family: "SF Pro Display"; font.pixelSize: 40; font.weight: Font.Light }
+                   font.family: "SF Pro Display"; font.pixelSize: 40; font.weight: Font.Light; font.letterSpacing: -0.8 }
         }
         Text { anchors.right: parent.right; anchors.top: parent.top; text: wRoot.icon; color: wRoot.iconColor
                font.family: wRoot.svc.iconFont; font.pixelSize: 28 }
@@ -301,7 +301,7 @@ Item {
             id: sunsetBig
             anchors.left: parent.left; anchors.top: sunHead.bottom; anchors.topMargin: 2
             text: wRoot.sunset || "—"; color: "#ffffff"
-            font.family: "SF Pro Display"; font.pixelSize: 28; font.weight: Font.Medium
+            font.family: "SF Pro Display"; font.pixelSize: 28; font.weight: Font.Medium; font.letterSpacing: -0.5
         }
         Canvas {
             id: arc
@@ -349,4 +349,3 @@ Item {
 
     MouseArea { anchors.fill: parent; acceptedButtons: Qt.LeftButton; onDoubleClicked: wRoot._fetch() }
 }
-

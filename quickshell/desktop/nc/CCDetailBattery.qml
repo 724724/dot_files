@@ -98,6 +98,7 @@ Item {
                             font.family: "SF Pro Display"
                             font.pixelSize: 20
                             font.weight: Font.Bold
+                            font.letterSpacing: -0.4
                         }
                         Text {
                             text: BatteryService.status !== ""
@@ -175,7 +176,8 @@ Item {
                                     : ThemeService.subtleTileBg)
                             border.color: sel ? "#0A84FF" : "transparent"
                             border.width: sel ? 1.5 : 0
-                            Behavior on color { ColorAnimation { duration: 100 } }
+                            scale: segMa.pressed ? ThemeService.pressScale : 1
+                            Behavior on scale { AppleSpring { spring: 13 } }
 
                             Row {
                                 anchors.centerIn: parent
@@ -202,7 +204,7 @@ Item {
                                 anchors.fill: parent
                                 hoverEnabled: true
                                 cursorShape: Qt.PointingHandCursor
-                                onClicked: BatteryService.setMode(modelData.id)
+                                onPressed: BatteryService.setMode(modelData.id)
                             }
                         }
                     }
@@ -249,12 +251,14 @@ Item {
                 }
                 // Only the ⓘ button opens the details — the row itself isn't clickable.
                 Rectangle {
+                    id: healthInfoButton
                     anchors.verticalCenter: parent.verticalCenter
                     width: 26; height: 26; radius: 13
+                    scale: infoMa.pressed ? ThemeService.pressScale : 1
+                    Behavior on scale { AppleSpring { spring: 13 } }
                     color: infoMa.containsMouse
                         ? ThemeService.subtleTileBgHover
                         : ThemeService.subtleTileBgHoverClear
-                    Behavior on color { ColorAnimation { duration: 100 } }
                     Text {
                         anchors.centerIn: parent
                         text: "󰋽"   // circled-info
@@ -476,7 +480,7 @@ Item {
                             x: limitSlider.cx(limitSlider.frac) - limitSlider.knobD / 2
                             color: "#ffffff"
                             border.color: Qt.rgba(0,0,0,0.18); border.width: 1
-                            Behavior on x { NumberAnimation { duration: 80 } }
+                            Behavior on x { AppleSpring { spring: 18; epsilon: 0.25 } }
                         }
                         // Stop labels.
                         Repeater {

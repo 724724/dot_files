@@ -67,12 +67,13 @@ Item {
                 width: column.width
                 height: 48
                 radius: 12
+                scale: rowMa.pressed ? ThemeService.pressScale : 1
+                Behavior on scale { AppleSpring { spring: 13 } }
                 color: isActive
                     ? ThemeService.rowBgActive
                     : rowMa.containsMouse
                         ? ThemeService.rowBgHover
                         : ThemeService.rowBg
-                Behavior on color { ColorAnimation { duration: 120 } }
 
                 Row {
                     anchors {
@@ -88,7 +89,6 @@ Item {
                         color: row.isActive
                             ? "#0A84FF"
                             : ThemeService.subtleTileBg
-                        Behavior on color { ColorAnimation { duration: 120 } }
 
                         Text {
                             anchors.centerIn: parent

@@ -95,11 +95,12 @@ Item {
                         color: ed.layout === n ? Qt.rgba(0.30, 0.52, 0.95, 0.9)
                              : (lh.hovered ? Qt.rgba(1, 1, 1, 0.16) : Qt.rgba(1, 1, 1, 0.08))
                         border.color: Qt.rgba(1, 1, 1, 0.12); border.width: 1
-                        Behavior on color { ColorAnimation { duration: 110 } }
+                        scale: layoutMa.pressed ? ThemeService.pressScale : 1.0
+                        Behavior on scale { AppleSpring { spring: 18 } }
                         Text { anchors.centerIn: parent; text: ed.layoutNames[parent.n - 1]
                                color: "#ffffff"; font.family: "SF Pro Display"; font.pixelSize: 11 }
                         HoverHandler { id: lh }
-                        MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor
+                        MouseArea { id: layoutMa; anchors.fill: parent; cursorShape: Qt.PointingHandCursor
                                     onClicked: ed.pickLayout(parent.n) }
                     }
                 }
@@ -145,7 +146,8 @@ Item {
                         required property var modelData
                         width: parent.width; height: 38; radius: 9
                         color: rHover.hovered ? Qt.rgba(1, 1, 1, 0.14) : Qt.rgba(1, 1, 1, 0.05)
-                        Behavior on color { ColorAnimation { duration: 100 } }
+                        scale: resultMa.pressed ? ThemeService.pressScale : 1.0
+                        Behavior on scale { AppleSpring { spring: 18 } }
                         Row {
                             anchors.left: parent.left; anchors.leftMargin: 12; anchors.verticalCenter: parent.verticalCenter
                             spacing: 8
@@ -161,6 +163,7 @@ Item {
                         }
                         HoverHandler { id: rHover }
                         MouseArea {
+                            id: resultMa
                             anchors.fill: parent
                             cursorShape: Qt.PointingHandCursor
                             onClicked: {
@@ -210,6 +213,8 @@ Item {
         color: "#3a4a63"
         border.color: selected ? Qt.rgba(1, 1, 1, 0.85) : Qt.rgba(1, 1, 1, 0.10)
         border.width: selected ? 2 : 1
+        scale: placeMa.pressed ? ThemeService.pressScale : 1.0
+        Behavior on scale { AppleSpring { spring: 18 } }
 
         // fetched conditions
         property string temp: ""
@@ -280,7 +285,7 @@ Item {
         }
         Text {
             anchors.right: parent.right; anchors.rightMargin: 14; anchors.top: parent.top; anchors.topMargin: 6
-            text: pr.temp; color: "#ffffff"; font.family: "SF Pro Display"; font.pixelSize: 30; font.weight: Font.Light
+            text: pr.temp; color: "#ffffff"; font.family: "SF Pro Display"; font.pixelSize: 30; font.weight: Font.Light; font.letterSpacing: -0.5
         }
         Text {
             anchors.right: parent.right; anchors.rightMargin: 14; anchors.bottom: parent.bottom; anchors.bottomMargin: 9
@@ -290,6 +295,7 @@ Item {
 
         HoverHandler { id: prHover }
         MouseArea {
+            id: placeMa
             anchors.fill: parent
             cursorShape: Qt.PointingHandCursor
             onClicked: { if (pr.isCurrent) ed.pickCurrent(); else ed.pickPlace({ name: pr.rowName, lat: pr.lat, lon: pr.lon }) }
@@ -301,10 +307,13 @@ Item {
             anchors.right: parent.right; anchors.rightMargin: 8; anchors.verticalCenter: parent.verticalCenter
             width: 34; height: 34; radius: 17
             color: trashHover.hovered ? "#ff4d4d" : Qt.rgba(0.9, 0.3, 0.3, 0.85)
+            scale: trashMa.pressed ? ThemeService.pressScale : 1.0
+            Behavior on scale { AppleSpring { spring: 18 } }
             Text { anchors.centerIn: parent; text: "\uf1f8"; color: "#ffffff"
                    font.family: WeatherService.iconFont; font.pixelSize: 14 }
             HoverHandler { id: trashHover }
             MouseArea {
+                id: trashMa
                 anchors.fill: parent
                 cursorShape: Qt.PointingHandCursor
                 onClicked: {

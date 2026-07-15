@@ -11,6 +11,8 @@ Rectangle {
 
     implicitWidth: Math.max(content.implicitWidth + 24, 36)
     implicitHeight: 33
+    scale: pointer.pressed ? ThemeService.pressScale : 1
+    transformOrigin: Item.Center
 
     color: workspace.focused
         ? Qt.rgba(255/255, 140/255, 130/255, 0.4)
@@ -25,7 +27,7 @@ Rectangle {
     border.width: workspace.focused ? 1 : 0
     radius: 999
 
-    Behavior on color { ColorAnimation { duration: 200 } }
+    Behavior on scale { AppleSpring { spring: 13 } }
 
     HoverHandler { id: hover }
 
@@ -44,7 +46,6 @@ Rectangle {
             font.family: "SF Pro Display"
             font.pixelSize: 11
 
-            Behavior on color { ColorAnimation { duration: 200 } }
         }
 
         // Small app icons for whatever is open on this workspace. Grouped in a
@@ -82,6 +83,7 @@ Rectangle {
     }
 
     MouseArea {
+        id: pointer
         anchors.fill: parent
         cursorShape: Qt.PointingHandCursor
         onClicked: workspace.activate()

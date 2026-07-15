@@ -64,7 +64,10 @@ Item {
             // against the track and the panel behind it.
             border.width: 1
             border.color: dark ? Qt.rgba(0,0,0,0.13) : Qt.rgba(0,0,0,0.07)
-            Behavior on width { NumberAnimation { duration: 60 } }
+            Behavior on width {
+                enabled: !root._dragging
+                AppleSpring { spring: 18; epsilon: 0.25 }
+            }
         }
 
         // Icon thumb — fixed at the left edge, perfectly centered in a 28×28

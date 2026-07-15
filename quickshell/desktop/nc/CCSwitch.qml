@@ -16,7 +16,6 @@ Item {
         color: root.checked
             ? "#34C759"
             : (dark ? Qt.rgba(1,1,1,0.18) : Qt.rgba(0,0,0,0.18))
-        Behavior on color { ColorAnimation { duration: 150 } }
     }
 
     Rectangle {
@@ -28,12 +27,16 @@ Item {
         color: "#ffffff"
         border.color: Qt.rgba(0,0,0,0.10)
         border.width: 1
-        Behavior on x { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
+        Behavior on x { AppleSpring { spring: 13; epsilon: 0.25 } }
     }
 
     MouseArea {
+        id: switchMa
         anchors.fill: parent
         cursorShape: Qt.PointingHandCursor
         onClicked: root.toggled()
     }
+
+    scale: switchMa.pressed ? ThemeService.pressScale : 1
+    Behavior on scale { AppleSpring { spring: 13 } }
 }

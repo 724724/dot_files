@@ -17,6 +17,8 @@ Rectangle {
     color: ThemeService.tileBg
     border.color: ThemeService.tileStroke
     border.width: 1
+    scale: bodyMa.pressed ? ThemeService.pressScale : 1
+    Behavior on scale { AppleSpring { spring: 13 } }
 
     // Body click target — fills the whole tile and sits *beneath* the icon's
     // own hitbox, so clicking the icon toggles while clicking anywhere else
@@ -40,10 +42,11 @@ Rectangle {
         }
         width: 32; height: 32
         radius: 16
+        scale: iconMa.pressed ? 0.94 : 1
+        Behavior on scale { AppleSpring { spring: 13 } }
         color: btn.active
             ? "#0A84FF"
             : (dark ? Qt.rgba(1,1,1,0.14) : Qt.rgba(0,0,0,0.06))
-        Behavior on color { ColorAnimation { duration: 150 } }
 
         // Hover / pressed feedback so the icon reads as its own button.
         Rectangle {
@@ -51,7 +54,6 @@ Rectangle {
             radius: parent.radius
             color: iconMa.pressed ? Qt.rgba(0,0,0,0.18)
                  : iconMa.containsMouse ? Qt.rgba(1,1,1,0.12) : "transparent"
-            Behavior on color { ColorAnimation { duration: 100 } }
         }
 
         Text {
@@ -60,7 +62,6 @@ Rectangle {
             color: btn.active ? "#ffffff" : (dark ? "#e0e8f0" : "#3a3a3c")
             font.family: "JetBrainsMono Nerd Font Propo"
             font.pixelSize: 14
-            Behavior on color { ColorAnimation { duration: 150 } }
         }
 
         MouseArea {
@@ -107,6 +108,6 @@ Rectangle {
         font.family: "JetBrainsMono Nerd Font Propo"
         font.pixelSize: 12
         opacity: bodyMa.containsMouse ? 1.0 : 0.5
-        Behavior on opacity { NumberAnimation { duration: 120 } }
+        Behavior on opacity { AppleSpring { spring: 13 } }
     }
 }

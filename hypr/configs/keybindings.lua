@@ -32,6 +32,8 @@ hl.bind(mainMod .. " + P",         hl.dsp.window.float({ action = "toggle" }))
 -- ── App Switcher (macOS Cmd+Tab style) ──────────────────────────────────
 hl.bind(mainMod .. " + TAB",         hl.dsp.global("switcher:next"))
 hl.bind(mainMod .. " + SHIFT + TAB", hl.dsp.global("switcher:prev"))
+hl.bind("SUPER_L", hl.dsp.global("switcher:commit"), { release = true, non_consuming = true, ignore_mods = true })
+hl.bind("SUPER_R", hl.dsp.global("switcher:commit"), { release = true, non_consuming = true, ignore_mods = true })
 
 -- ── Screenshots ─────────────────────────────────────────────────────────
 hl.bind(mainMod .. " + SHIFT + 3", hl.dsp.exec_cmd("~/.config/hypr/scripts/shot.sh output"))

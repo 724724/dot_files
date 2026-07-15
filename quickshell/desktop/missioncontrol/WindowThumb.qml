@@ -42,8 +42,8 @@ Item {
     readonly property real _aspect: (windowData && windowData.size[1] > 0)
         ? windowData.size[0] / windowData.size[1] : 1.5
 
-    readonly property real _geomX: monitorData ? (windowData.at[0] - monitorData.x) * mscale : 0
-    readonly property real _geomY: monitorData ? (windowData.at[1] - monitorData.y) * mscale : 0
+    readonly property real _geomX: (windowData && monitorData) ? (windowData.at[0] - monitorData.x) * mscale : 0
+    readonly property real _geomY: (windowData && monitorData) ? (windowData.at[1] - monitorData.y) * mscale : 0
     readonly property real _geomW: windowData ? windowData.size[0] * mscale : 10
     readonly property real _geomH: windowData ? windowData.size[1] * mscale : 10
     readonly property real _slotFitW: Math.min(slotW, slotH * _aspect)
@@ -58,15 +58,17 @@ Item {
 
     visible: !dragging
     clip: false
+    scale: thumbTap.pressed && !dragging ? ThemeService.pressScale : 1.0
+    Behavior on scale { AppleSpring { spring: 18 } }
 
     // Smoothly settle when the layout reflows (window count changes) — but stay out
     // of the way while the open/close spread is animating, which drives x/y directly
     // via the binding above.
     readonly property bool _settled: thumb.slotMode && thumb.overview && !thumb.overview.spreadAnimating
-    Behavior on x { enabled: thumb._settled; NumberAnimation { duration: 110; easing.type: Easing.OutCubic } }
-    Behavior on y { enabled: thumb._settled; NumberAnimation { duration: 110; easing.type: Easing.OutCubic } }
-    Behavior on width { enabled: thumb._settled; NumberAnimation { duration: 110; easing.type: Easing.OutCubic } }
-    Behavior on height { enabled: thumb._settled; NumberAnimation { duration: 110; easing.type: Easing.OutCubic } }
+    Behavior on x { enabled: thumb._settled; AppleSpring { spring: 18; epsilon: 0.15 } }
+    Behavior on y { enabled: thumb._settled; AppleSpring { spring: 18; epsilon: 0.15 } }
+    Behavior on width { enabled: thumb._settled; AppleSpring { spring: 18; epsilon: 0.15 } }
+    Behavior on height { enabled: thumb._settled; AppleSpring { spring: 18; epsilon: 0.15 } }
 
     // Resolve the Wayland capture handle via Hyprland's own toplevel list, matched
     // by address — the same source the bar's workspace icons use. (Matching Wayland
@@ -96,7 +98,9 @@ Item {
         color: "transparent"
         border.color: "#0A84FF"
         border.width: 5
-        visible: thumb._highlighted
+        visible: opacity > 0.002
+        opacity: thumb._highlighted ? 1 : 0
+        Behavior on opacity { AppleSpring { spring: 18 } }
     }
 
     ClippingRectangle {
@@ -137,7 +141,11 @@ Item {
     // Window-name pill, floating over the preview — shown only on hover (macOS-
     // style). Lives outside the clipped card so it's never cut off.
     Rectangle {
-        visible: thumb.hovered && thumb.interactive
+        visible: opacity > 0.002
+        opacity: thumb.hovered && thumb.interactive ? 1 : 0
+        scale: thumb.hovered && thumb.interactive ? 1 : 0.96
+        Behavior on opacity { AppleSpring { spring: 18 } }
+        Behavior on scale { AppleSpring { spring: 18 } }
         anchors.centerIn: parent
         width: Math.min(pillText.implicitWidth + 22, thumb.width + 40)
         height: pillText.implicitHeight + 10
@@ -168,16 +176,22 @@ Item {
     // TapHandler (not MouseArea) so it cooperates with the DragHandler — a tap
     // focuses + dismisses, a drag past threshold reorders.
     TapHandler {
+        id: thumbTap
         enabled: thumb.overview !== null
         onTapped: thumb.overview.activateWindow(thumb.address)
     }
 
     DragHandler {
+        id: thumbDrag
         target: null
         enabled: thumb.draggable && thumb.overview !== null
         dragThreshold: 6
         onActiveChanged: {
-            if (active) thumb.overview.beginWindowDrag(thumb.address)
+            if (active) {
+                let centre = thumb.mapToItem(null, thumb.width / 2, thumb.height / 2)
+                thumb.overview.beginWindowDrag(thumb.address, centroid.scenePosition,
+                    centroid.scenePressPosition, centre)
+            }
             else thumb.overview.endWindowDrag()
         }
         onCentroidChanged: if (active && thumb.overview) thumb.overview.updateWindowDrag(centroid.scenePosition)

@@ -150,6 +150,7 @@ Item {
             font.family: "SF Pro Display"
             font.weight: Font.Bold
             font.pixelSize: Math.max(34, Math.min(parent.width, parent.height) * 0.30)
+            font.letterSpacing: -0.8
         }
     }
 

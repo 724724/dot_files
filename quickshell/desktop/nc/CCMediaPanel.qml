@@ -16,6 +16,8 @@ Item {
     readonly property bool isPlaying: status === "Playing"
 
     implicitHeight: 60
+    scale: panelMa.pressed ? 0.985 : 1
+    Behavior on scale { AppleSpring { spring: 13 } }
 
     function refresh() { mediaProc.running = true }
 
@@ -70,6 +72,7 @@ Item {
     // leaving the art, title and empty space to focus the app. Disabled when
     // nothing is playing so there's no window to raise (and no pointer cursor).
     MouseArea {
+        id: panelMa
         anchors.fill: parent
         enabled: root.hasMedia
         cursorShape: Qt.PointingHandCursor
@@ -161,10 +164,11 @@ Item {
                 required property var modelData
                 width: 32; height: 32
                 radius: 16
+                scale: ma2.pressed ? 0.90 : 1
+                Behavior on scale { AppleSpring { spring: 13 } }
                 color: ma2.containsMouse
                     ? (dark ? Qt.rgba(1,1,1,0.12) : Qt.rgba(0,0,0,0.06))
                     : "transparent"
-                Behavior on color { ColorAnimation { duration: 100 } }
 
                 Text {
                     anchors.centerIn: parent

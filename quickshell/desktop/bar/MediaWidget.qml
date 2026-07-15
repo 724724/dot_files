@@ -6,6 +6,7 @@ import Quickshell.Widgets
 PillContainer {
     id: root
     clickable: true
+    pressed: leftTap.pressed || rightTap.pressed || middleTap.pressed
 
     visible: MediaService.hasMedia
     implicitHeight: 33
@@ -23,9 +24,7 @@ PillContainer {
     readonly property int artSizePlaying: 22
     readonly property int artSizePaused: 13
     property real artSize: MediaService.isPlaying ? artSizePlaying : artSizePaused
-    Behavior on artSize {
-        NumberAnimation { duration: 240; easing.type: Easing.OutCubic }
-    }
+    Behavior on artSize { AppleSpring {} }
 
     // Album art available → use it as the pill's surface + brightness-aware
     // text color. Latches true once a cover has loaded and *stays* true while
@@ -186,7 +185,7 @@ PillContainer {
             // Ease the text-window width between songs so the whole pill grows
             // and shrinks smoothly (and stays in sync) instead of snapping.
             Behavior on Layout.preferredWidth {
-                NumberAnimation { duration: 280; easing.type: Easing.OutCubic }
+                AppleSpring {}
             }
 
             readonly property string fullText: {
@@ -222,41 +221,38 @@ PillContainer {
             // Bounce-style marquee. Both directions share the same constant
             // (linear) speed so the motion feels uniform — no easing, no
             // snap-back. Slow enough to read comfortably.
-            readonly property int scrollSpeedMsPerPx: 55
-            readonly property int scrollDuration:
-                Math.max(3500, marquee.scrollDistance * marquee.scrollSpeedMsPerPx)
-
             SequentialAnimation {
                 running: marquee.needsScroll && root.visible
                 loops: Animation.Infinite
 
                 PauseAnimation { duration: 1800 }
-                NumberAnimation {
+                SmoothedAnimation {
                     target: label; property: "x"
                     to: -marquee.scrollDistance
-                    duration: marquee.scrollDuration
-                    easing.type: Easing.Linear
+                    velocity: 23
                 }
                 PauseAnimation { duration: 1500 }
-                NumberAnimation {
+                SmoothedAnimation {
                     target: label; property: "x"
                     to: 0
-                    duration: marquee.scrollDuration
-                    easing.type: Easing.Linear
+                    velocity: 23
                 }
             }
         }
     }
 
     TapHandler {
+        id: leftTap
         acceptedButtons: Qt.LeftButton
         onTapped: MediaService.playPause()
     }
     TapHandler {
+        id: rightTap
         acceptedButtons: Qt.RightButton
         onTapped: MediaService.next()
     }
     TapHandler {
+        id: middleTap
         acceptedButtons: Qt.MiddleButton
         onTapped: MediaService.prev()
     }

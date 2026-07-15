@@ -28,12 +28,41 @@ Singleton {
     // freshly-added (still empty) space visible until the user removes it with ×,
     // we track its id here and merge it into the displayed list.
     property var extraWorkspaces: []
+    property var extraWorkspaceMonitors: ({})
     // Custom display order for the overview strip (drag-to-reorder). Ids not listed
     // here fall back to numeric order, after the ordered ones.
     property var workspaceOrder: []
     // Workspaces just deleted via ×: hidden immediately while their windows finish
     // moving out (cleared once empty), so the tile vanishes at once.
     property var deletedWorkspaces: []
+
+    property bool workspaceDragActive: false
+    property int workspaceDragId: -1
+    property string workspaceDragSourceMonitor: ""
+    property string workspaceDragTargetMonitor: ""
+    property point workspaceDragGlobalPos: Qt.point(0, 0)
+
+    // Workspaces turned into a macOS-style Split View *via Mission Control* (drop
+    // onto a fullscreen space → splitInto). Only these get the "A & B" strip label
+    // and hide the bar/dock while active — a manual dwindle split never registers.
+    // Persisted so a quickshell reload doesn't bring the bar/dock back mid-split.
+    property var splitViewWorkspaces: []
+    onSplitViewWorkspacesChanged: splitStore.setText(JSON.stringify(splitViewWorkspaces))
+    // Creation grace deadlines (ws id → epoch ms): the splitInto dispatch sequence
+    // passes through invalid states (1 window, floating) for a beat, so reconcile
+    // tolerates those until the deadline.
+    property var _splitGraceUntil: ({})
+    // Ids observed with a valid 2-tiled layout this session. Survivor-fullscreen
+    // enforcement only fires for these, so a stale persisted id can't fullscreen
+    // an unrelated window right after startup.
+    property var _splitSeenValid: ({})
+
+    FileView {
+        id: splitStore
+        path: Quickshell.stateDir + "/mc-splitview.json"
+        blockLoading: true
+        printErrors: false
+    }
 
     property bool open: false           // overview visibility (drives the poll timer)
 
@@ -44,7 +73,10 @@ Singleton {
         let set = {}
         for (let w of workspaces) if (w.id >= 1 && w.id <= 100) set[w.id] = true
         for (let e of extraWorkspaces) set[e] = true
-        set[activeWorkspaceId] = true   // current space is always shown
+        for (let m of monitors)
+            if (m && m.activeWorkspace && m.activeWorkspace.id >= 1)
+                set[m.activeWorkspace.id] = true
+        set[activeWorkspaceId] = true
         for (let d of deletedWorkspaces) delete set[d]
         let ids = Object.keys(set).map(n => parseInt(n))
         let order = root.workspaceOrder
@@ -58,60 +90,199 @@ Singleton {
         return ids
     }
 
-    // Drag-to-reorder: actually re-number the workspaces so the new strip order
-    // becomes the real order (e.g. swapping 1↔2 makes what was 2 become 1). The
-    // bar shows workspaces by id, so it reflects the new order too.
-    function moveWorkspaceOrder(srcId, index) {
-        let order = root.displayWorkspaceIds.slice()
-        let cur = order.indexOf(srcId)
-        if (cur === -1) return
-        order.splice(cur, 1)
-        index = Math.max(0, Math.min(index, order.length))
-        order.splice(index, 0, srcId)
-        root._applyOrder(order)
+    function workspaceMonitorName(wsId) {
+        let ws = root.workspaces.find(w => w && w.id === wsId)
+        if (ws && ws.monitor) return ws.monitor
+        let extraMonitor = root.extraWorkspaceMonitors[wsId]
+        if (extraMonitor) return extraMonitor
+        let monitor = root.monitors.find(m => m && m.activeWorkspace && m.activeWorkspace.id === wsId)
+        return monitor ? monitor.name : ""
     }
 
-    // Re-assign each space's *contents* (and persistence) to the canonical ids in
-    // the new order: the thing shown at position i moves to the i-th smallest id.
-    // Window moves are by address, so they don't collide; an optimistic local
-    // rewrite updates the UI instantly while Hyprland catches up.
-    function _applyOrder(order) {
+    function workspaceIdsForMonitor(monitorName) {
+        let ids = root.displayWorkspaceIds.filter(id => root.workspaceMonitorName(id) === monitorName)
+        let active = root.activeWorkspaceIdForMonitor(monitorName)
+        if (active >= 1 && ids.indexOf(active) === -1) ids.push(active)
+        let order = root.workspaceOrder
+        ids.sort((a, b) => {
+            let ia = order.indexOf(a), ib = order.indexOf(b)
+            if (ia === -1 && ib === -1) return a - b
+            if (ia === -1) return 1
+            if (ib === -1) return -1
+            return ia - ib
+        })
+        return ids
+    }
+
+    function moveWorkspaceOrder(srcId, index, monitorName) {
+        let local = root.workspaceIdsForMonitor(monitorName)
+        let cur = local.indexOf(srcId)
+        if (cur === -1) return
+        local.splice(cur, 1)
+        index = Math.max(0, Math.min(index, local.length))
+        local.splice(index, 0, srcId)
+        root._applyWorkspaceOrder(local, monitorName)
+    }
+
+    function _applyWorkspaceOrder(order, monitorName) {
         let canonical = order.slice().sort((a, b) => a - b)
         let targetOf = {}
-        for (let i = 0; i < order.length; i++) targetOf[order[i]] = canonical[i]
-
-        // Current persistence (empty spaces are only kept alive by it).
-        let curPersist = {}
-        for (let w of root.workspaces) curPersist[w.id] = !!w.ispersistent
-
-        // Move windows to their workspace's target id.
-        let newWindows = []
-        for (let w of root.windows) {
-            let src = (w.workspace && typeof w.workspace.id === "number") ? w.workspace.id : null
-            let dst = (src !== null && targetOf[src] !== undefined) ? targetOf[src] : src
-            if (src !== null && dst !== src)
-                _dispatch("hl.dsp.window.move({workspace = '" + dst + "', follow = false, window = 'address:" + w.address + "'})")
-            let nw = {}
-            for (let k in w) nw[k] = w[k]
-            nw.workspace = { id: (dst === null ? src : dst), name: String(dst) }
-            newWindows.push(nw)
-        }
-
-        // Persistence follows its space to the new id.
+        let changed = false
         for (let i = 0; i < order.length; i++) {
-            let src = order[i], dst = canonical[i]
-            let want = curPersist[src] || false
-            if (want !== (curPersist[dst] || false)) root._setPersistent(dst, want)
+            targetOf[order[i]] = canonical[i]
+            if (order[i] !== canonical[i]) changed = true
+        }
+        if (!changed) return
+
+        let persistent = {}
+        for (let w of root.workspaces) persistent[w.id] = !!w.ispersistent
+        let statements = []
+        for (let id of canonical) statements.push(root._persistentRule(id, false, ""))
+
+        root.windows = root.windows.map(w => {
+            let src = w && w.workspace ? w.workspace.id : -1
+            let dst = targetOf[src]
+            if (dst === undefined || dst === src) return w
+            statements.push("hl.dispatch(hl.dsp.window.move({workspace = '" + dst
+                + "', follow = false, window = 'address:" + w.address + "'}))")
+            let copy = {}
+            for (let key in w) copy[key] = w[key]
+            copy.workspace = { id: dst, name: String(dst) }
+            return copy
+        })
+        for (let src of order)
+            if (persistent[src] || root.extraWorkspaces.indexOf(src) !== -1)
+                statements.push(root._persistentRule(targetOf[src], true, monitorName))
+        root._eval(statements.join("; "))
+
+        root.workspaces = root.workspaces.map(w => {
+            if (!w || targetOf[w.id] === undefined) return w
+            let copy = {}
+            for (let key in w) copy[key] = w[key]
+            copy.id = targetOf[w.id]
+            copy.name = String(copy.id)
+            return copy
+        })
+
+        root.extraWorkspaces = root.extraWorkspaces.map(id =>
+            targetOf[id] === undefined ? id : targetOf[id])
+        let extraMonitors = {}
+        for (let key in root.extraWorkspaceMonitors) {
+            let id = parseInt(key)
+            let dst = targetOf[id] === undefined ? id : targetOf[id]
+            extraMonitors[dst] = root.extraWorkspaceMonitors[key]
+        }
+        root.extraWorkspaceMonitors = extraMonitors
+        root.splitViewWorkspaces = root.splitViewWorkspaces.map(id =>
+            targetOf[id] === undefined ? id : targetOf[id])
+
+        let grace = {}, seen = {}
+        for (let key in root._splitGraceUntil) {
+            let id = parseInt(key)
+            grace[targetOf[id] === undefined ? id : targetOf[id]] = root._splitGraceUntil[key]
+        }
+        for (let key in root._splitSeenValid) {
+            let id = parseInt(key)
+            seen[targetOf[id] === undefined ? id : targetOf[id]] = root._splitSeenValid[key]
+        }
+        root._splitGraceUntil = grace
+        root._splitSeenValid = seen
+
+        let localSet = {}
+        for (let id of canonical) localSet[id] = true
+        root.workspaceOrder = root.workspaceOrder.filter(id => !localSet[id])
+        root._winSig = ""
+        root._wsSig = ""
+        root.refreshSoon()
+    }
+
+    function monitorAtGlobalPoint(x, y) {
+        let nearest = null
+        let nearestDistance = Infinity
+        for (let m of root.monitors) {
+            if (!m) continue
+            let scale = Math.max(0.1, m.scale || 1)
+            let w = m.width / scale
+            let h = m.height / scale
+            if (x >= m.x && x < m.x + w && y >= m.y && y < m.y + h) return m
+            let dx = Math.max(m.x - x, 0, x - (m.x + w))
+            let dy = Math.max(m.y - y, 0, y - (m.y + h))
+            let distance = dx * dx + dy * dy
+            if (distance < nearestDistance) { nearestDistance = distance; nearest = m }
+        }
+        return nearest
+    }
+
+    function globalPointForMonitor(monitorName, point) {
+        let m = root.monitors.find(mon => mon && mon.name === monitorName)
+        return m ? Qt.point(m.x + point.x, m.y + point.y) : point
+    }
+
+    function beginWorkspaceDrag(wsId, sourceMonitor, globalPos) {
+        root.workspaceDragId = wsId
+        root.workspaceDragSourceMonitor = sourceMonitor
+        root.workspaceDragTargetMonitor = sourceMonitor
+        root.workspaceDragGlobalPos = globalPos
+        root.workspaceDragActive = true
+    }
+
+    function updateWorkspaceDrag(globalPos) {
+        root.workspaceDragGlobalPos = globalPos
+        let monitor = root.monitorAtGlobalPoint(globalPos.x, globalPos.y)
+        root.workspaceDragTargetMonitor = monitor ? monitor.name : root.workspaceDragSourceMonitor
+    }
+
+    function endWorkspaceDrag() {
+        root.workspaceDragActive = false
+        root.workspaceDragId = -1
+        root.workspaceDragSourceMonitor = ""
+        root.workspaceDragTargetMonitor = ""
+    }
+
+    function moveWorkspaceToMonitor(wsId, targetMonitor, targetIndex) {
+        let sourceMonitor = root.workspaceMonitorName(wsId)
+        if (!targetMonitor || !sourceMonitor) return
+        if (targetMonitor === sourceMonitor) {
+            root.moveWorkspaceOrder(wsId, targetIndex, sourceMonitor)
+            return
         }
 
-        root.extraWorkspaces = root.extraWorkspaces.map(e => targetOf[e] !== undefined ? targetOf[e] : e)
-        root.windows = newWindows          // instant UI; poll reconciles shortly
-        root.workspaceOrder = []           // ids now match the order
-        refreshSoon()
+        if (root.workspaceIdsForMonitor(sourceMonitor).length <= 1)
+            root.addWorkspace(sourceMonitor)
+
+        let ws = root.workspaces.find(w => w && w.id === wsId)
+        root._dispatch("hl.dsp.workspace.move({workspace = '" + wsId
+            + "', monitor = '" + targetMonitor + "'})")
+        if ((ws && ws.ispersistent) || root.extraWorkspaces.indexOf(wsId) !== -1)
+            root._setPersistent(wsId, true, targetMonitor)
+
+        let moved = root.workspaces.map(w => {
+            if (!w || w.id !== wsId) return w
+            let copy = {}
+            for (let key in w) copy[key] = w[key]
+            copy.monitor = targetMonitor
+            return copy
+        })
+        let extraMonitors = {}
+        for (let key in root.extraWorkspaceMonitors) extraMonitors[key] = root.extraWorkspaceMonitors[key]
+        extraMonitors[wsId] = targetMonitor
+        root.extraWorkspaceMonitors = extraMonitors
+        root.workspaces = moved
+        root._wsSig = ""
+
+        let targetIds = root.workspaceIdsForMonitor(targetMonitor)
+        let index = targetIndex < 0 ? targetIds.length - 1 : targetIndex
+        root.moveWorkspaceOrder(wsId, index, targetMonitor)
+        root.refreshSoon()
     }
 
     function windowsForWorkspace(wsId) {
         return windows.filter(w => w && w.workspace && w.workspace.id === wsId)
+    }
+    // Live data for one window; delegates keyed by address re-resolve this on every
+    // poll so updates flow through bindings instead of delegate re-creation.
+    function windowByAddress(address) {
+        return windows.find(w => w && w.address === address) || null
     }
     function _isDisplayWindow(w) {
         let cls = ((w && (w.class || w.initialClass)) || "").trim()
@@ -150,9 +321,10 @@ Singleton {
         // Real fullscreen → the app's *initial* title (the UI elides it if long).
         let fs = ws.find(w => w.fullscreen === 2)
         if (fs) return fs.initialTitle || fs.title || ("Workspace " + wsId)
-        // A 2-window tiled space reads like macOS Split View → "A & B", left first.
+        // A Split View space made through Mission Control reads like macOS →
+        // "A & B", left first. Manual dwindle splits keep the plain name.
         let tiled = ws.filter(w => !w.floating)
-        if (tiled.length === 2) {
+        if (tiled.length === 2 && root.isSplitViewWorkspace(wsId)) {
             let s = tiled.slice().sort((a, b) => a.at[0] - b.at[0])
             return root._shortTitle(s[0].initialTitle || s[0].title)
                 + " & " + root._shortTitle(s[1].initialTitle || s[1].title)
@@ -164,6 +336,47 @@ Singleton {
         // Most titles are "Document — App"; keep the app/last segment, macOS-style.
         let parts = t.split(/ [–—-] /)
         return parts[parts.length - 1].trim() || t
+    }
+
+    function isSplitViewWorkspace(wsId) { return splitViewWorkspaces.indexOf(wsId) !== -1 }
+
+    // True when `screenName`'s active workspace is a Mission-Control Split View
+    // space — the bar and dock bind to this to hide themselves there.
+    function splitViewActiveOn(screenName) {
+        if (splitViewWorkspaces.length === 0) return false
+        let mons = Hyprland.monitors ? Hyprland.monitors.values : []
+        for (let i = 0; i < mons.length; i++) {
+            let m = mons[i]
+            if (m && m.name === screenName)
+                return m.activeWorkspace ? isSplitViewWorkspace(m.activeWorkspace.id) : false
+        }
+        return false
+    }
+
+    // Keep the registered Split View spaces honest against every polled snapshot:
+    //  - still exactly two tiled windows → stays a split space
+    //  - one window left (the other moved away or closed) → the survivor returns
+    //    to fullscreen, macOS-style
+    //  - a window floated again, a third joined, or the space emptied → back to a
+    //    plain workspace (label and bar/dock return to normal)
+    function _reconcileSplitViews() {
+        let list = root.splitViewWorkspaces
+        if (list.length === 0) return
+        let keep = []
+        for (let wsId of list) {
+            let ws = root.windowsForWorkspace(wsId)
+            let tiled = ws.filter(w => !w.floating)
+            if (ws.length === 2 && tiled.length === 2) {
+                root._splitSeenValid[wsId] = true
+                keep.push(wsId)
+                continue
+            }
+            if ((root._splitGraceUntil[wsId] || 0) > Date.now()) { keep.push(wsId); continue }
+            if (ws.length === 1 && root._splitSeenValid[wsId] === true)
+                root.setFullscreen(ws[0].address, true)
+            delete root._splitSeenValid[wsId]
+        }
+        if (keep.length !== list.length) root.splitViewWorkspaces = keep
     }
 
     function nextWorkspaceId() {
@@ -181,11 +394,17 @@ Singleton {
         if (Hyprland.focusedMonitor && Hyprland.focusedMonitor.name) return Hyprland.focusedMonitor.name
         return root.monitors.length ? (root.monitors[0].name || "") : ""
     }
-    function _setPersistent(wsId, on) {
+    function _persistentRule(wsId, on, monitorName) {
         let lua = "hl.workspace_rule({workspace = " + wsId + ", persistent = " + (on ? "true" : "false")
-        if (on) { let m = root._focusedMonitorName(); if (m) lua += ", monitor = '" + m + "'" }
+        if (on) {
+            let m = monitorName || root._focusedMonitorName()
+            if (m) lua += ", monitor = '" + m + "'"
+        }
         lua += "})"
-        _eval(lua)
+        return lua
+    }
+    function _setPersistent(wsId, on, monitorName) {
+        _eval(root._persistentRule(wsId, on, monitorName))
     }
 
     // Move a window to a workspace. follow=false keeps the user where they are
@@ -195,6 +414,10 @@ Singleton {
             + (follow ? "true" : "false") + ", window = 'address:" + address + "'})")
         // If it landed on a tracked-empty space, that space is real now.
         root.extraWorkspaces = root.extraWorkspaces.filter(e => e !== wsId)
+        let extraMonitors = {}
+        for (let key in root.extraWorkspaceMonitors)
+            if (parseInt(key) !== wsId) extraMonitors[key] = root.extraWorkspaceMonitors[key]
+        root.extraWorkspaceMonitors = extraMonitors
         refreshSoon()
     }
 
@@ -265,18 +488,29 @@ Singleton {
             "sleep 0.12; " +
             "hyprctl dispatch \"hl.dsp.window.move({window = 'address:" + draggedAddress + "', direction = '" + dir + "'})\""
         Quickshell.execDetached(["bash", "-c", seq])
+        // Register as a Mission-Control Split View space (see splitViewWorkspaces),
+        // with a grace period so reconcile ignores the sequence's transient states.
+        root._splitGraceUntil[wsId] = Date.now() + 1500
+        if (root.splitViewWorkspaces.indexOf(wsId) === -1)
+            root.splitViewWorkspaces = root.splitViewWorkspaces.concat([wsId])
         refreshSoon()
     }
 
     // + button: add a new workspace. Make it a *persistent* Hyprland workspace so
     // it survives being empty — it then shows in the bar (Hyprland.workspaces) too,
     // not just here, and stays until removed with ×. Does NOT switch to it.
-    function addWorkspace() {
+    function addWorkspace(monitorName) {
         let id = root.nextWorkspaceId()
-        root._setPersistent(id, true)
+        let monitor = monitorName || root._focusedMonitorName()
+        root._setPersistent(id, true, monitor)
         if (root.extraWorkspaces.indexOf(id) === -1)
             root.extraWorkspaces = root.extraWorkspaces.concat([id])  // show instantly
+        let extraMonitors = {}
+        for (let key in root.extraWorkspaceMonitors) extraMonitors[key] = root.extraWorkspaceMonitors[key]
+        extraMonitors[id] = monitor
+        root.extraWorkspaceMonitors = extraMonitors
         refreshSoon()
+        return id
     }
 
     // × button: send every window in this space to `intoWsId`, drop its persistence
@@ -287,7 +521,14 @@ Singleton {
             _dispatch("hl.dsp.window.move({workspace = '" + intoWsId + "', follow = false, window = 'address:" + w.address + "'})")
         root._setPersistent(wsId, false)
         root.extraWorkspaces = root.extraWorkspaces.filter(e => e !== wsId)
+        let extraMonitors = {}
+        for (let key in root.extraWorkspaceMonitors)
+            if (parseInt(key) !== wsId) extraMonitors[key] = root.extraWorkspaceMonitors[key]
+        root.extraWorkspaceMonitors = extraMonitors
         root.workspaceOrder = root.workspaceOrder.filter(e => e !== wsId)
+        // Unregister BEFORE the moves land, so reconcile can't catch the space
+        // mid-evacuation with one window left and fullscreen it on its way out.
+        root.splitViewWorkspaces = root.splitViewWorkspaces.filter(e => e !== wsId)
         if (root.deletedWorkspaces.indexOf(wsId) === -1)
             root.deletedWorkspaces = root.deletedWorkspaces.concat([wsId])  // hide now
         refreshSoon()
@@ -337,15 +578,18 @@ Singleton {
                     root.deletedWorkspaces = root.deletedWorkspaces.filter(id =>
                         cl.some(w => w.workspace && w.workspace.id === id)
                         || root.workspaces.some(w => w.id === id))
+                root._reconcileSplitViews()
             }
         }
     }
 
-    // React to Hyprland events so the overview tracks moves/closes live.
+    // React to Hyprland events so the overview tracks moves/closes live. Split
+    // View spaces need tracking even with the overview closed (their windows can
+    // float / move / close at any time), so keep polling while any is registered.
     Connections {
         target: Hyprland
         function onRawEvent(event) {
-            if (!root.open) return
+            if (!root.open && root.splitViewWorkspaces.length === 0) return
             root.refreshSoon()
         }
     }
@@ -360,4 +604,20 @@ Singleton {
     }
 
     onOpenChanged: if (open) refresh()
+
+    Component.onCompleted: {
+        // Restore persisted Split View spaces, then poll once to validate them
+        // against reality (stale ids fall away in _reconcileSplitViews).
+        let raw = splitStore.text()
+        if (raw) {
+            try {
+                let p = JSON.parse(raw)
+                if (Array.isArray(p))
+                    root.splitViewWorkspaces = p.filter(n => typeof n === "number" && n >= 1)
+            } catch (e) {}
+        }
+        // Warm the window/workspace snapshot once at startup so the very first
+        // overview open has data (and previews) ready before the poll returns.
+        root.refresh()
+    }
 }

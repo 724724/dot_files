@@ -28,7 +28,7 @@ PanelWindow {
     // fixed. Animated so the toggle slides rather than jumps.
     property int barContentTop: 53
     property real topInset: barContentTop
-    Behavior on topInset { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
+    Behavior on topInset { AppleSpring { spring: 13; epsilon: 0.25 } }
 
     component StackPeek: Item {
         id: peek
@@ -49,7 +49,7 @@ PanelWindow {
 
     readonly property int cardHeight: {
         if (win.detail !== "") {
-            let d = win.detail, h = 600
+            let d = win.detail, h = ccHeader.implicitHeight + 28
             if (d === "wifi"       && detailWifi.item)       h = detailWifi.item.implicitHeight + 28
             else if (d === "bluetooth"  && detailBt.item)    h = detailBt.item.implicitHeight + 28
             else if (d === "usage"      && detailUsage.item)      h = detailUsage.item.implicitHeight + 28
@@ -66,7 +66,11 @@ PanelWindow {
 
     color: "transparent"
     exclusionMode: ExclusionMode.Ignore
-    visible: NcServer.controlCenterVisible
+    readonly property bool shown: NcServer.controlCenterVisible
+    property bool _surfaceVisible: false
+    visible: _surfaceVisible
+    mask: shown ? null : closedRegion
+    Region { id: closedRegion }
 
     WlrLayershell.namespace: "qs-cc"
     WlrLayershell.layer: WlrLayer.Overlay
@@ -91,23 +95,35 @@ PanelWindow {
     // Sound dropdown (output-device picker) — same expand-downward behaviour on
     // the Sound tile's round button.
     property bool soundMenuOpen: false
+    property bool inlineResizeActive: false
+
+    function finishInlineResize() {
+        Qt.callLater(() => {
+            if (!displayHeightMotion.running && !soundHeightMotion.running)
+                win.inlineResizeActive = false
+        })
+    }
 
     // Kick the screen-time tracker at shell startup. The singleton is lazy, so
     // without this it wouldn't begin counting until the Battery detail is first
     // opened — touching a property here forces it to instantiate now.
-    Component.onCompleted: void ScreenTimeService.day
+    Component.onCompleted: {
+        void ScreenTimeService.day
+        if (shown) _surfaceVisible = true
+    }
 
-    onVisibleChanged: {
-        if (!visible) {
+    Connections {
+        target: NcServer
+        function onControlCenterVisibleChanged() {
+            if (NcServer.controlCenterVisible) {
+                win._surfaceVisible = true
+                Qt.callLater(() => escScope.forceActiveFocus())
+            } else {
             detail = ""
             displayMenuOpen = false
             soundMenuOpen = false
-            // Always reopen with every notification stack collapsed.
             stackColumn.expandedGroups = ({})
-        } else {
-            // Grab keyboard focus so Esc is delivered (layer keyboardFocus is
-            // OnDemand and only acquires the keyboard when an item is focused).
-            escScope.forceActiveFocus()
+            }
         }
     }
 
@@ -164,31 +180,39 @@ PanelWindow {
 
     Timer {
         interval: 4000
-        running: win.visible
+        running: win.shown
         repeat: true
         triggeredOnStart: true
         onTriggered: { wifiPoll.running = true; btPoll.running = true }
     }
 
     // Esc-to-dismiss. The FocusScope spans the whole overlay and holds keyboard
-    // focus while open (forced in onVisibleChanged); the inline Wi-Fi field can
+    // focus while open; the inline Wi-Fi field can
     // still take focus on click, and an unhandled Esc bubbles back up to here.
     FocusScope {
         id: escScope
         anchors.fill: parent
         focus: true
+        opacity: win.shown ? 1 : 0
+        Behavior on opacity { AppleSpring { spring: 13 } }
+        onOpacityChanged: if (!win.shown && opacity <= 0.002) win._surfaceVisible = false
         Keys.onEscapePressed: NcServer.controlCenterVisible = false
 
         // Click anywhere outside the card dismisses the panel.
         MouseArea {
             anchors.fill: parent
-            onClicked: NcServer.controlCenterVisible = false
+            enabled: win.shown
+            onPressed: NcServer.controlCenterVisible = false
         }
 
         Rectangle {
         id: card
         width: 440
         height: win.cardHeight
+        Behavior on height {
+            enabled: !win.inlineResizeActive
+            AppleSpring { spring: 18; epsilon: 0.25 }
+        }
         anchors.top: parent.top
         anchors.right: parent.right
         anchors.topMargin: win.topInset
@@ -197,7 +221,10 @@ PanelWindow {
         color: ThemeService.bg
         border.color: ThemeService.stroke
         border.width: 1
-        Behavior on color { ColorAnimation { duration: 200 } }
+        clip: true
+        scale: win.shown ? 1 : 0.97
+        transformOrigin: Item.TopRight
+        Behavior on scale { AppleSpring { spring: 13 } }
 
         // Absorb clicks that land on the card but not on an interactive widget,
         // so they don't fall through to the dismiss-on-outside MouseArea behind
@@ -213,9 +240,9 @@ PanelWindow {
         Item {
             anchors.fill: parent
             anchors.margins: 14
-            visible: win.detail !== ""
-            opacity: visible ? 1 : 0
-            Behavior on opacity { NumberAnimation { duration: 140 } }
+            visible: opacity > 0.002
+            opacity: win.detail !== "" ? 1 : 0
+            Behavior on opacity { AppleSpring { spring: 18 } }
 
             Loader {
                 id: detailWifi
@@ -292,7 +319,9 @@ PanelWindow {
             id: mainArea
             anchors.fill: parent
             anchors.margins: 14
-            visible: win.detail === ""
+            visible: opacity > 0.002
+            opacity: win.detail === "" ? 1 : 0
+            Behavior on opacity { AppleSpring { spring: 18 } }
 
             readonly property real columnW: (width - 10) / 2
 
@@ -436,7 +465,12 @@ PanelWindow {
                         ? brightnessSlider.implicitHeight + 18 + displayToggles.implicitHeight
                         : brightnessSlider.implicitHeight) + 28
                     Behavior on Layout.preferredHeight {
-                        NumberAnimation { duration: 240; easing.type: Easing.OutCubic }
+                        AppleSpring {
+                            id: displayHeightMotion
+                            spring: 18
+                            epsilon: 0.25
+                            onRunningChanged: if (!running) win.finishInlineResize()
+                        }
                     }
 
                     CCSlider {
@@ -471,7 +505,8 @@ PanelWindow {
                             : (dark ? Qt.rgba(1,1,1,0.10) : Qt.rgba(0,0,0,0.06))
                         border.width: 1
                         border.color: dark ? Qt.rgba(1,1,1,0.12) : Qt.rgba(0,0,0,0.10)
-                        Behavior on color { ColorAnimation { duration: 120 } }
+                        scale: menuBtnMa.pressed ? ThemeService.pressScale : 1
+                        Behavior on scale { AppleSpring { spring: 13 } }
 
                         Text {
                             anchors.centerIn: parent
@@ -480,7 +515,7 @@ PanelWindow {
                             font.family: "JetBrainsMono Nerd Font Propo"
                             font.pixelSize: 13
                             rotation: win.displayMenuOpen ? 180 : 0
-                            Behavior on rotation { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
+                            Behavior on rotation { AppleSpring { spring: 13; epsilon: 0.25 } }
                         }
 
                         MouseArea {
@@ -488,7 +523,10 @@ PanelWindow {
                             anchors.fill: parent
                             hoverEnabled: true
                             cursorShape: Qt.PointingHandCursor
-                            onClicked: win.displayMenuOpen = !win.displayMenuOpen
+                            onPressed: {
+                                win.inlineResizeActive = true
+                                win.displayMenuOpen = !win.displayMenuOpen
+                            }
                         }
                     }
 
@@ -504,7 +542,7 @@ PanelWindow {
                         spacing: 28
                         opacity: win.displayMenuOpen ? 1 : 0
                         enabled: win.displayMenuOpen
-                        Behavior on opacity { NumberAnimation { duration: 180 } }
+                        Behavior on opacity { AppleSpring { spring: 13 } }
 
                         CCDisplayToggle {
                             icon: "󰔎"
@@ -531,7 +569,12 @@ PanelWindow {
                         ? soundSlider.implicitHeight + 14 + soundMenu.implicitHeight
                         : soundSlider.implicitHeight) + 28
                     Behavior on Layout.preferredHeight {
-                        NumberAnimation { duration: 240; easing.type: Easing.OutCubic }
+                        AppleSpring {
+                            id: soundHeightMotion
+                            spring: 18
+                            epsilon: 0.25
+                            onRunningChanged: if (!running) win.finishInlineResize()
+                        }
                     }
 
                     CCSlider {
@@ -568,7 +611,8 @@ PanelWindow {
                             : (dark ? Qt.rgba(1,1,1,0.10) : Qt.rgba(0,0,0,0.06))
                         border.width: 1
                         border.color: dark ? Qt.rgba(1,1,1,0.12) : Qt.rgba(0,0,0,0.10)
-                        Behavior on color { ColorAnimation { duration: 120 } }
+                        scale: soundMenuBtnMa.pressed ? ThemeService.pressScale : 1
+                        Behavior on scale { AppleSpring { spring: 13 } }
 
                         Text {
                             anchors.centerIn: parent
@@ -577,7 +621,7 @@ PanelWindow {
                             font.family: "JetBrainsMono Nerd Font Propo"
                             font.pixelSize: 13
                             rotation: win.soundMenuOpen ? 180 : 0
-                            Behavior on rotation { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
+                            Behavior on rotation { AppleSpring { spring: 13; epsilon: 0.25 } }
                         }
 
                         MouseArea {
@@ -585,7 +629,8 @@ PanelWindow {
                             anchors.fill: parent
                             hoverEnabled: true
                             cursorShape: Qt.PointingHandCursor
-                            onClicked: {
+                            onPressed: {
+                                win.inlineResizeActive = true
                                 if (!win.soundMenuOpen) AudioService.refreshDevices()
                                 win.soundMenuOpen = !win.soundMenuOpen
                             }
@@ -606,7 +651,7 @@ PanelWindow {
                         spacing: 2
                         opacity: win.soundMenuOpen ? 1 : 0
                         enabled: win.soundMenuOpen
-                        Behavior on opacity { NumberAnimation { duration: 180 } }
+                        Behavior on opacity { AppleSpring { spring: 13 } }
 
                         // ── Output ──────────────────────────────────────────────
                         Text {
@@ -696,7 +741,8 @@ PanelWindow {
                                 color: prefsMa.containsMouse
                                     ? (dark ? Qt.rgba(1,1,1,0.06) : Qt.rgba(0,0,0,0.04))
                                     : "transparent"
-                                Behavior on color { ColorAnimation { duration: 100 } }
+                                scale: prefsMa.pressed ? 0.985 : 1
+                                Behavior on scale { AppleSpring { spring: 13 } }
                             }
 
                             Text {
@@ -775,9 +821,18 @@ PanelWindow {
                 // interactive is false). Drag-to-scroll is therefore on, but
                 // wheel + touchpad work consistently.
                 interactive: contentHeight > height
-                boundsBehavior: Flickable.StopAtBounds
+                boundsBehavior: Flickable.DragAndOvershootBounds
+                boundsMovement: Flickable.FollowBoundsBehavior
                 flickDeceleration: 6000
                 maximumFlickVelocity: 6000
+                rebound: Transition {
+                    SpringAnimation {
+                        properties: "x,y"
+                        spring: 13
+                        damping: ThemeService.momentumDamping
+                        epsilon: 0.25
+                    }
+                }
 
                 // Kinetic scroll: touchpad swipes glide with momentum, mouse
                 // wheel is one crisp step per notch (shared kinetic.js — same
@@ -798,10 +853,17 @@ PanelWindow {
                     interval: 70
                     onTriggered: {
                         let g = Kinetic.fling(scroll, scroll._ks, {})
-                        if (g) { scrollGlide.from = g.from; scrollGlide.to = g.to; scrollGlide.duration = g.duration; scrollGlide.restart() }
+                        if (g) { scrollGlide.to = g.to; scrollGlide.restart() }
                     }
                 }
-                NumberAnimation { id: scrollGlide; target: scroll; property: "contentY"; easing.type: Easing.OutCubic }
+                SpringAnimation {
+                    id: scrollGlide
+                    target: scroll
+                    property: "contentY"
+                    spring: 13
+                    damping: ThemeService.momentumDamping
+                    epsilon: 0.25
+                }
 
                 ScrollBar.vertical: ScrollBar {
                     id: vBar
@@ -812,7 +874,7 @@ PanelWindow {
                         radius: 2
                         color: dark ? "#ffffff" : "#000000"
                         opacity: vBar.pressed ? 0.45 : (vBar.active ? 0.30 : 0.15)
-                        Behavior on opacity { NumberAnimation { duration: 150 } }
+                        Behavior on opacity { AppleSpring { spring: 13 } }
                     }
                 }
 
@@ -860,7 +922,7 @@ PanelWindow {
                                     + (notifs.length > 1 ? expandedCol.implicitHeight + 8 : 0))
                                 : (topCard.y + topCard.implicitHeight
                                     + extra * peekStep - (extra > 0 ? peekJoinOverlap : 0))
-                            Behavior on height { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
+                            Behavior on height { AppleSpring { spring: 18; epsilon: 0.25 } }
 
                             StackPeek {
                                 visible: !stackDelegate.expanded && stackDelegate.extra >= 2
@@ -917,7 +979,7 @@ PanelWindow {
                                 spacing: 8
                                 visible: stackDelegate.expanded
                                 opacity: stackDelegate.expanded ? 1 : 0
-                                Behavior on opacity { NumberAnimation { duration: 160 } }
+                                Behavior on opacity { AppleSpring { spring: 13 } }
 
                                 Repeater {
                                     model: stackDelegate.expanded
@@ -952,7 +1014,8 @@ PanelWindow {
                                 width: 22; height: 22; radius: 11
                                 color: stackDelegate.expanded ? "#0A84FF" : "#FF453A"
                                 z: 100
-                                Behavior on color { ColorAnimation { duration: 150 } }
+                                scale: badgeMa.pressed ? ThemeService.pressScale : 1
+                                Behavior on scale { AppleSpring { spring: 13 } }
 
                                 Text {
                                     anchors.centerIn: parent
@@ -968,6 +1031,7 @@ PanelWindow {
                                 }
 
                                 MouseArea {
+                                    id: badgeMa
                                     anchors.fill: parent
                                     anchors.margins: -3
                                     cursorShape: Qt.PointingHandCursor
@@ -1009,6 +1073,7 @@ PanelWindow {
                 height: notifModule.clearAllH
 
                 Rectangle {
+                    id: clearAllButton
                     anchors.right: parent.right
                     anchors.verticalCenter: parent.verticalCenter
                     width: clearAllLabel.implicitWidth + 24
@@ -1018,7 +1083,8 @@ PanelWindow {
                         ? ThemeService.tileBgHover
                         : ThemeService.tileBg
                     border.width: 0
-                    Behavior on color { ColorAnimation { duration: 120 } }
+                    scale: clearAllMa.pressed ? ThemeService.pressScale : 1
+                    Behavior on scale { AppleSpring { spring: 13 } }
 
                     Text {
                         id: clearAllLabel
@@ -1059,7 +1125,8 @@ PanelWindow {
                     ? (dbMa.containsMouse ? "#0A74E0" : "#0A84FF")
                     : (dbMa.containsMouse ? (win.dark ? Qt.rgba(1,1,1,0.16) : Qt.rgba(0,0,0,0.10))
                                           : (win.dark ? Qt.rgba(1,1,1,0.10) : Qt.rgba(0,0,0,0.06)))
-                Behavior on color { ColorAnimation { duration: 100 } }
+                scale: dbMa.pressed ? ThemeService.pressScale : 1
+                Behavior on scale { AppleSpring { spring: 13 } }
                 Text {
                     anchors.centerIn: parent
                     text: db.label
@@ -1081,7 +1148,7 @@ PanelWindow {
                 anchors.fill: parent
                 radius: card.radius
                 color: Qt.rgba(0, 0, 0, win.dark ? 0.45 : 0.28)
-                MouseArea { anchors.fill: parent; onClicked: win.batteryConfirm = false }
+                MouseArea { anchors.fill: parent; onPressed: win.batteryConfirm = false }
             }
 
             Rectangle {

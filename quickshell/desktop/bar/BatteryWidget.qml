@@ -22,26 +22,24 @@ PillContainer {
     // Low-power profile → iOS/macOS-style yellow battery glyph.
     readonly property bool powerSaver: Nc.BatteryService.mode === "power-saver"
 
-    color: hovered
-        ? ThemeService.pillBgHover
-        : critical ? Qt.rgba(255/255, 107/255, 107/255, 0.35)
-        : warning  ? Qt.rgba(255/255, 200/255, 100/255, 0.35)
+    color: critical ? (hovered ? Qt.rgba(255/255, 100/255, 100/255, 0.96)
+                                : Qt.rgba(255/255, 107/255, 107/255, 0.88))
+        : warning  ? (hovered ? Qt.rgba(255/255, 203/255, 72/255, 0.96)
+                               : Qt.rgba(255/255, 196/255, 62/255, 0.88))
         : charging ? (ThemeService.isDark ? Qt.rgba(70/255, 170/255, 110/255, 0.38)
                                           : Qt.rgba(190/255, 232/255, 202/255, 0.92))
-        : ThemeService.pillBg
-    border.color: hovered
-        ? ThemeService.pillBorderHover
-        : critical ? Qt.rgba(255/255, 107/255, 107/255, 0.4)
-        : warning  ? Qt.rgba(255/255, 200/255, 100/255, 0.4)
+        : hovered ? ThemeService.pillBgHover : ThemeService.pillBg
+    border.color: critical ? Qt.rgba(124/255, 22/255, 22/255, 0.46)
+        : warning  ? Qt.rgba(112/255, 76/255, 0, 0.42)
         : charging ? (ThemeService.isDark ? Qt.rgba(90/255, 200/255, 130/255, 0.50)
                                           : Qt.rgba(110/255, 190/255, 145/255, 0.60))
-        : ThemeService.pillBorder
+        : hovered ? ThemeService.pillBorderHover : ThemeService.pillBorder
 
     // Dark mode keeps the soft light tints; light mode uses deep variants so the
     // % stays readable on the coloured pill. Charging in light mode is a genuinely
     // pale (opaque) green with dark-green text so it doesn't wash into the wallpaper.
     readonly property color textColor: ThemeService.isDark
-        ? (critical ? "#ffd0d0" : warning ? "#ffe8c0" : charging ? "#d8f5e2" : "#d4f1e8")
+        ? (critical ? "#3a0808" : warning ? "#302100" : charging ? "#d8f5e2" : "#d4f1e8")
         : (critical ? "#7a1414" : warning ? "#6e4400" : charging ? "#0d4a26" : "#1c1c1e")
 
     RowLayout {
@@ -65,7 +63,8 @@ PillContainer {
                 if (p > 5)  return "󰁺"
                 return "󰂃"
             }
-            color: root.powerSaver ? (ThemeService.isDark ? "#FFD60A" : "#8a6d00") : root.textColor
+            color: root.powerSaver && !root.warning && !root.critical
+                ? (ThemeService.isDark ? "#FFD60A" : "#8a6d00") : root.textColor
             font.family: "JetBrainsMono Nerd Font Propo"
             font.pixelSize: 12
         }

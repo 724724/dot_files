@@ -11,7 +11,7 @@ Item {
     id: menu
     anchors.fill: parent
     z: 9999
-    visible: open
+    visible: open || card.opacity > 0.002
 
     property bool open: false
     property var items: []
@@ -53,8 +53,8 @@ Item {
         transformOrigin: Item.TopLeft
         scale: menu.open ? 1 : 0.92
         opacity: menu.open ? 1 : 0
-        Behavior on scale { NumberAnimation { duration: 120; easing.type: Easing.OutCubic } }
-        Behavior on opacity { NumberAnimation { duration: 120 } }
+        Behavior on scale { AppleSpring { spring: 13 } }
+        Behavior on opacity { AppleSpring { spring: 13 } }
 
         Column {
             id: list
@@ -69,6 +69,8 @@ Item {
                     required property var modelData
                     width: list.width
                     height: menu.rowHeight
+                    scale: itemMa.pressed ? 0.985 : 1
+                    Behavior on scale { AppleSpring { spring: 13 } }
 
                     Rectangle {
                         anchors.fill: parent
@@ -80,7 +82,6 @@ Item {
                                 ? Qt.rgba(1, 69 / 255, 58 / 255, menu.dark ? 0.22 : 0.12)
                                 : (menu.dark ? Qt.rgba(1, 1, 1, 0.08) : Qt.rgba(0, 0, 0, 0.05)))
                             : "transparent"
-                        Behavior on color { ColorAnimation { duration: 90 } }
                     }
 
                     Text {

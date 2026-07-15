@@ -33,14 +33,12 @@ PanelWindow {
             openFolder = -1
             _endDrag(true)
             _surfaceVisible = true
-            unmapTimer.stop()
-            queryField.forceActiveFocus()
+            Qt.callLater(() => queryField.forceActiveFocus())
         } else {
             Dock.DockService.launchpadOpen = false
             Dock.DockService.launchpadDragActive = false
             editing = false
             openFolder = -1
-            unmapTimer.restart()
         }
     }
 
@@ -49,12 +47,6 @@ PanelWindow {
     Connections {
         target: Dock.DockService
         function onLaunchpadCloseRequested() { if (win.show) win.closeRequested() }
-    }
-
-    Timer {
-        id: unmapTimer
-        interval: 260
-        onTriggered: win._surfaceVisible = false
     }
 
     // ── Layer / placement ───────────────────────────────────────────────
@@ -67,6 +59,8 @@ PanelWindow {
     anchors { top: true; left: true; right: true; bottom: true }
     color: "transparent"
     exclusionMode: ExclusionMode.Ignore
+    mask: show ? null : closedRegion
+    Region { id: closedRegion }
 
     // ── Icon / launch helpers ───────────────────────────────────────────
     function _iconNameFor(app) {
@@ -124,6 +118,56 @@ PanelWindow {
     readonly property int gridRows: 6
     readonly property int perPage: gridCols * gridRows   // 54
     readonly property int pageCount: Math.max(1, Math.ceil(entryCount / perPage))
+
+    component HorizontalPagerWheel: MouseArea {
+        id: gesture
+
+        required property var pager
+        required property int pagesTotal
+        property real accumulatedX: 0
+        property bool committed: false
+
+        acceptedButtons: Qt.NoButton
+        propagateComposedEvents: true
+        enabled: pagesTotal > 1
+        z: 1000
+
+        Timer {
+            id: gestureEnd
+            interval: 180
+            onTriggered: {
+                gesture.accumulatedX = 0
+                gesture.committed = false
+            }
+        }
+
+        onWheel: wheel => {
+            let hasPixelDelta = wheel.pixelDelta.x !== 0 || wheel.pixelDelta.y !== 0
+            let dx = hasPixelDelta ? wheel.pixelDelta.x : wheel.angleDelta.x
+            let dy = hasPixelDelta ? wheel.pixelDelta.y : wheel.angleDelta.y
+            if (dx === 0 || Math.abs(dx) <= Math.abs(dy)) {
+                wheel.accepted = false
+                return
+            }
+
+            wheel.accepted = true
+            gestureEnd.restart()
+            if (gesture.committed) return
+            if (gesture.accumulatedX !== 0 && Math.sign(dx) !== Math.sign(gesture.accumulatedX))
+                gesture.accumulatedX = 0
+            gesture.accumulatedX += dx
+
+            let threshold = hasPixelDelta ? 45 : 120
+            if (Math.abs(gesture.accumulatedX) < threshold) return
+
+            let next = gesture.accumulatedX < 0
+                ? Math.min(gesture.pagesTotal - 1, gesture.pager.currentIndex + 1)
+                : Math.max(0, gesture.pager.currentIndex - 1)
+            gesture.pager.currentIndex = next
+            gesture.committed = true
+            gesture.accumulatedX = 0
+        }
+    }
 
     // Space kept clear at the bottom for the dock, which rises while the
     // launchpad is open — the grid + page dots sit above it.
@@ -188,6 +232,21 @@ PanelWindow {
     property bool _folderEligible: false // cursor is over the centre of the hovered cell
     property bool _animatePos: false      // animate cell positions (only while dragging)
     property point dragPos: Qt.point(0, 0)
+    property point dragGrabOffset: Qt.point(0, 0)
+
+    function rubberBand(value, lower, upper, dimension) {
+        let overshoot = value < lower ? value - lower : (value > upper ? value - upper : 0)
+        if (overshoot === 0) return value
+        let resisted = (overshoot * dimension * 0.55) / (dimension + 0.55 * Math.abs(overshoot))
+        return (value < lower ? lower : upper) + resisted
+    }
+
+    function rubberBandPoint(pt) {
+        return Qt.point(
+            rubberBand(pt.x, 28, win.width - 28, Math.max(1, win.width)),
+            rubberBand(pt.y, 28, win.height - 28, Math.max(1, win.height))
+        )
+    }
 
     // Slot a cell renders at while dragging: items between the drag source and the
     // hovered target slide by one to open a gap at the drop spot (live reorder).
@@ -213,16 +272,24 @@ PanelWindow {
         if (over) Dock.DockService.launchpadDragX = sceneX
     }
 
-    function _beginDrag(idx) {
+    function _beginDrag(idx, pointerPos, pressPos, bodyCenter) {
         win.dragActive = true
         win._animatePos = true           // cells slide to make room while dragging
         win.dragIndex = idx
         win.dragHoverIndex = idx
         win.folderCandidate = -1
+        win.dragGrabOffset = Qt.point(bodyCenter.x - pressPos.x, bodyCenter.y - pressPos.y)
+        win.dragPos = win.rubberBandPoint(Qt.point(
+            pointerPos.x + win.dragGrabOffset.x,
+            pointerPos.y + win.dragGrabOffset.y
+        ))
         win._setDragOverDock(false, 0)
     }
     function _updateDrag(scenePos) {
-        win.dragPos = scenePos
+        win.dragPos = win.rubberBandPoint(Qt.point(
+            scenePos.x + win.dragGrabOffset.x,
+            scenePos.y + win.dragGrabOffset.y
+        ))
         win._setDragOverDock(win._dragPosOverDock(scenePos), scenePos.x)
         // Over the dock → it's a pin, not a grid move; stop any reorder/folder preview.
         if (win._dragOverDock) {
@@ -322,7 +389,7 @@ PanelWindow {
 
     Timer {
         id: folderTimer
-        interval: 320
+        interval: 256
         onTriggered: {
             let h = win.dragHoverIndex
             // Only an *app* being dragged can form or join a folder. A dragged
@@ -343,12 +410,14 @@ PanelWindow {
         anchors.fill: parent
         color: Qt.rgba(0, 0, 0, 0.55)
         opacity: win.show ? 1.0 : 0.0
-        Behavior on opacity { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
+        Behavior on opacity { AppleSpring { spring: 13 } }
+        onOpacityChanged: if (!win.show && opacity <= 0.002) win._surfaceVisible = false
 
         MouseArea {
             anchors.fill: parent
+            enabled: win.show
             // Empty-area clicks: close a folder, else leave edit mode, else dismiss.
-            onClicked: {
+            onPressed: {
                 if (win.openFolder >= 0) win.openFolder = -1
                 else if (win.editing) win.editing = false
                 else win.closeRequested()
@@ -365,8 +434,8 @@ PanelWindow {
         opacity: (win.show && win.openFolder < 0) ? 1.0 : 0.0
         scale: win.show ? 1.0 : 0.97
         transformOrigin: Item.Center
-        Behavior on opacity { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
-        Behavior on scale   { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
+        Behavior on opacity { AppleSpring { spring: 13 } }
+        Behavior on scale { AppleSpring { spring: 13 } }
 
         // ── Search input ─────────────────────────────────────────────────
         Item {
@@ -380,8 +449,8 @@ PanelWindow {
             Rectangle {
                 anchors.fill: parent
                 radius: 22
-                color: Qt.rgba(1, 1, 1, 0.10)
-                border.color: Qt.rgba(1, 1, 1, 0.20)
+                color: ThemeService.bg
+                border.color: ThemeService.stroke
                 border.width: 1
             }
 
@@ -445,10 +514,11 @@ PanelWindow {
             width: doneLabel.implicitWidth + 28
             height: 36
             radius: 18
-            color: doneMa.containsMouse ? Qt.rgba(1, 1, 1, 0.28) : Qt.rgba(1, 1, 1, 0.16)
-            border.color: Qt.rgba(1, 1, 1, 0.25)
+            color: ThemeService.popupBg
+            border.color: ThemeService.stroke
             border.width: 1
-            Behavior on color { ColorAnimation { duration: 120 } }
+            scale: doneMa.pressed ? ThemeService.pressScale : 1.0
+            Behavior on scale { AppleSpring { spring: 13 } }
             Text {
                 id: doneLabel
                 anchors.centerIn: parent
@@ -463,7 +533,7 @@ PanelWindow {
                 anchors.fill: parent
                 hoverEnabled: true
                 cursorShape: Qt.PointingHandCursor
-                onClicked: win.editing = false
+                    onClicked: win.editing = false
             }
         }
 
@@ -477,31 +547,10 @@ PanelWindow {
             anchors.topMargin: 24
             anchors.bottomMargin: 16
 
-            property double lastFlipTime: 0
-
-            WheelHandler {
-                target: null
-                acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
-                onWheel: (event) => {
-                    event.accepted = true
-                    let dx = event.angleDelta.x + event.pixelDelta.x
-                    let dy = event.angleDelta.y + event.pixelDelta.y
-                    let primary = Math.abs(dx) >= Math.abs(dy) ? dx : dy
-                    if (primary === 0) return
-                    let now = Date.now()
-                    if (now - pageWrapper.lastFlipTime < 280) return
-                    if (primary < 0) {
-                        if (pages.currentIndex < win.pageCount - 1) {
-                            pages.currentIndex += 1
-                            pageWrapper.lastFlipTime = now
-                        }
-                    } else {
-                        if (pages.currentIndex > 0) {
-                            pages.currentIndex -= 1
-                            pageWrapper.lastFlipTime = now
-                        }
-                    }
-                }
+            HorizontalPagerWheel {
+                anchors.fill: parent
+                pager: pages
+                pagesTotal: win.pageCount
             }
 
             SwipeView {
@@ -510,6 +559,34 @@ PanelWindow {
                 clip: false
                 interactive: false
                 orientation: Qt.Horizontal
+
+                contentItem: ListView {
+                    id: pagesFlick
+                    model: pages.contentModel
+                    interactive: pages.interactive
+                    currentIndex: pages.currentIndex
+                    focus: pages.focus
+                    orientation: pages.orientation
+                    contentX: pages.currentIndex * width
+                    snapMode: ListView.SnapOneItem
+                    boundsBehavior: Flickable.DragAndOvershootBounds
+                    boundsMovement: Flickable.FollowBoundsBehavior
+                    highlightRangeMode: ListView.NoHighlightRange
+                    highlightMoveDuration: 0
+                    maximumFlickVelocity: 4 * width
+                    rebound: Transition {
+                        SpringAnimation {
+                            properties: "x,y"
+                            spring: 18
+                            damping: ThemeService.momentumDamping
+                            epsilon: 0.25
+                        }
+                    }
+                    Behavior on contentX {
+                        enabled: !pagesFlick.dragging && !pagesFlick.flicking
+                        AppleSpring { spring: 30; epsilon: 0.1 }
+                    }
+                }
 
                 Repeater {
                     model: win.pageCount
@@ -544,8 +621,8 @@ PanelWindow {
                                     readonly property int dslot: win.dragDisplaySlot(cell.absIndex, pageItem.pageStart)
                                     x: (dslot % win.gridCols) * pageItem.cellW
                                     y: Math.floor(dslot / win.gridCols) * pageItem.cellH
-                                    Behavior on x { enabled: win._animatePos; NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
-                                    Behavior on y { enabled: win._animatePos; NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+                                    Behavior on x { enabled: win._animatePos; AppleSpring { spring: 13; epsilon: 0.15 } }
+                                    Behavior on y { enabled: win._animatePos; AppleSpring { spring: 13; epsilon: 0.15 } }
 
                                     readonly property var entry: absIndex < win.entryCount ? win.entries[absIndex] : null
                                     readonly property bool isApp: entry && entry.type === "app"
@@ -575,19 +652,27 @@ PanelWindow {
                                         width: Math.min(parent.width - 16, 104)
                                         height: Math.min(parent.height - 12, 96)
                                         opacity: cell.isDragSrc ? 0 : 1
-                                        scale: cell.isFolderCand ? 1.12 : 1.0
-                                        Behavior on scale { NumberAnimation { duration: 110 } }
+                                        scale: cell.isFolderCand ? 1.12
+                                            : ((tileTap.pressed || tileDrag.active) ? ThemeService.pressScale : 1.0)
+                                        Behavior on scale { AppleSpring { spring: 13 } }
 
-                                        // Jiggle only in edit mode. A plain drag
-                                        // (not in edit mode) leaves editing false, so
-                                        // dragging an icon to reorder never jiggles.
-                                        property real jig: 0
-                                        rotation: (win.editing && !win.searching && cell.entry) ? jig : 0
-                                        SequentialAnimation on jig {
-                                            running: win.editing && !win.searching && cell.entry && !cell.isDragSrc
-                                            loops: Animation.Infinite
-                                            NumberAnimation { from: -2.2; to: 2.2; duration: 130 + (cell.index % 6) * 7; easing.type: Easing.InOutSine }
-                                            NumberAnimation { from: 2.2; to: -2.2; duration: 130 + (cell.index % 6) * 7; easing.type: Easing.InOutSine }
+                                        readonly property bool jigEnabled: win.editing && !win.searching
+                                            && cell.entry !== null && !cell.isDragSrc && !tileDrag.active
+                                        readonly property real jigAmp: 1.35 + (cell.index % 5) * 0.08
+                                        property real jigTarget: 0
+                                        rotation: jigEnabled ? jigTarget : 0
+                                        onJigEnabledChanged: jigTarget = jigEnabled
+                                            ? ((cell.index % 2 === 0) ? jigAmp : -jigAmp) : 0
+                                        Behavior on rotation {
+                                            AppleSpring {
+                                                id: jigMotion
+                                                spring: 22
+                                                damping: ThemeService.momentumDamping
+                                                epsilon: 0.04
+                                                onRunningChanged: if (!running && body.jigEnabled)
+                                                    Qt.callLater(() => body.jigTarget = body.jigTarget > 0
+                                                        ? -body.jigAmp : body.jigAmp)
+                                            }
                                         }
 
                                         Column {
@@ -666,6 +751,7 @@ PanelWindow {
 
                                         // Tap: launch / open folder; long-press: enter edit mode.
                                         TapHandler {
+                                            id: tileTap
                                             enabled: cell.entry !== null
                                             longPressThreshold: 0.4
                                             onTapped: {
@@ -683,11 +769,16 @@ PanelWindow {
                                         // first; grabbing an icon and moving it past
                                         // the threshold starts the drag right away.
                                         DragHandler {
+                                            id: tileDrag
                                             target: null
                                             dragThreshold: 8
                                             enabled: !win.searching && cell.entry !== null
                                             onActiveChanged: {
-                                                if (active) win._beginDrag(cell.absIndex)
+                                                if (active) {
+                                                    let centre = body.mapToItem(null, body.width / 2, body.height / 2)
+                                                    win._beginDrag(cell.absIndex, centroid.scenePosition,
+                                                        centroid.scenePressPosition, centre)
+                                                }
                                                 else win._endDrag(false)
                                             }
                                             onCentroidChanged: if (active) win._updateDrag(centroid.scenePosition)
@@ -716,8 +807,10 @@ PanelWindow {
                     required property int index
                     width: 7; height: 7; radius: 999
                     color: index === pages.currentIndex ? Qt.rgba(1, 1, 1, 0.85) : Qt.rgba(1, 1, 1, 0.30)
-                    Behavior on color { ColorAnimation { duration: 150 } }
+                    scale: dotMa.pressed ? ThemeService.pressScale : 1.0
+                    Behavior on scale { AppleSpring { spring: 13 } }
                     MouseArea {
+                        id: dotMa
                         anchors.fill: parent
                         cursorShape: Qt.PointingHandCursor
                         onClicked: pages.currentIndex = index
@@ -789,7 +882,7 @@ PanelWindow {
     Item {
         id: folderView
         anchors.fill: parent
-        visible: win.openFolder >= 0
+        visible: win.openFolder >= 0 || folderStack.opacity > 0.002
         z: 1500
 
         readonly property var folder: (win.openFolder >= 0 && win.openFolder < LaunchpadModel.items.length
@@ -807,7 +900,7 @@ PanelWindow {
         }
 
         // Click anywhere outside the panel closes the folder.
-        MouseArea { anchors.fill: parent; onClicked: win.openFolder = -1 }
+        MouseArea { anchors.fill: parent; enabled: win.openFolder >= 0; onPressed: win.openFolder = -1 }
 
         Column {
             id: folderStack
@@ -819,8 +912,8 @@ PanelWindow {
             opacity: win.openFolder >= 0 ? 1 : 0
             scale: win.openFolder >= 0 ? 1 : 0.96
             transformOrigin: Item.Center
-            Behavior on opacity { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
-            Behavior on scale   { NumberAnimation { duration: 170; easing.type: Easing.OutCubic } }
+            Behavior on opacity { AppleSpring { spring: 13 } }
+            Behavior on scale { AppleSpring { spring: 13 } }
 
             // Editable folder title (above the panel, like macOS/iOS).
             TextField {
@@ -833,6 +926,7 @@ PanelWindow {
                 font.family: "SF Pro Display"
                 font.pixelSize: 24
                 font.weight: Font.DemiBold
+                font.letterSpacing: -0.35
                 text: folderView.folder ? folderView.folder.name : ""
                 onEditingFinished: if (win.openFolder >= 0) LaunchpadModel.renameFolder(win.openFolder, text)
                 Keys.onEscapePressed: win.openFolder = -1
@@ -850,26 +944,16 @@ PanelWindow {
                 readonly property int cellH: 132
                 height: folderView.rowsShown * cellH + pad * 2 + (folderView.pageCount > 1 ? 26 : 0)
                 radius: 34
-                color: Qt.rgba(1, 1, 1, 0.12)
-                border.color: Qt.rgba(1, 1, 1, 0.16)
+                color: ThemeService.bg
+                border.color: ThemeService.stroke
                 border.width: 1
 
                 MouseArea { anchors.fill: parent }   // swallow clicks inside the panel
 
-                // Wheel flips folder pages.
-                WheelHandler {
-                    target: null
-                    acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
-                    property double lastFlip: 0
-                    onWheel: (event) => {
-                        event.accepted = true
-                        let d = event.angleDelta.x + event.pixelDelta.x + event.angleDelta.y + event.pixelDelta.y
-                        if (d === 0) return
-                        let now = Date.now()
-                        if (now - lastFlip < 280) return
-                        if (d < 0 && folderSwipe.currentIndex < folderView.pageCount - 1) { folderSwipe.currentIndex += 1; lastFlip = now }
-                        else if (d > 0 && folderSwipe.currentIndex > 0) { folderSwipe.currentIndex -= 1; lastFlip = now }
-                    }
+                HorizontalPagerWheel {
+                    anchors.fill: parent
+                    pager: folderSwipe
+                    pagesTotal: folderView.pageCount
                 }
 
                 SwipeView {
@@ -880,7 +964,36 @@ PanelWindow {
                     }
                     height: folderView.rowsShown * folderPanel.cellH
                     clip: false
-                    interactive: false
+                    interactive: true
+
+                    contentItem: ListView {
+                        id: folderFlick
+                        model: folderSwipe.contentModel
+                        interactive: folderSwipe.interactive
+                        currentIndex: folderSwipe.currentIndex
+                        focus: folderSwipe.focus
+                        orientation: Qt.Horizontal
+                        snapMode: ListView.SnapOneItem
+                        boundsBehavior: Flickable.DragAndOvershootBounds
+                        boundsMovement: Flickable.FollowBoundsBehavior
+                        highlightRangeMode: ListView.StrictlyEnforceRange
+                        preferredHighlightBegin: 0
+                        preferredHighlightEnd: 0
+                        highlightMoveDuration: 0
+                        maximumFlickVelocity: 4 * width
+                        rebound: Transition {
+                            SpringAnimation {
+                                properties: "x,y"
+                                spring: 18
+                                damping: ThemeService.momentumDamping
+                                epsilon: 0.25
+                            }
+                        }
+                        Behavior on contentX {
+                            enabled: !folderFlick.dragging && !folderFlick.flicking
+                            AppleSpring { spring: 18; epsilon: 0.25 }
+                        }
+                    }
 
                     Repeater {
                         model: folderView.pageCount
@@ -911,6 +1024,8 @@ PanelWindow {
                                             id: ftile
                                             anchors.centerIn: parent
                                             width: 104; height: 112
+                                            scale: folderAppMa.pressed ? ThemeService.pressScale : 1.0
+                                            Behavior on scale { AppleSpring { spring: 13 } }
 
                                             Column {
                                                 anchors.centerIn: parent
@@ -939,6 +1054,7 @@ PanelWindow {
                                             }
 
                                             MouseArea {
+                                                id: folderAppMa
                                                 anchors.fill: parent
                                                 cursorShape: Qt.PointingHandCursor
                                                 onClicked: if (!win.editing && fcell.fapp) win.launchById(fcell.appId)
@@ -951,6 +1067,8 @@ PanelWindow {
                                                 visible: win.editing
                                                 color: rmMa.containsMouse ? "#ff5b54" : Qt.rgba(0, 0, 0, 0.72)
                                                 border.color: Qt.rgba(1, 1, 1, 0.7); border.width: 1
+                                                scale: rmMa.pressed ? ThemeService.pressScale : 1.0
+                                                Behavior on scale { AppleSpring { spring: 13 } }
                                                 Text {
                                                     anchors.centerIn: parent
                                                     text: "×"; color: "#ffffff"
@@ -990,8 +1108,10 @@ PanelWindow {
                             required property int index
                             width: 7; height: 7; radius: 999
                             color: index === folderSwipe.currentIndex ? Qt.rgba(1, 1, 1, 0.9) : Qt.rgba(1, 1, 1, 0.35)
-                            Behavior on color { ColorAnimation { duration: 150 } }
+                            scale: folderDotMa.pressed ? ThemeService.pressScale : 1.0
+                            Behavior on scale { AppleSpring { spring: 13 } }
                             MouseArea {
+                                id: folderDotMa
                                 anchors.fill: parent
                                 cursorShape: Qt.PointingHandCursor
                                 onClicked: folderSwipe.currentIndex = index

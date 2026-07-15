@@ -3,6 +3,7 @@ import Quickshell.Io
 import Quickshell.Wayland
 import QtQuick
 import QtQuick.Layouts
+import "../missioncontrol" as MC
 
 Scope {
     id: barScope
@@ -13,15 +14,8 @@ Scope {
         function show() { BarState.visible = true }
         function reload() {
             BarState.visible = false
-            reloadTimer.start()
+            Qt.callLater(() => BarState.visible = true)
         }
-    }
-
-    Timer {
-        id: reloadTimer
-        interval: 150
-        repeat: false
-        onTriggered: BarState.visible = true
     }
 
     Variants {
@@ -37,7 +31,13 @@ Scope {
             // "quickshell" default.
             WlrLayershell.namespace: "qs-bar"
 
-            visible: BarState.visible
+            // Hidden while this screen's active workspace is a Mission-Control
+            // Split View space (macOS-style full-bleed split; unmapping also
+            // releases the exclusive zone so the tiles get the full height).
+            // Returns as soon as any normal workspace becomes active.
+            readonly property bool splitViewHere:
+                MC.MCService.splitViewActiveOn(win.modelData ? win.modelData.name : "")
+            visible: BarState.visible && !splitViewHere
             anchors { top: true; left: true; right: true }
             margins { top: 10; left: 10; right: 10 }
             implicitHeight: 33
@@ -50,6 +50,7 @@ Scope {
                 Region { item: clockW }
                 Region { item: workspacesW }
                 Region { item: mediaW }
+                Region { item: privacyW }
                 Region { item: magicW }
                 Region { item: trayW }
                 Region { item: volumeW }
@@ -74,6 +75,7 @@ Scope {
 
                 Item { Layout.fillWidth: true }
 
+                PrivacyIndicatorsWidget { id: privacyW; screen: win.modelData }
                 MagicWidget { id: magicW }
                 TrayWidget { id: trayW; window: win }
                 VolumeWidget { id: volumeW }

@@ -1,6 +1,8 @@
 import QtQuick
 import QtQuick.Controls
+import Qt5Compat.GraphicalEffects
 import Quickshell.Io
+import "kinetic.js" as Kinetic
 
 Item {
     id: newsRoot
@@ -9,6 +11,7 @@ Item {
     readonly property var sources: (d && d.sources && d.sources.length) ? d.sources : NewsService.defaultSources()
     readonly property var categories: (d && d.categories && d.categories.length) ? d.categories : NewsService.defaultCategories()
     readonly property int layout: (d && d.layout) ? d.layout : 2
+    readonly property bool xSmall: layout === 4
     readonly property string modelName: (d && d.model) ? d.model : NewsService.defaultModel
     readonly property bool active: frame && frame.winRef ? frame.winRef.show : true
 
@@ -36,8 +39,11 @@ Item {
     property bool batchHandled: false
     property double lastFetchMs: 0
     property int page: 0
+    property int xSmallIndex: 0
+    property real xSmallWheelDelta: 0
+    property bool xSmallPageVisible: false
     readonly property int refreshIntervalMs: 60 * 60 * 1000
-    readonly property int pageSize: layout === 1 ? 2 : (layout === 3 ? 6 : 4)
+    readonly property int pageSize: xSmall ? 1 : (layout === 1 ? 2 : (layout === 3 ? 6 : 4))
     readonly property int imageW: layout === 1 ? 86 : (layout === 3 ? 68 : 76)
     readonly property int imageH: imageW
     readonly property int rowMinH: layout === 1 ? 86 : (layout === 3 ? 76 : 82)
@@ -45,7 +51,20 @@ Item {
     readonly property int headlineSize: layout === 3 ? 18 : 20
     readonly property int sourceSize: layout === 3 ? 11 : 12
     readonly property var filteredItems: filterItems(items)
-    readonly property int totalPages: Math.max(1, Math.ceil(filteredItems.length / pageSize))
+    readonly property var xSmallItems: {
+        let pictured = []
+        for (let i = 0; i < filteredItems.length; i++) {
+            if (filteredItems[i].image) pictured.push(filteredItems[i])
+        }
+        return pictured.length > 0 ? pictured : filteredItems
+    }
+    readonly property var xSmallCurrent: xSmallItems.length > 0
+        ? xSmallItems[Math.min(xSmallIndex, xSmallItems.length - 1)]
+        : ({})
+    // Plain int, recounted from signal handlers: a lazy binding through the
+    // filteredItems var-array (new identity every evaluation) re-dirties any
+    // reader mid-evaluation and trips the binding-loop detector.
+    property int totalPages: 1
     readonly property var pageItems: filteredItems.slice(page * pageSize, Math.min(filteredItems.length, (page + 1) * pageSize))
     readonly property int selectedCount: selectedItems().length
     readonly property int pageSelectableCount: countPageSelectable()
@@ -56,18 +75,24 @@ Item {
     onActiveChanged: if (active && !loading) requestFetch(false)
     onSourcesChanged: filtersChanged()
     onCategoriesChanged: filtersChanged()
-    onLayoutChanged: { page = 0; clampPage(); scheduleRowHeightRecalc() }
-    onFilteredItemsChanged: { clampPage(); scheduleRowHeightRecalc() }
+    onLayoutChanged: { page = 0; xSmallIndex = 0; _recountPages(); scheduleRowHeightRecalc() }
+    onFilteredItemsChanged: {
+        _recountPages()
+        scheduleRowHeightRecalc()
+    }
+    onXSmallItemsChanged: xSmallIndex = Math.max(0, Math.min(xSmallIndex, xSmallItems.length - 1))
     onPageItemsChanged: scheduleRowHeightRecalc()
+    onPageChanged: { nvGlide.stop(); listViewport.contentY = 0 }
     onSelectModeChanged: scheduleRowHeightRecalc()
     onSummaryByUrlChanged: scheduleRowHeightRecalc()
     onLoadingUrlsChanged: scheduleRowHeightRecalc()
     onErrorByUrlChanged: scheduleRowHeightRecalc()
     onWidthChanged: scheduleRowHeightRecalc()
-    Component.onCompleted: if (active) requestFetch(false)
+    Component.onCompleted: { _recountPages(); if (active) requestFetch(false) }
 
     Timer { id: fetchDebounce; interval: 120; onTriggered: newsRoot.fetchNews() }
     Timer { id: rowMeasureTimer; interval: 1; onTriggered: if (typeof listCol !== "undefined") listCol.recomputeUniformRowH() }
+    Timer { id: xSmallPageTimer; interval: 900; onTriggered: newsRoot.xSmallPageVisible = false }
 
     Process {
         id: fetchProc
@@ -110,19 +135,32 @@ Item {
 
     function filtersChanged() {
         page = 0
+        xSmallIndex = 0
         status = ""
         pruneSelection()
         pruneSummaries()
         requestFetch(true)
     }
 
-    function scheduleRowHeightRecalc() {
-        if (typeof rowMeasureTimer !== "undefined") rowMeasureTimer.restart()
+    function moveXSmall(step) {
+        if (xSmallItems.length < 2 || step === 0) return
+        xSmallIndex = Math.max(0, Math.min(xSmallItems.length - 1, xSmallIndex + step))
+        xSmallPageVisible = true
+        xSmallPageTimer.restart()
+    }
+
+    function _recountPages() {
+        totalPages = Math.max(1, Math.ceil(filteredItems.length / pageSize))
+        clampPage()
     }
 
     function clampPage() {
         if (page >= totalPages) page = totalPages - 1
         if (page < 0) page = 0
+    }
+
+    function scheduleRowHeightRecalc() {
+        if (typeof rowMeasureTimer !== "undefined") rowMeasureTimer.restart()
     }
 
     function filterItems(src) {
@@ -292,9 +330,9 @@ Item {
             updatedAt = j.updatedAt || Math.floor(Date.now() / 1000)
             lastFetchMs = Date.now()
             status = filteredItems.length === 0 ? "선택한 조건의 뉴스가 없습니다." : ""
+            clampPage()
             pruneSelection()
             pruneSummaries()
-            clampPage()
         } catch (e) {
             status = "뉴스 데이터를 읽지 못했습니다."
         }
@@ -395,14 +433,276 @@ Item {
         }
     }
 
+    function openArticle(url) {
+        if (!url || openProc.running) return
+        openProc.command = ["xdg-open", url]
+        if (frame && frame.winRef) frame.winRef.closeRequested()
+        Qt.callLater(() => openProc.running = true)
+    }
+
     Rectangle {
         anchors.fill: parent
-        radius: 13
+        radius: newsRoot.xSmall ? 26 : 13
         color: newsRoot.bg
     }
 
     Item {
+        id: xSmallLayout
+        anchors.fill: parent
+        visible: newsRoot.xSmall
+
+        Rectangle {
+            id: xSmallSurface
+            anchors.fill: parent
+            radius: 26
+            color: newsRoot.faint
+
+            ListView {
+                id: xSmallStack
+                anchors.fill: parent
+                visible: false
+                model: newsRoot.xSmallItems
+                interactive: false
+                orientation: ListView.Vertical
+                contentY: newsRoot.xSmallIndex * height
+                cacheBuffer: height
+                Behavior on contentY {
+                    AppleSpring {
+                        spring: 22
+                        damping: ThemeService.momentumDamping
+                        epsilon: 0.2
+                    }
+                }
+
+                delegate: Item {
+                    required property var modelData
+                    width: xSmallStack.width
+                    height: xSmallStack.height
+
+                    Image {
+                        id: xSmallImage
+                        anchors.fill: parent
+                        source: modelData.image || ""
+                        fillMode: Image.PreserveAspectCrop
+                        asynchronous: true
+                        cache: true
+                    }
+
+                    Rectangle {
+                        anchors.fill: parent
+                        color: xSmallImage.status === Image.Ready ? "transparent" : newsRoot.faint
+                    }
+
+                    Text {
+                        anchors.centerIn: parent
+                        visible: xSmallImage.status !== Image.Ready
+                        text: "\uf1ea"
+                        color: newsRoot.muted
+                        font.family: NewsService.iconFont
+                        font.pixelSize: 42
+                    }
+
+                    Rectangle {
+                        anchors.fill: parent
+                        gradient: Gradient {
+                            orientation: Gradient.Vertical
+                            GradientStop { position: 0.18; color: Qt.rgba(0, 0, 0, 0.04) }
+                            GradientStop { position: 0.52; color: Qt.rgba(0, 0, 0, 0.18) }
+                            GradientStop { position: 1; color: Qt.rgba(0, 0, 0, 0.92) }
+                        }
+                    }
+
+                    Column {
+                        anchors { left: parent.left; right: parent.right; bottom: parent.bottom }
+                        anchors.leftMargin: 16
+                        anchors.rightMargin: 16
+                        anchors.bottomMargin: 15
+                        spacing: 3
+
+                        Text {
+                            width: parent.width
+                            visible: text.length > 0
+                            text: modelData.source || ""
+                            color: Qt.rgba(1, 1, 1, 0.74)
+                            font.family: "SF Pro Display"
+                            font.pixelSize: 10
+                            font.weight: Font.Bold
+                            font.capitalization: Font.AllUppercase
+                            elide: Text.ElideRight
+                        }
+
+                        Text {
+                            width: parent.width
+                            text: modelData.title || ""
+                            color: "#ffffff"
+                            font.family: "SF Pro Display"
+                            font.pixelSize: 19
+                            font.weight: Font.Black
+                            font.letterSpacing: -0.25
+                            lineHeight: 0.94
+                            wrapMode: Text.WrapAtWordBoundaryOrAnywhere
+                            maximumLineCount: 3
+                            elide: Text.ElideRight
+                        }
+                    }
+
+                }
+            }
+
+            Rectangle {
+                id: xSmallMask
+                anchors.fill: parent
+                radius: parent.radius
+                visible: false
+            }
+
+            OpacityMask {
+                anchors.fill: parent
+                source: xSmallStack
+                maskSource: xSmallMask
+                cached: false
+                scale: xSmallArticle.pressed ? 0.985 : 1
+                Behavior on scale { AppleSpring { spring: 20 } }
+            }
+
+            MouseArea {
+                id: xSmallArticle
+                anchors.fill: parent
+                enabled: !!newsRoot.xSmallCurrent.url
+                hoverEnabled: true
+                cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
+                onClicked: newsRoot.openArticle(newsRoot.xSmallCurrent.url)
+            }
+
+            Column {
+                anchors.centerIn: parent
+                visible: newsRoot.xSmallItems.length === 0
+                spacing: 8
+
+                Text {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    text: "\uf1ea"
+                    color: newsRoot.muted
+                    font.family: NewsService.iconFont
+                    font.pixelSize: 34
+                }
+
+                Text {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    text: newsRoot.loading ? "Loading..." : newsRoot.status
+                    color: newsRoot.muted
+                    font.family: "SF Pro Display"
+                    font.pixelSize: 12
+                    font.weight: Font.DemiBold
+                }
+            }
+
+            WheelHandler {
+                target: null
+                acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
+                onWheel: event => {
+                    let delta = event.pixelDelta.y !== 0 ? event.pixelDelta.y : event.angleDelta.y
+                    if (delta === 0) return
+                    if (newsRoot.xSmallWheelDelta !== 0 && (delta > 0) !== (newsRoot.xSmallWheelDelta > 0))
+                        newsRoot.xSmallWheelDelta = 0
+                    newsRoot.xSmallWheelDelta += delta
+                    let threshold = event.pixelDelta.y !== 0 ? 48 : 120
+                    if (Math.abs(newsRoot.xSmallWheelDelta) >= threshold) {
+                        newsRoot.moveXSmall(newsRoot.xSmallWheelDelta < 0 ? 1 : -1)
+                        newsRoot.xSmallWheelDelta = 0
+                    }
+                    event.accepted = true
+                }
+            }
+        }
+
+        Row {
+            anchors { top: parent.top; right: parent.right }
+            anchors.topMargin: 12
+            anchors.rightMargin: 12
+            spacing: 6
+            z: 5
+
+            Rectangle {
+                visible: newsRoot.updatedAt > 0
+                width: updateClock.implicitWidth + 16
+                height: 30
+                radius: 15
+                color: Qt.rgba(0, 0, 0, 0.5)
+                border.color: Qt.rgba(1, 1, 1, 0.18)
+                border.width: 1
+
+                Text {
+                    id: updateClock
+                    anchors.centerIn: parent
+                    text: NewsService.clock(newsRoot.updatedAt)
+                    color: "#ffffff"
+                    font.family: "SF Pro Display"
+                    font.pixelSize: 10
+                    font.weight: Font.DemiBold
+                }
+            }
+
+            Rectangle {
+                width: 30
+                height: 30
+                radius: 15
+                color: xSmallRefreshHover.hovered ? Qt.rgba(0, 0, 0, 0.72) : Qt.rgba(0, 0, 0, 0.5)
+                border.color: Qt.rgba(1, 1, 1, 0.22)
+                border.width: 1
+                opacity: fetchProc.running ? 0.58 : 1
+                scale: xSmallRefreshTap.pressed ? ThemeService.pressScale : 1
+                Behavior on scale { AppleSpring { spring: 18 } }
+
+                Text {
+                    anchors.centerIn: parent
+                    text: "\uf021"
+                    color: "#ffffff"
+                    font.family: NewsService.iconFont
+                    font.pixelSize: 11
+                    rotation: fetchProc.running ? 180 : 0
+                    Behavior on rotation { AppleSpring { spring: 18 } }
+                }
+
+                HoverHandler { id: xSmallRefreshHover; enabled: !fetchProc.running }
+                TapHandler {
+                    id: xSmallRefreshTap
+                    enabled: !fetchProc.running
+                    onTapped: newsRoot.requestFetch(true)
+                }
+            }
+        }
+
+        Rectangle {
+            anchors { horizontalCenter: parent.horizontalCenter; bottom: parent.bottom }
+            anchors.bottomMargin: 4
+            width: xSmallPageLabel.implicitWidth + 14
+            height: 18
+            radius: 9
+            color: Qt.rgba(0, 0, 0, 0.58)
+            border.color: Qt.rgba(1, 1, 1, 0.18)
+            border.width: 1
+            opacity: newsRoot.xSmallPageVisible && newsRoot.xSmallItems.length > 1 ? 1 : 0
+            visible: opacity > 0.002
+            z: 5
+            Behavior on opacity { AppleSpring { spring: 20 } }
+
+            Text {
+                id: xSmallPageLabel
+                anchors.centerIn: parent
+                text: (newsRoot.xSmallIndex + 1) + "/" + newsRoot.xSmallItems.length
+                color: "#ffffff"
+                font.family: "SF Pro Display"
+                font.pixelSize: 9
+                font.weight: Font.DemiBold
+            }
+        }
+
+    }
+
+    Item {
         id: header
+        visible: !newsRoot.xSmall
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.top: parent.top
@@ -417,6 +717,7 @@ Item {
             color: newsRoot.fg
             font.family: "SF Pro Display"
             font.pixelSize: 28
+            font.letterSpacing: -0.5
             font.weight: Font.Black
         }
 
@@ -453,17 +754,62 @@ Item {
         }
     }
 
-    Item {
+    Flickable {
         id: listViewport
+        visible: !newsRoot.xSmall
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.top: header.bottom
-        anchors.bottom: pager.top
+        anchors.bottom: pager.visible ? pager.top : (confirmBar.visible ? confirmBar.top : parent.bottom)
         anchors.topMargin: 6
-        anchors.bottomMargin: 12
+        anchors.bottomMargin: pager.visible ? 6 : (confirmBar.visible ? 10 : 16)
         anchors.leftMargin: 18
         anchors.rightMargin: 18
         clip: true
+        contentWidth: width
+        contentHeight: listCol.height + 4
+        boundsBehavior: Flickable.DragAndOvershootBounds
+        boundsMovement: Flickable.FollowBoundsBehavior
+        flickDeceleration: 6000
+        maximumFlickVelocity: 6000
+        rebound: Transition {
+            SpringAnimation {
+                properties: "x,y"
+                spring: 18
+                damping: ThemeService.momentumDamping
+                epsilon: 0.25
+            }
+        }
+        ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+
+        // Kinetic scroll (kinetic.js) within the current page: rows keep
+        // their paged layout, but when AI summaries stretch the column past
+        // the widget height the overflow scrolls instead of clipping.
+        property var _ks: ({})
+        WheelHandler {
+            acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
+            onWheel: (ev) => {
+                nvGlide.stop()
+                if (Kinetic.onWheel(listViewport, ev, listViewport._ks, { gain: 90 }))
+                    nvEndTimer.restart()
+            }
+        }
+        Timer {
+            id: nvEndTimer
+            interval: 48
+            onTriggered: {
+                let g = Kinetic.fling(listViewport, listViewport._ks, {})
+                if (g) { nvGlide.from = g.from; nvGlide.to = g.to; nvGlide.restart() }
+            }
+        }
+        SpringAnimation {
+            id: nvGlide
+            target: listViewport
+            property: "contentY"
+            spring: 18
+            damping: ThemeService.momentumDamping
+            epsilon: 0.25
+        }
 
         Column {
             id: listCol
@@ -673,10 +1019,7 @@ Item {
                         cursorShape: Qt.PointingHandCursor
                         onClicked: {
                             if (newsRoot.selectMode) newsRoot.toggleSelected(modelData.url)
-                            else if (modelData.url) {
-                                openProc.command = ["xdg-open", modelData.url]
-                                openProc.running = true
-                            }
+                            else newsRoot.openArticle(modelData.url)
                         }
                     }
                 }
@@ -686,7 +1029,7 @@ Item {
 
     Row {
         id: pager
-        visible: newsRoot.totalPages > 1
+        visible: !newsRoot.xSmall && newsRoot.totalPages > 1
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.bottom: confirmBar.visible ? confirmBar.top : parent.bottom
@@ -698,7 +1041,7 @@ Item {
 
         PagerButton {
             glyph: "\uf053"
-            enabled: newsRoot.page > 0
+            active: newsRoot.page > 0
             onClicked: newsRoot.page--
         }
         Text {
@@ -713,14 +1056,14 @@ Item {
         }
         PagerButton {
             glyph: "\uf054"
-            enabled: newsRoot.page < newsRoot.totalPages - 1
+            active: newsRoot.page < newsRoot.totalPages - 1
             onClicked: newsRoot.page++
         }
     }
 
     Rectangle {
         id: confirmBar
-        visible: newsRoot.selectMode && newsRoot.selectedCount > 0 && !newsRoot.aiBusy
+        visible: !newsRoot.xSmall && newsRoot.selectMode && newsRoot.selectedCount > 0 && !newsRoot.aiBusy
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.bottom: parent.bottom
@@ -733,6 +1076,8 @@ Item {
         border.color: "#0a84ff"
         border.width: 1
         clip: true
+        scale: confirmMa.pressed ? ThemeService.pressScale : 1.0
+        Behavior on scale { AppleSpring { spring: 18 } }
 
         Text {
             anchors.centerIn: parent
@@ -744,6 +1089,7 @@ Item {
         }
 
         MouseArea {
+            id: confirmMa
             anchors.fill: parent
             cursorShape: Qt.PointingHandCursor
             onClicked: newsRoot.confirmSummaries()
@@ -763,6 +1109,8 @@ Item {
         border.color: active ? "#0a84ff" : newsRoot.line
         border.width: 1
         opacity: enabled ? 1 : 0.45
+        scale: hbMa.pressed ? ThemeService.pressScale : 1.0
+        Behavior on scale { AppleSpring { spring: 18 } }
         Text {
             anchors.centerIn: parent
             text: hb.glyph
@@ -773,6 +1121,7 @@ Item {
         }
         HoverHandler { id: hHover; enabled: hb.enabled }
         MouseArea {
+            id: hbMa
             anchors.fill: parent
             enabled: hb.enabled
             cursorShape: Qt.PointingHandCursor
@@ -790,6 +1139,8 @@ Item {
         color: pHover.hovered ? newsRoot.faint : newsRoot.bg
         border.color: newsRoot.line
         border.width: 1
+        scale: hpMa.pressed ? ThemeService.pressScale : 1.0
+        Behavior on scale { AppleSpring { spring: 18 } }
         Text {
             id: label
             anchors.centerIn: parent
@@ -801,36 +1152,42 @@ Item {
         }
         HoverHandler { id: pHover; enabled: hp.enabled }
         MouseArea {
+            id: hpMa
             anchors.fill: parent
             cursorShape: Qt.PointingHandCursor
             onClicked: hp.clicked()
         }
     }
 
+    // `active` (not the built-in Item.enabled) gates the button — binding
+    // enabled on a Row child re-triggers itself through the enable-propagation
+    // to the child MouseArea and warns about a binding loop.
     component PagerButton: Rectangle {
         id: pb
         property string glyph: ""
+        property bool active: true
         signal clicked()
         width: 28
         height: 28
-        radius: 14
-        color: pHover.hovered && enabled ? newsRoot.faint : newsRoot.bg
-        border.color: newsRoot.line
-        border.width: 1
-        opacity: enabled ? 1 : 0.35
+        radius: 8
+        color: pbMa.containsMouse && pb.active ? newsRoot.faint : "transparent"
+        opacity: active ? 1 : 0.35
+        scale: pbMa.pressed ? ThemeService.pressScale : 1.0
+        Behavior on scale { AppleSpring { spring: 18 } }
         Text {
             anchors.centerIn: parent
             text: pb.glyph
-            color: newsRoot.fg
+            color: newsRoot.muted
             font.family: NewsService.iconFont
-            font.pixelSize: 10
+            font.pixelSize: 11
         }
-        HoverHandler { id: pHover; enabled: pb.enabled }
         MouseArea {
+            id: pbMa
             anchors.fill: parent
-            enabled: pb.enabled
-            cursorShape: Qt.PointingHandCursor
-            onClicked: pb.clicked()
+            hoverEnabled: true
+            cursorShape: pb.active ? Qt.PointingHandCursor : Qt.ArrowCursor
+            onClicked: if (pb.active) pb.clicked()
         }
     }
+
 }

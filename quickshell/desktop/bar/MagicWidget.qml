@@ -5,6 +5,7 @@ import QtQuick.Layouts
 PillContainer {
     id: root
     clickable: true
+    pressed: tap.pressed
     implicitHeight: 33
     implicitWidth: row.implicitWidth + 24
     visible: hasMagic
@@ -21,6 +22,7 @@ PillContainer {
         : ThemeService.pillBorder
 
     TapHandler {
+        id: tap
         onTapped: Hyprland.dispatch('hl.dsp.workspace.toggle_special("magic")')
     }
 
@@ -37,7 +39,6 @@ PillContainer {
             font.family: "JetBrainsMono Nerd Font Propo"
             font.pixelSize: 12
 
-            Behavior on color { ColorAnimation { duration: 200 } }
         }
     }
 }

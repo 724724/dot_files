@@ -14,6 +14,7 @@ Item {
     implicitHeight: 33
 
     readonly property bool active: ShazamService.popupVisible
+    readonly property bool pressed: leftTap.pressed || rightTap.pressed
 
     // Report this icon's screen-space centre to the service so the popup can
     // drop down centred under it. The bar window is inset from the screen's
@@ -27,16 +28,6 @@ Item {
         ShazamService.anchorX = p.x + barLeftMargin
     }
 
-    // Pulse driver — runs only while recognizing; the logo's opacity binds to
-    // it so it returns to full opacity the moment recognition ends.
-    property real pulse: 1
-    SequentialAnimation {
-        running: ShazamService.recognizing
-        loops: Animation.Infinite
-        NumberAnimation { target: root; property: "pulse"; from: 1.0; to: 0.4; duration: 550; easing.type: Easing.InOutSine }
-        NumberAnimation { target: root; property: "pulse"; from: 0.4; to: 1.0; duration: 550; easing.type: Easing.InOutSine }
-    }
-
     // Hover / active backdrop ring.
     Rectangle {
         anchors.centerIn: parent
@@ -44,7 +35,8 @@ Item {
         color: (hover.hovered || root.active)
             ? (ThemeService.isDark ? Qt.rgba(1, 1, 1, 0.12) : Qt.rgba(0, 0, 0, 0.10))
             : "transparent"
-        Behavior on color { ColorAnimation { duration: 150 } }
+        scale: root.pressed ? ThemeService.pressScale : 1
+        Behavior on scale { AppleSpring { spring: 13 } }
     }
 
     Image {
@@ -56,12 +48,16 @@ Item {
         mipmap: true
         fillMode: Image.PreserveAspectFit
         source: ShazamService.iconUrl
-        opacity: ShazamService.recognizing ? root.pulse : 1
+        opacity: ShazamService.recognizing ? 0.58 : 1
+        scale: root.pressed ? ThemeService.pressScale : 1
+        Behavior on opacity { AppleSpring { spring: 7 } }
+        Behavior on scale { AppleSpring { spring: 13 } }
     }
 
     HoverHandler { id: hover; cursorShape: Qt.PointingHandCursor }
 
     TapHandler {
+        id: leftTap
         acceptedButtons: Qt.LeftButton
         onTapped: {
             root.updateAnchor()
@@ -70,6 +66,7 @@ Item {
         }
     }
     TapHandler {
+        id: rightTap
         acceptedButtons: Qt.RightButton
         onTapped: {
             // Recognize straight away, in the background — close the popup if

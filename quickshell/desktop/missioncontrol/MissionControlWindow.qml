@@ -38,9 +38,15 @@ PanelWindow {
     property bool tileDragActive: false
     property int tileDragId: -1
     property point tileDragPos: Qt.point(0, 0)
+    property point tileDragGrabOffset: Qt.point(0, 0)
+    property point dragGrabOffset: Qt.point(0, 0)
     property int tileDropIndex: -1       // insertion slot among the other tiles
     property real tileDropX: 0           // scene x of the insertion indicator
     property int hoveredWorkspaceId: -1
+    readonly property string monitorName: win.screen ? win.screen.name : ""
+    readonly property var workspaceIds: MCService.workspaceIdsForMonitor(win.monitorName)
+    readonly property bool workspaceDragTarget: MCService.workspaceDragActive
+        && MCService.workspaceDragTargetMonitor === win.monitorName
 
     readonly property var monitorData: {
         let n = win.screen ? win.screen.name : ""
@@ -50,18 +56,34 @@ PanelWindow {
     readonly property real monLogW: monitorData ? monitorData.width / monitorData.scale : 1920
     readonly property real monLogH: monitorData ? monitorData.height / monitorData.scale : 1200
 
+    // Stage model: a stable list of window *addresses*. hyprctl polls hand
+    // MCService.windows a brand-new array every time anything changed (geometry,
+    // title, …); binding the Repeater to that directly would destroy and recreate
+    // every WindowThumb (and its ScreencopyView) on each poll — the main source of
+    // stutter while the overview is open. Instead the Repeater keys off addresses,
+    // which only change on real membership/order changes, and each delegate looks
+    // its live data up by address so geometry/title updates flow through bindings.
+    property var stageModel: []
+    readonly property string _stageSig: MCService.windowsForWorkspaceSorted(win.currentStageWsId).map(w => w.address).join(",")
+    on_StageSigChanged: stageModel = _stageSig === "" ? [] : _stageSig.split(",")
+    Component.onCompleted: stageModel = _stageSig === "" ? [] : _stageSig.split(",")
+    // Snapshot of the previous stage while the workspace-switch slide plays.
+    property var outgoingModel: []
+
     property int currentStageWsId: activeWorkspaceId
     property int outgoingStageWsId: -1
     property int workspaceSlideDirection: 1
     property real workspaceSlide: 0
-    readonly property bool workspaceSliding: workspaceSlideAnim.running
-    NumberAnimation {
-        id: workspaceSlideAnim
-        target: win; property: "workspaceSlide"
-        duration: 180; easing.type: Easing.OutCubic
-        onFinished: {
-            win.workspaceSlide = 0
-            win.outgoingStageWsId = -1
+    property bool _workspaceSlideImmediate: false
+    readonly property bool workspaceSliding: workspaceSlideMotion.running
+    Behavior on workspaceSlide {
+        enabled: !win._workspaceSlideImmediate
+        AppleSpring {
+            id: workspaceSlideMotion
+            spring: 13
+            epsilon: 0.25
+            onRunningChanged: if (!running && Math.abs(win.workspaceSlide) <= 0.25)
+                win.outgoingStageWsId = -1
         }
     }
 
@@ -72,60 +94,103 @@ PanelWindow {
     readonly property string wallpaperPath: WallpaperService.current
     readonly property int wallpaperFillMode: WallpaperService.fillMode
     readonly property string wallpaperPaddingColor: WallpaperService.paddingColor
+    // Wallpaper sources stay set while the overlay is hidden and are decoded at a
+    // bounded sourceSize. Without this, huge originals (e.g. 24MP phone photos)
+    // were synchronously re-decoded on the GUI thread at every map, freezing the
+    // whole shell for ~300ms before the open animation could even start.
+    readonly property string wallpaperUrl: wallpaperPath.length > 1 ? ("file://" + wallpaperPath) : ""
+    // Full-screen copy: decode at the *largest* monitor's pixel size (crop/fit/
+    // stretch scale correctly from this; Pad shows the original 1:1 so it keeps the
+    // full decode). One shared size across screens means one cache entry and ONE
+    // decode — Qt's async image reader is a single thread, so per-screen sizes
+    // would decode the huge original once per monitor, back to back.
+    readonly property size wallpaperSourceSize: {
+        if (wallpaperFillMode === Image.Pad) return Qt.size(-1, -1)
+        let w = 0, h = 0
+        for (let m of MCService.monitors) {
+            w = Math.max(w, m.width)
+            h = Math.max(h, m.height)
+        }
+        return (w > 0 && h > 0) ? Qt.size(w, h) : Qt.size(3840, 2400)
+    }
+    // Thumbnail copies (strip tiles, drag ghosts): a small shared decode is plenty.
+    readonly property size wallpaperThumbSourceSize: Qt.size(512, 512)
+
+    // Cache keepers, parked OUTSIDE the visual tree (property objects, never
+    // parented to an Item). When this window unmaps, Qt invalidates its scene
+    // graph and every Image in it releases its pixmap; the giant wallpaper then
+    // fell out of the pixmap cache and was fully re-decoded on the next open,
+    // popping in ~0.3s late per monitor. These hold permanent references to the
+    // exact url+sourceSize entries the visible Images use, so a remap re-attaches
+    // instantly instead of re-decoding.
+    property Image _wallpaperKeeper: Image {
+        source: win.wallpaperUrl
+        sourceSize: win.wallpaperSourceSize
+        fillMode: win.wallpaperFillMode
+        asynchronous: true
+        cache: true
+        visible: false
+    }
+    property Image _wallpaperThumbKeeper: Image {
+        source: win.wallpaperUrl
+        sourceSize: win.wallpaperThumbSourceSize
+        fillMode: win.wallpaperFillMode
+        asynchronous: true
+        cache: true
+        visible: false
+    }
 
     // Stage spread: 0 = windows at their real (overlapping) positions, 1 = spread
     // out into the grid. Animated 0→1 on open and 1→0 on close (the previews then
     // collapse back onto the real windows as the wallpaper fades away).
     property real spread: 1
-    readonly property bool spreadAnimating: spreadAnim.running
-    NumberAnimation {
-        id: spreadAnim          // from = current value; `to` set by open/close paths
-        target: win; property: "spread"
-        duration: 180; easing.type: Easing.OutCubic
+    property bool _spreadImmediate: false
+    readonly property bool spreadAnimating: spreadMotion.running
+    Behavior on spread {
+        enabled: !win._spreadImmediate
+        AppleSpring { id: spreadMotion; spring: 13 }
     }
 
     // Top workspace strip slide: tucked above the screen, drops down on open and
     // slides back up on close.
     property real stripSlide: 0
     readonly property real stripHiddenY: -(stripBg.height + 24)
-    NumberAnimation {
-        id: stripAnim
-        target: win; property: "stripSlide"
-        duration: 160; easing.type: Easing.OutCubic
+    property bool _stripImmediate: false
+    Behavior on stripSlide {
+        enabled: !win._stripImmediate
+        AppleSpring { spring: 13; epsilon: 0.25 }
     }
 
     onShowChanged: {
         if (show) {
             _resetDrag()
             _resetWorkspaceSlide()
-            spreadAnim.stop()
+            win._spreadImmediate = true
             win.spread = 0
+            win._spreadImmediate = false
             _surfaceVisible = true
-            unmapTimer.stop()
-            keyCatcher.forceActiveFocus()
-            stripAnim.stop()
+            Qt.callLater(() => keyCatcher.forceActiveFocus())
+            win._stripImmediate = true
             win.stripSlide = win.stripHiddenY
-            spreadAnim.to = 1
-            spreadAnim.restart()
-            stripAnim.to = 0
-            stripAnim.restart()
+            win._stripImmediate = false
+            Qt.callLater(() => {
+                if (!win.show) return
+                win.spread = 1
+                win.stripSlide = 0
+            })
             Dock.DockService.overviewScreen = ""
             Dock.DockService.overviewOpen = true
-            openRefreshTimer.restart()
+            MCService.open = true
+            WallpaperService.refresh()
         } else {
-            openRefreshTimer.stop()
             Dock.DockService.overviewOpen = false
             MCService.open = false
             _resetDrag()
-            workspaceActivateCloseTimer.stop()
-            spreadAnim.stop()       // leave the previews spread; the content just fades
-            workspaceSlideAnim.stop()
+            win._workspaceSlideImmediate = true
             win.workspaceSlide = 0
+            win._workspaceSlideImmediate = false
             win.outgoingStageWsId = -1
-            stripAnim.stop()
-            stripAnim.to = win.stripHiddenY     // strip slides back up
-            stripAnim.restart()
-            unmapTimer.restart()
+            win.stripSlide = win.stripHiddenY
         }
     }
 
@@ -134,23 +199,14 @@ PanelWindow {
         function onLaunchpadCloseRequested() { if (win.show) win.closeRequested() }
     }
 
-    Timer { id: unmapTimer; interval: 200; onTriggered: win._surfaceVisible = false }
-    Timer { id: workspaceActivateCloseTimer; interval: 220; onTriggered: win.closeRequested() }
-    Timer {
-        id: openRefreshTimer
-        interval: 16
-        onTriggered: {
-            MCService.open = true
-            WallpaperService.refresh()
-        }
-    }
-
     WlrLayershell.namespace: "qs-missioncontrol"
     WlrLayershell.layer: WlrLayer.Overlay
     WlrLayershell.keyboardFocus: WlrKeyboardFocus.OnDemand
     anchors { top: true; left: true; right: true; bottom: true }
     color: "transparent"
     exclusionMode: ExclusionMode.Ignore
+    mask: show ? null : closedRegion
+    Region { id: closedRegion }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
     function iconUrlForClass(cls) {
@@ -177,6 +233,20 @@ PanelWindow {
         return sx >= p.x && sx <= p.x + item.width && sy >= p.y && sy <= p.y + item.height
     }
 
+    function rubberBand(value, lower, upper, dimension) {
+        let overshoot = value < lower ? value - lower : (value > upper ? value - upper : 0)
+        if (overshoot === 0) return value
+        let resisted = (overshoot * dimension * 0.55) / (dimension + 0.55 * Math.abs(overshoot))
+        return (value < lower ? lower : upper) + resisted
+    }
+
+    function rubberBandPoint(pt) {
+        return Qt.point(
+            rubberBand(pt.x, 32, win.width - 32, Math.max(1, win.width)),
+            rubberBand(pt.y, 32, win.height - 32, Math.max(1, win.height))
+        )
+    }
+
     function _resetDrag() {
         win.dragActive = false
         win.dragAddress = ""
@@ -190,19 +260,21 @@ PanelWindow {
         win.tileDragId = -1
         win.tileDropIndex = -1
         win.hoveredWorkspaceId = -1
+        if (MCService.workspaceDragActive) MCService.endWorkspaceDrag()
     }
 
     function _workspaceIndex(wsId) {
-        let ids = MCService.displayWorkspaceIds
+        let ids = win.workspaceIds
         let idx = ids.indexOf(wsId)
         return idx >= 0 ? idx : wsId
     }
 
     function _resetWorkspaceSlide() {
-        workspaceSlideAnim.stop()
         win.currentStageWsId = win.activeWorkspaceId
         win.outgoingStageWsId = -1
+        win._workspaceSlideImmediate = true
         win.workspaceSlide = 0
+        win._workspaceSlideImmediate = false
     }
 
     function _slideToWorkspace(wsId) {
@@ -216,12 +288,15 @@ PanelWindow {
         let oldIdx = _workspaceIndex(win.currentStageWsId)
         let newIdx = _workspaceIndex(wsId)
         win.workspaceSlideDirection = newIdx >= oldIdx ? 1 : -1
+        win.outgoingModel = win.stageModel.slice()
         win.outgoingStageWsId = win.currentStageWsId
         win.currentStageWsId = wsId
-        workspaceSlideAnim.stop()
+        win._workspaceSlideImmediate = true
         win.workspaceSlide = win.workspaceSlideDirection * Math.max(1, stageArea.fitW)
-        workspaceSlideAnim.to = 0
-        workspaceSlideAnim.restart()
+        win._workspaceSlideImmediate = false
+        Qt.callLater(() => {
+            if (win.currentStageWsId === wsId) win.workspaceSlide = 0
+        })
     }
 
     onActiveWorkspaceIdChanged: _slideToWorkspace(activeWorkspaceId)
@@ -230,8 +305,7 @@ PanelWindow {
     function activateWindow(address) { MCService.focusWindow(address); win.closeRequested() }
     function activateWorkspace(wsId) {
         MCService.focusWorkspace(wsId)
-        if (wsId === win.activeWorkspaceId) win.closeRequested()
-        else workspaceActivateCloseTimer.restart()
+        win.closeRequested()
     }
     // Exit-fullscreen button: turn off fullscreen AND bring that window to the
     // current workspace as a normal (restored) window.
@@ -247,7 +321,7 @@ PanelWindow {
         if (into === wsId) {
             // Deleting the current space: pour its windows into another shown space
             // and switch focus there so the emptied space drops away immediately.
-            let other = MCService.displayWorkspaceIds.find(id => id !== wsId)
+            let other = win.workspaceIds.find(id => id !== wsId)
             if (other === undefined) return
             into = other
             MCService.focusWorkspace(into)
@@ -256,13 +330,28 @@ PanelWindow {
     }
 
     // ── Workspace-tile reorder ────────────────────────────────────────────────
-    function beginTileDrag(wsId) {
+    function beginTileDrag(wsId, pointerPos, pressPos, tileCenter) {
         win.tileDragActive = true
         win.tileDragId = wsId
         win.tileDropIndex = -1
+        win.tileDragGrabOffset = Qt.point(tileCenter.x - pressPos.x, tileCenter.y - pressPos.y)
+        win.tileDragPos = win.rubberBandPoint(Qt.point(
+            pointerPos.x + win.tileDragGrabOffset.x,
+            pointerPos.y + win.tileDragGrabOffset.y
+        ))
+        MCService.beginWorkspaceDrag(wsId, win.monitorName,
+            MCService.globalPointForMonitor(win.monitorName, pointerPos))
     }
     function updateTileDrag(scenePos) {
-        win.tileDragPos = scenePos
+        win.tileDragPos = win.rubberBandPoint(Qt.point(
+            scenePos.x + win.tileDragGrabOffset.x,
+            scenePos.y + win.tileDragGrabOffset.y
+        ))
+        MCService.updateWorkspaceDrag(MCService.globalPointForMonitor(win.monitorName, scenePos))
+        if (MCService.workspaceDragTargetMonitor !== win.monitorName) {
+            win.tileDropIndex = -1
+            return
+        }
         // Insertion slot = how many *other* tiles have their centre left of the
         // cursor; also remember the x where the indicator should sit.
         let idx = 0
@@ -280,15 +369,21 @@ PanelWindow {
         win.tileDropX = dropX >= 0 ? dropX : (lastRight + 10)
     }
     function endTileDrag() {
-        if (win.tileDragId >= 1 && win.tileDropIndex >= 0)
-            MCService.moveWorkspaceOrder(win.tileDragId, win.tileDropIndex)
+        let targetMonitor = MCService.workspaceDragTargetMonitor
+        if (win.tileDragId >= 1 && targetMonitor !== "") {
+            if (targetMonitor === win.monitorName && win.tileDropIndex >= 0)
+                MCService.moveWorkspaceOrder(win.tileDragId, win.tileDropIndex, win.monitorName)
+            else if (targetMonitor !== win.monitorName)
+                MCService.moveWorkspaceToMonitor(win.tileDragId, targetMonitor, -1)
+        }
+        MCService.endWorkspaceDrag()
         win.tileDragActive = false
         win.tileDragId = -1
         win.tileDropIndex = -1
     }
 
     // ── Drag coordination ─────────────────────────────────────────────────────
-    function beginWindowDrag(address) {
+    function beginWindowDrag(address, pointerPos, pressPos, thumbCenter) {
         win.dragActive = true
         win.dragAddress = address
         win.dropWsId = -1
@@ -296,10 +391,18 @@ PanelWindow {
         win.dropNewFullscreen = false
         win.dropNewWorkspace = false
         win.dropSplitWsId = -1
+        win.dragGrabOffset = Qt.point(thumbCenter.x - pressPos.x, thumbCenter.y - pressPos.y)
+        win.dragPos = win.rubberBandPoint(Qt.point(
+            pointerPos.x + win.dragGrabOffset.x,
+            pointerPos.y + win.dragGrabOffset.y
+        ))
         stripHoldTimer.stop()
     }
     function updateWindowDrag(scenePos) {
-        win.dragPos = scenePos
+        win.dragPos = win.rubberBandPoint(Qt.point(
+            scenePos.x + win.dragGrabOffset.x,
+            scenePos.y + win.dragGrabOffset.y
+        ))
         win.dropWsId = -1
         win.dropWindowAddress = ""
         win.dropSplitWsId = -1
@@ -357,7 +460,7 @@ PanelWindow {
         }
     }
     // Dwell before the "new full-screen space" ghost appears (macOS-style).
-    Timer { id: stripHoldTimer; interval: 420; onTriggered: win.dropNewFullscreen = true }
+    Timer { id: stripHoldTimer; interval: 336; onTriggered: win.dropNewFullscreen = true }
 
     function endWindowDrag() {
         stripHoldTimer.stop()
@@ -382,23 +485,26 @@ PanelWindow {
 
     // ── Layout ────────────────────────────────────────────────────────────────
     // Wallpaper stays below the workspace strip so Hyprland can blur the strip
-    // against the real compositor background instead of an in-layer image.
+    // against the real compositor background instead of an in-layer image. Its
+    // top edge tracks the strip's actual bottom edge (not the full stripHeight
+    // hover zone) so real windows near the top can't peek through the gap.
     Item {
         id: wallpaper
+        readonly property real stripBottom: Math.max(0, stripBg.height - 1 + win.stripSlide)
         anchors {
             top: parent.top
             left: parent.left
             right: parent.right
             bottom: parent.bottom
-            topMargin: win.stripHeight
+            topMargin: stripBottom
         }
         clip: true
         opacity: win.show ? 1 : 0
-        Behavior on opacity { NumberAnimation { duration: 120; easing.type: Easing.OutCubic } }
+        Behavior on opacity { AppleSpring { spring: 18 } }
 
         Rectangle {
             x: 0
-            y: -win.stripHeight
+            y: -wallpaper.stripBottom
             width: win.width
             height: win.height
             color: win.wallpaperPaddingColor
@@ -406,10 +512,11 @@ PanelWindow {
 
         Image {
             x: 0
-            y: -win.stripHeight
+            y: -wallpaper.stripBottom
             width: win.width
             height: win.height
-            source: (win._surfaceVisible && win.wallpaperPath.length > 1) ? ("file://" + win.wallpaperPath) : ""
+            source: win.wallpaperUrl
+            sourceSize: win.wallpaperSourceSize
             fillMode: win.wallpaperFillMode
             horizontalAlignment: Image.AlignHCenter
             verticalAlignment: Image.AlignVCenter
@@ -418,7 +525,7 @@ PanelWindow {
         }
 
         // Empty-area click dismisses.
-        MouseArea { anchors.fill: parent; onClicked: win.closeRequested() }
+        MouseArea { anchors.fill: parent; enabled: win.show; onPressed: win.closeRequested() }
     }
 
     Item {
@@ -426,7 +533,8 @@ PanelWindow {
         anchors.fill: parent
         // Fade the whole overview in/out (open spread stays; close just dissolves).
         opacity: win.show ? 1 : 0
-        Behavior on opacity { NumberAnimation { duration: 120; easing.type: Easing.OutCubic } }
+        Behavior on opacity { AppleSpring { spring: 18 } }
+        onOpacityChanged: if (!win.show && opacity <= 0.002) win._surfaceVisible = false
 
         // Escape to close (window takes keyboard focus on open).
         Item {
@@ -440,8 +548,9 @@ PanelWindow {
             id: topBand
             anchors { top: parent.top; left: parent.left; right: parent.right }
             height: win.stripHeight        // generous hover zone at the top
-            readonly property bool expanded: stripHover.hovered || win.dragActive || win.tileDragActive
-            readonly property int workspaceCount: Math.max(1, MCService.displayWorkspaceIds.length)
+            readonly property bool expanded: stripHover.hovered || win.dragActive
+                || win.tileDragActive || win.workspaceDragTarget
+            readonly property int workspaceCount: Math.max(1, win.workspaceIds.length)
             readonly property real stripSideMargin: 44
             readonly property real addReserve: 0
             readonly property real wsDefaultThumbW: 176
@@ -478,10 +587,10 @@ PanelWindow {
                 anchors { top: parent.top; left: parent.left; right: parent.right; topMargin: -1; leftMargin: -1; rightMargin: -1 }
                 height: (topBand.expanded ? (topBand.wsDefaultThumbH + 6 + topBand.wsNameH + 28) : (topBand.wsNameH + 28)) + 1
                 color: ThemeService.surface
-                border.color: ThemeService.surfaceStroke
-                border.width: 1
-                Behavior on height { NumberAnimation { duration: 100; easing.type: Easing.OutCubic } }
-                Behavior on color { ColorAnimation { duration: 100 } }
+                border.color: win.workspaceDragTarget && !win.tileDragActive
+                    ? "#0A84FF" : ThemeService.surfaceStroke
+                border.width: win.workspaceDragTarget && !win.tileDragActive ? 2 : 1
+                Behavior on height { AppleSpring { spring: 13; epsilon: 0.25 } }
             }
 
             Row {
@@ -494,7 +603,7 @@ PanelWindow {
 
                 Repeater {
                     id: wsRepeater
-                    model: MCService.displayWorkspaceIds
+                    model: win.workspaceIds
                     delegate: WorkspaceTile {
                         required property var modelData
                         wsId: modelData
@@ -518,8 +627,9 @@ PanelWindow {
                 anchors.rightMargin: 44
                 anchors.verticalCenter: stripBg.verticalCenter
                 width: 46; height: 46; radius: 23
-                color: addHover.hovered ? Qt.rgba(win.dark ? 1 : 0, win.dark ? 1 : 0, win.dark ? 1 : 0, 0.12) : "transparent"
-                Behavior on color { ColorAnimation { duration: 120 } }
+                color: addHover.hovered ? ThemeService.controlBg : "transparent"
+                scale: addMa.pressed ? ThemeService.pressScale : 1.0
+                Behavior on scale { AppleSpring { spring: 18 } }
                 Text {
                     anchors.centerIn: parent
                     text: "+"
@@ -530,9 +640,10 @@ PanelWindow {
                 }
                 HoverHandler { id: addHover; cursorShape: Qt.PointingHandCursor }
                 MouseArea {
+                    id: addMa
                     anchors.fill: parent
                     cursorShape: Qt.PointingHandCursor
-                    onClicked: MCService.addWorkspace()
+                    onPressed: MCService.addWorkspace(win.monitorName)
                 }
             }
 
@@ -565,12 +676,14 @@ PanelWindow {
                     }
                     Image {
                         anchors.fill: parent
-                        source: (win._surfaceVisible && win.wallpaperPath.length > 1) ? ("file://" + win.wallpaperPath) : ""
+                        source: win.wallpaperUrl
+                        sourceSize: win.wallpaperThumbSourceSize
                         fillMode: win.wallpaperFillMode
                         horizontalAlignment: Image.AlignHCenter
                         verticalAlignment: Image.AlignVCenter
                         opacity: 0.45
                         cache: true
+                        asynchronous: true
                     }
                     Text {
                         anchors.centerIn: parent
@@ -612,12 +725,14 @@ PanelWindow {
                     }
                     Image {
                         anchors.fill: parent
-                        source: (win._surfaceVisible && win.wallpaperPath.length > 1) ? ("file://" + win.wallpaperPath) : ""
+                        source: win.wallpaperUrl
+                        sourceSize: win.wallpaperThumbSourceSize
                         fillMode: win.wallpaperFillMode
                         horizontalAlignment: Image.AlignHCenter
                         verticalAlignment: Image.AlignVCenter
                         opacity: 0.45
                         cache: true
+                        asynchronous: true
                     }
                     Text {
                         anchors.centerIn: parent
@@ -647,6 +762,7 @@ PanelWindow {
             // so the scene-space drop x maps straight to a local x here).
             Rectangle {
                 visible: win.tileDragActive
+                    && MCService.workspaceDragTargetMonitor === win.monitorName
                 x: win.tileDropX
                 y: 8
                 width: 3
@@ -691,15 +807,15 @@ PanelWindow {
 
                     Repeater {
                         id: outgoingStageRepeater
-                        model: win.outgoingStageWsId >= 1 ? MCService.windowsForWorkspaceSorted(win.outgoingStageWsId) : []
+                        model: win.outgoingStageWsId >= 1 ? win.outgoingModel : []
                         delegate: WindowThumb {
                             required property var modelData
                             required property int index
-                            windowData: modelData
+                            windowData: MCService.windowByAddress(modelData)
                             draggable: false
                             live: false
                             overview: null
-                            iconUrl: win.iconUrlForClass(modelData.class)
+                            iconUrl: win.iconUrlForClass(windowData ? windowData.class : "")
                             monitorData: win.monitorData
                             mscale: stageArea.stageScale
                             spread: 1
@@ -727,15 +843,15 @@ PanelWindow {
 
                     Repeater {
                         id: stageRepeater
-                        model: MCService.windowsForWorkspaceSorted(win.currentStageWsId)
+                        model: win.stageModel
                         delegate: WindowThumb {
                             required property var modelData
                             required property int index
-                            windowData: modelData
-                            draggable: !win.workspaceSliding
+                            windowData: MCService.windowByAddress(modelData)
+                            draggable: true
                             live: true
                             overview: win
-                            iconUrl: win.iconUrlForClass(modelData.class)
+                            iconUrl: win.iconUrlForClass(windowData ? windowData.class : "")
                             // Geometry inputs let the thumb start at the window's real
                             // position and fly out to its grid slot as `spread` animates.
                             monitorData: win.monitorData
@@ -848,11 +964,13 @@ PanelWindow {
             }
             Image {
                 anchors.fill: parent
-                source: (win._surfaceVisible && win.wallpaperPath.length > 1) ? ("file://" + win.wallpaperPath) : ""
+                source: win.wallpaperUrl
+                sourceSize: win.wallpaperThumbSourceSize
                 fillMode: win.wallpaperFillMode
                 horizontalAlignment: Image.AlignHCenter
                 verticalAlignment: Image.AlignVCenter
                 cache: true
+                asynchronous: true
             }
         }
         Text {

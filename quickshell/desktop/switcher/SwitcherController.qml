@@ -10,25 +10,30 @@ Scope {
     id: scope
 
     property bool switcherOpen: false
-    property int _pendingDir: 0
-    // Tracks whether the user has manually moved selection (Tab/Shift+Tab/arrow)
-    // since opening — once they have, we stop auto-correcting selection when
-    // fresh MRU data arrives.
-    property bool _hasUserNavigated: false
+    property string pendingFocusAddress: ""
 
     SwitcherWindow {
         id: switcher
         show: scope.switcherOpen
-        onCloseRequested: scope.switcherOpen = false
+        onCloseRequested: scope.cancel()
         onConfirmRequested: scope.confirm()
-        onNavigated: scope._hasUserNavigated = true
+    }
+
+    Timer {
+        id: focusCommit
+        interval: 32
+        onTriggered: {
+            let address = scope.pendingFocusAddress
+            scope.pendingFocusAddress = ""
+            if (address) WindowsService.focusByAddress(address)
+        }
     }
 
     // Force WindowsService eager-load so the very first Super+Tab has data.
     Component.onCompleted: WindowsService.refresh()
 
     function _setSelectionFromDir(dir) {
-        let n = WindowsService.windows.length
+        let n = switcher.count
         if (n === 0) return false
         switcher.selectedIndex = dir > 0
             ? (n > 1 ? 1 : 0)        // macOS-style: jump to previous app
@@ -40,40 +45,30 @@ Scope {
         if (scope.switcherOpen) {
             if (dir > 0) switcher.next()
             else         switcher.prev()
-            scope._hasUserNavigated = true
             return
         }
+        focusCommit.stop()
+        pendingFocusAddress = ""
         WindowsService.refresh()
-        scope._hasUserNavigated = false
+        switcher.prepareOpen()
         _setSelectionFromDir(dir)
-        scope._pendingDir = dir
         scope.switcherOpen = true
     }
 
     function confirm() {
         if (!scope.switcherOpen) return
-        switcher.confirm()
+        let address = switcher.beginDismissal()
         scope.switcherOpen = false
-        scope._pendingDir = 0
-        scope._hasUserNavigated = false
+        pendingFocusAddress = address
+        if (address) focusCommit.restart()
     }
 
     function cancel() {
+        if (!scope.switcherOpen) return
+        switcher.beginDismissal()
         scope.switcherOpen = false
-        scope._pendingDir = 0
-        scope._hasUserNavigated = false
-    }
-
-    Connections {
-        target: WindowsService
-        function onWindowsChanged() {
-            if (scope._pendingDir !== 0
-                && scope.switcherOpen
-                && !scope._hasUserNavigated) {
-                if (scope._setSelectionFromDir(scope._pendingDir))
-                    scope._pendingDir = 0
-            }
-        }
+        focusCommit.stop()
+        pendingFocusAddress = ""
     }
 
     GlobalShortcut {
@@ -87,6 +82,12 @@ Scope {
         name: "prev"
         description: "App switcher: previous window"
         onPressed: scope.openOrAdvance(-1)
+    }
+    GlobalShortcut {
+        appid: "switcher"
+        name: "commit"
+        description: "App switcher: commit on Super release"
+        onPressed: scope.confirm()
     }
 
     IpcHandler {

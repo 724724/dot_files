@@ -12,6 +12,8 @@ Item {
     readonly property bool dark: ThemeService.isDark
     implicitWidth: 96
     implicitHeight: col.implicitHeight
+    scale: ma.pressed ? ThemeService.pressScale : 1
+    Behavior on scale { AppleSpring { spring: 13 } }
 
     Column {
         id: col
@@ -25,7 +27,6 @@ Item {
             color: root.active
                 ? "#0A84FF"
                 : (root.dark ? Qt.rgba(1,1,1,0.16) : Qt.rgba(0,0,0,0.10))
-            Behavior on color { ColorAnimation { duration: 150 } }
 
             // Hover / pressed feedback.
             Rectangle {
@@ -33,7 +34,6 @@ Item {
                 radius: parent.radius
                 color: ma.pressed ? Qt.rgba(0,0,0,0.18)
                      : ma.containsMouse ? Qt.rgba(1,1,1,0.12) : "transparent"
-                Behavior on color { ColorAnimation { duration: 100 } }
             }
 
             Text {
@@ -42,7 +42,6 @@ Item {
                 color: root.active ? "#ffffff" : (root.dark ? "#e6ebf2" : "#3a3a3c")
                 font.family: "JetBrainsMono Nerd Font Propo"
                 font.pixelSize: 22
-                Behavior on color { ColorAnimation { duration: 150 } }
             }
         }
 

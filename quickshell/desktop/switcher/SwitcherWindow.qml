@@ -2,6 +2,7 @@ import Quickshell
 import Quickshell.Wayland
 import Quickshell.Hyprland
 import QtQuick
+import Qt5Compat.GraphicalEffects
 
 PanelWindow {
     id: win
@@ -42,31 +43,38 @@ PanelWindow {
     }
 
     property bool _surfaceVisible: false
+    property bool _presented: false
+    property bool _sessionActive: false
+    property var _sessionWins: []
+    property bool _dismissing: false
+    property var _frozenWins: []
     visible: _surfaceVisible
 
     onShowChanged: {
         if (show) {
+            _presented = false
+            if (!_sessionActive) prepareOpen()
+            _dismissing = false
+            _frozenWins = []
             let m = Hyprland.focusedMonitor
             if (m && m.screen) win.screen = m.screen
             _surfaceVisible = true
-            unmapTimer.stop()
-            // Defer focus so the window is mapped before we ask for it.
-            focusTimer.restart()
+            revealTimer.restart()
         } else {
+            revealTimer.stop()
+            _presented = false
             keyCatcher.focus = false
-            unmapTimer.restart()
         }
     }
 
     Timer {
-        id: unmapTimer
-        interval: 180
-        onTriggered: win._surfaceVisible = false
-    }
-    Timer {
-        id: focusTimer
-        interval: 1
-        onTriggered: keyCatcher.forceActiveFocus()
+        id: revealTimer
+        interval: 16
+        onTriggered: {
+            if (!win.show) return
+            win._presented = true
+            keyCatcher.forceActiveFocus()
+        }
     }
 
     // ── Layer / placement ───────────────────────────────────────────────
@@ -86,6 +94,8 @@ PanelWindow {
     anchors { top: true; left: true; right: true; bottom: true }
     color: "transparent"
     exclusionMode: ExclusionMode.Ignore
+    mask: show ? null : closedRegion
+    Region { id: closedRegion }
 
     // Hyprland focus-grab — pins keyboard input to this layer regardless of
     // what other layers/windows are doing on the same screen.
@@ -95,7 +105,8 @@ PanelWindow {
     }
 
     readonly property bool dark: ThemeService.isDark
-    readonly property var wins: WindowsService.windows
+    readonly property var wins: _dismissing ? _frozenWins
+                               : (_sessionActive ? _sessionWins : WindowsService.windows)
     readonly property int count: wins.length
 
     // ── Sizing ──────────────────────────────────────────────────────────
@@ -113,27 +124,28 @@ PanelWindow {
     readonly property int cardW: Math.max(280, Math.min(maxCardW, columns * cellW + hPad * 2))
     readonly property int cardH: Math.max(1, rowCount) * cellH + vPad
 
-    // Emitted when the selection moves due to user input (Tab / Shift+Tab /
-    // arrow keys / global shortcut). Lets the controlling Scope distinguish
-    // explicit navigation from a programmatic selection assignment when
-    // fresh MRU data arrives.
-    signal navigated
-
     // ── Cycling helpers ──────────────────────────────────────────────────
     function next() {
         if (count === 0) return
         selectedIndex = (selectedIndex + 1) % count
-        navigated()
     }
     function prev() {
         if (count === 0) return
         selectedIndex = (selectedIndex - 1 + count) % count
-        navigated()
     }
-    function confirm() {
-        if (count === 0) return
-        let w = wins[Math.max(0, Math.min(selectedIndex, count - 1))]
-        if (w && w.address) WindowsService.focusByAddress(w.address)
+    function prepareOpen() {
+        _sessionWins = WindowsService.windows.slice()
+        _sessionActive = true
+        _dismissing = false
+        _frozenWins = []
+    }
+    function beginDismissal() {
+        let snapshot = wins.slice()
+        let index = Math.max(0, Math.min(selectedIndex, snapshot.length - 1))
+        let selected = snapshot.length > 0 ? snapshot[index] : null
+        _frozenWins = snapshot
+        _dismissing = true
+        return selected && selected.address ? selected.address : ""
     }
 
     // ── Keyboard input — handled directly here, no submap needed ─────────
@@ -172,6 +184,20 @@ PanelWindow {
     }
 
     // ── UI ───────────────────────────────────────────────────────────────
+    DropShadow {
+        anchors.fill: card
+        source: card
+        opacity: card.opacity
+        scale: card.scale
+        transformOrigin: Item.Center
+        horizontalOffset: 0
+        verticalOffset: 10
+        radius: 22
+        samples: 29
+        color: Qt.rgba(0, 0, 0, dark ? 0.46 : 0.30)
+        transparentBorder: true
+    }
+
     Rectangle {
         id: card
         anchors.centerIn: parent
@@ -183,11 +209,20 @@ PanelWindow {
         border.color: ThemeService.stroke
         border.width: 1
 
-        opacity: win.show ? 1.0 : 0.0
-        scale:   win.show ? 1.0 : 0.92
+        opacity: win._presented ? 1.0 : 0.0
+        scale:   win._presented ? 1.0 : 0.92
         transformOrigin: Item.Center
-        Behavior on opacity { NumberAnimation { duration: 90;  easing.type: Easing.OutQuad } }
-        Behavior on scale   { NumberAnimation { duration: 110; easing.type: Easing.OutCubic } }
+        Behavior on opacity { AppleSpring { spring: 18 } }
+        Behavior on scale { AppleSpring { spring: 18 } }
+        onOpacityChanged: {
+            if (!win.show && opacity <= 0.002) {
+                win._surfaceVisible = false
+                win._sessionActive = false
+                win._sessionWins = []
+                win._dismissing = false
+                win._frozenWins = []
+            }
+        }
 
         // Selected app title
         Text {
@@ -250,21 +285,20 @@ PanelWindow {
                                 height: win.cellH
 
                                 readonly property bool selected: win.selectedIndex === globalIndex
+                                scale: cellMa.pressed ? ThemeService.pressScale : (selected ? 1.04 : 1.0)
+                                Behavior on scale { AppleSpring { spring: 18 } }
 
                                 Rectangle {
                                     anchors.fill: parent
                                     anchors.margins: 4
                                     radius: 14
-                                    color: cell.selected
-                                        ? (dark ? Qt.rgba(1, 1, 1, 0.16) : Qt.rgba(0, 0, 0, 0.10))
-                                        : "transparent"
-                                    border.color: cell.selected
-                                        ? (dark ? Qt.rgba(1, 1, 1, 0.32) : Qt.rgba(0, 0, 0, 0.22))
-                                        : "transparent"
-                                    border.width: cell.selected ? 1 : 0
-
-                                    Behavior on color        { ColorAnimation { duration: 110 } }
-                                    Behavior on border.color { ColorAnimation { duration: 110 } }
+                                    color: ThemeService.selectionBg
+                                    border.color: ThemeService.selectionStroke
+                                    border.width: 1
+                                    opacity: cell.selected ? 1 : 0
+                                    scale: cell.selected ? 1 : 0.94
+                                    Behavior on opacity { AppleSpring { spring: 18 } }
+                                    Behavior on scale { AppleSpring { spring: 18 } }
                                 }
 
                                 Image {
@@ -299,10 +333,13 @@ PanelWindow {
                                 }
 
                                 MouseArea {
+                                    id: cellMa
                                     anchors.fill: parent
+                                    enabled: win.show
                                     cursorShape: Qt.PointingHandCursor
                                     hoverEnabled: true
-                                    onPositionChanged: win.selectedIndex = cell.globalIndex
+                                    onEntered: win.selectedIndex = cell.globalIndex
+                                    onPressed: win.selectedIndex = cell.globalIndex
                                     onClicked: {
                                         win.selectedIndex = cell.globalIndex
                                         win.confirmRequested()
@@ -320,6 +357,7 @@ PanelWindow {
     MouseArea {
         anchors.fill: parent
         z: -1
-        onClicked: win.closeRequested()
+        enabled: win.show
+        onPressed: win.closeRequested()
     }
 }

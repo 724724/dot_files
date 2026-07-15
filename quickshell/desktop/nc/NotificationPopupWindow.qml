@@ -28,8 +28,8 @@ PanelWindow {
     // inside it, so suppress the duplicate transient popups. Also unmap the
     // surface entirely when there are no active popups — otherwise an empty
     // overlay strip stays mapped (and composited) on every screen forever.
-    // Cards fade out 220ms before leaving popupActive (markPopupSeen fires
-    // from hideTimer), so unmapping on empty never cuts an animation short.
+    // Cards leave popupActive only after their exit spring reaches rest, so
+    // unmapping on empty never cuts motion short.
     visible: !NcServer.controlCenterVisible && NcServer.popupActive.length > 0
 
     // ScriptModel diffs popupActive against its previous contents and emits
@@ -58,11 +58,12 @@ PanelWindow {
                 required property var modelData
                 width: popupCol.width
                 height: card.implicitHeight
-                Behavior on height { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
+                Behavior on height { AppleSpring { spring: 11; epsilon: 0.25 } }
 
                 // Slide-in + fade-out lifecycle
                 property real slideX: 24
                 property real fade: 0
+                property bool expiring: false
 
                 NotificationCard {
                     id: card
@@ -98,23 +99,19 @@ PanelWindow {
                         return Math.max(50, remaining)
                     }
                     running: interval > 0
-                    onTriggered: { wrap.fade = 0; hideTimer.start() }
+                    onTriggered: { wrap.expiring = true; wrap.fade = 0 }
                 }
 
-                Timer {
-                    id: hideTimer
-                    interval: 220
-                    // Transient toasts (DND on/off) leave no trace: dismiss to
-                    // drop them from the tracked model entirely. Regular cards
-                    // just finish their popup and remain in the center.
-                    onTriggered: {
+                onFadeChanged: {
+                    if (expiring && fade <= 0.002) {
+                        expiring = false
                         if (wrap.modelData.transient) wrap.modelData.dismiss()
                         else NcServer.markPopupSeen(wrap.modelData.id)
                     }
                 }
 
-                Behavior on fade   { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
-                Behavior on slideX { NumberAnimation { duration: 240; easing.type: Easing.OutCubic } }
+                Behavior on fade { AppleSpring { spring: 13 } }
+                Behavior on slideX { AppleSpring { spring: 11; epsilon: 0.25 } }
             }
         }
     }

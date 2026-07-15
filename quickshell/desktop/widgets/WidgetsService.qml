@@ -12,6 +12,17 @@ import QtQuick
 Singleton {
     id: root
 
+    // ── Board grid ───────────────────────────────────────────────────────
+    // Every widget except sticky notes snaps to an n×m grid sized to the
+    // monitor: cells of gridCell px separated by gridGap. Preset sizes below
+    // are exact cell multiples (220 / 464 / 708 = 1 / 2 / 3 cells). The board
+    // (WidgetsWindow) auto-flows widgets into free slots; it re-runs when
+    // relayoutNeeded fires.
+    readonly property int gridCell: 220
+    readonly property int gridGap: 24
+    readonly property int gridUnit: gridCell + gridGap
+    signal relayoutNeeded()
+
     // Sticky-note palette (macOS Stickies-ish). First entry is the default.
     readonly property var palette: [
         "#FEF49C", "#FFC4D6", "#C7F0BD", "#BFE3F7", "#E5D4F7", "#FFD9A8"
@@ -65,46 +76,92 @@ Singleton {
         return [ faceFromName("Local") ]
     }
 
+    // All preset sizes are exact grid spans (220=1, 464=2, 708=3 cells).
     function clockSize(layout) {
         switch (layout) {
-        case 2:  return { nw: 470, nh: 150 }
-        case 3:  return { nw: 240, nh: 240 }
-        case 5:  return { nw: 200, nh: 200 }
+        case 2:  return { nw: 464, nh: 220 }   // world row
         case 1:
+        case 3:
         case 4:
+        case 5:
         default: return { nw: 220, nh: 220 }
         }
     }
 
     function weatherSize(layout) {
         switch (layout) {
-        case 2:  return { nw: 340, nh: 190 }   // medium (hourly)
-        case 3:  return { nw: 184, nh: 170 }   // conditions (small)
-        case 4:  return { nw: 210, nh: 158 }   // sun
+        case 2:  return { nw: 464, nh: 220 }   // medium (hourly)
+        case 3:  return { nw: 220, nh: 220 }   // conditions (small)
+        case 4:  return { nw: 220, nh: 220 }   // sun
         case 1:
-        default: return { nw: 320, nh: 430 }   // large (hourly + daily)
+        default: return { nw: 464, nh: 464 }   // large (hourly + daily)
         }
     }
 
     function remindersSize(layout) {
         switch (layout) {
-        case 1:  return { nw: 232, nh: 196 }   // small
-        case 3:  return { nw: 268, nh: 320 }   // large
+        case 1:  return { nw: 220, nh: 220 }   // small
+        case 3:  return { nw: 220, nh: 464 }   // large
         case 2:
-        default: return { nw: 372, nh: 200 }   // medium
+        default: return { nw: 464, nh: 220 }   // medium
+        }
+    }
+
+    function calendarSize(layout) {
+        switch (layout) {
+        case 1:  return { nw: 220, nh: 220 }   // small
+        case 3:  return { nw: 464, nh: 464 }   // large
+        case 2:
+        default: return { nw: 464, nh: 220 }   // medium
         }
     }
 
     function newsSize(layout) {
         switch (layout) {
-        case 1:  return { nw: 430, nh: 330 }
-        case 3:  return { nw: 650, nh: 720 }
+        case 4:  return { nw: 220, nh: 220 }   // x-small
+        case 1:  return { nw: 464, nh: 464 }   // small
+        case 3:  return { nw: 708, nh: 708 }   // large
         case 2:
-        default: return { nw: 560, nh: 520 }
+        default: return { nw: 708, nh: 464 }   // medium
         }
     }
 
+    function stockSize() {
+        return { nw: 708, nh: 708 }
+    }
+
+    function youtubeSize(layout) {
+        switch (layout) {
+        case 1:  return { nw: 220, nh: 220 }
+        case 2:  return { nw: 464, nh: 220 }
+        case 3:
+        default: return { nw: 708, nh: 464 }
+        }
+    }
+
+    // Canonical size for a grid widget, derived from its type + layout. The
+    // board relayout always sizes from this (never from persisted nw/nh, which
+    // a mis-timed early relayout could otherwise shrink permanently). Notes
+    // return null — they keep their free-form size.
+    function presetSize(type, layout) {
+        switch (type) {
+        case "clock":     return clockSize(layout || 4)
+        case "weather":   return weatherSize(layout || 1)
+        case "reminders": return remindersSize(layout || 2)
+        case "news":      return newsSize(layout || 2)
+        case "calendar":  return calendarSize(layout || 2)
+        case "stock":     return stockSize()
+        case "youtube":   return youtubeSize(layout || 3)
+        }
+        return null
+    }
+
     property alias widgets: widgetsModel
+    property string activeBoardKey: ""
+    property var _boards: ({})
+    property var _legacyWidgets: []
+    property bool _loaded: false
+    signal boardChanged(string key)
     ListModel { id: widgetsModel }
 
     Component.onCompleted: root._load()
@@ -124,39 +181,78 @@ Singleton {
     }
 
     function _load() {
+        if (root._loaded) return
         let raw = store.text()
-        if (raw) { _loadFrom(raw); return }
-        let old = legacy.text()
-        if (old) _migrate(old)
+        if (raw) {
+            try {
+                let value = JSON.parse(raw)
+                if (Array.isArray(value)) root._legacyWidgets = value
+                else if (value && value.boards && typeof value.boards === "object")
+                    root._boards = value.boards
+            } catch (e) {}
+        } else {
+            let old = legacy.text()
+            if (old) root._legacyWidgets = root._migrate(old)
+        }
+        root._loaded = true
     }
 
-    function _loadFrom(raw) {
-        try {
-            let arr = JSON.parse(raw)
-            if (!Array.isArray(arr)) return
-            for (let i = 0; i < arr.length; i++) {
-                let w = arr[i] || {}
-                widgetsModel.append({
-                    wid:  (w.wid !== undefined) ? w.wid : (Date.now() + i),
-                    type: w.type || "note",
-                    nx: (w.nx !== undefined) ? w.nx : 80,
-                    ny: (w.ny !== undefined) ? w.ny : 80,
-                    nw: (w.nw !== undefined) ? w.nw : 240,
-                    nh: (w.nh !== undefined) ? w.nh : 240,
-                    payload: (typeof w.payload === "string") ? w.payload : JSON.stringify(w.payload || {})
-                })
-            }
-        } catch (e) { /* corrupt — start fresh */ }
+    function _normalizedWidget(w, fallbackId) {
+        w = w || {}
+        return {
+            wid: (w.wid !== undefined) ? w.wid : fallbackId,
+            type: w.type || "note",
+            nx: (w.nx !== undefined) ? w.nx : 80,
+            ny: (w.ny !== undefined) ? w.ny : 80,
+            nw: (w.nw !== undefined) ? w.nw : 240,
+            nh: (w.nh !== undefined) ? w.nh : 240,
+            payload: (typeof w.payload === "string") ? w.payload : JSON.stringify(w.payload || {})
+        }
+    }
+
+    function _captureActiveBoard() {
+        if (!root.activeBoardKey) return
+        let rows = []
+        for (let i = 0; i < widgetsModel.count; i++) {
+            let w = widgetsModel.get(i)
+            rows.push({ wid: w.wid, type: w.type, nx: w.nx, ny: w.ny,
+                        nw: w.nw, nh: w.nh, payload: w.payload })
+        }
+        let boards = Object.assign({}, root._boards)
+        boards[root.activeBoardKey] = rows
+        root._boards = boards
+    }
+
+    function activateBoard(key) {
+        if (!root._loaded) root._load()
+        let nextKey = (key || "unknown-monitor").toString().trim() || "unknown-monitor"
+        if (root.activeBoardKey === nextKey) return
+        root._captureActiveBoard()
+        let boards = Object.assign({}, root._boards)
+        if (!Array.isArray(boards[nextKey])) {
+            boards[nextKey] = root._legacyWidgets.length > 0 ? root._legacyWidgets.slice() : []
+            root._legacyWidgets = []
+        }
+        root._boards = boards
+        root.activeBoardKey = nextKey
+        widgetsModel.clear()
+        let rows = boards[nextKey]
+        for (let i = 0; i < rows.length; i++)
+            widgetsModel.append(root._normalizedWidget(rows[i], Date.now() + i))
+        root.persist()
+        root.boardChanged(nextKey)
+        root.relayoutNeeded()
     }
 
     // Convert the old notes.json (array of sticky notes) into note widgets.
     function _migrate(old) {
+        let result = []
         try {
             let arr = JSON.parse(old)
-            if (!Array.isArray(arr)) return
+            if (!Array.isArray(arr)) return result
             for (let i = 0; i < arr.length; i++) {
                 let n = arr[i] || {}
-                widgetsModel.append({
+                result.push({
                     wid: (n.noteId !== undefined) ? n.noteId : (Date.now() + i),
                     type: "note",
                     nx: (n.nx !== undefined) ? n.nx : 80,
@@ -171,17 +267,14 @@ Singleton {
                     })
                 })
             }
-            root.persist()
         } catch (e) { /* ignore */ }
+        return result
     }
 
     function persist() {
-        let arr = []
-        for (let i = 0; i < widgetsModel.count; i++) {
-            let w = widgetsModel.get(i)
-            arr.push({ wid: w.wid, type: w.type, nx: w.nx, ny: w.ny, nw: w.nw, nh: w.nh, payload: w.payload })
-        }
-        store.setText(JSON.stringify(arr))
+        if (!root.activeBoardKey) return
+        root._captureActiveBoard()
+        store.setText(JSON.stringify({ version: 2, boards: root._boards }))
     }
 
     function _newId() {
@@ -213,9 +306,12 @@ Singleton {
     function _defaults(type) {
         switch (type) {
         case "clock":     return { nw: 220, nh: 220, data: { layout: 4, faces: root.defaultClockFaces(4) } }
-        case "weather":   return { nw: 320, nh: 430, data: { layout: 1 } }
-        case "reminders": return { nw: 372, nh: 200, data: { layout: 2, title: "Reminders", accent: "blue", items: [] } }
-        case "news":      return { nw: 560, nh: 520, data: { layout: 2, sources: NewsService.defaultSources(), categories: NewsService.defaultCategories(), model: NewsService.defaultModel } }
+        case "weather":   return { nw: 464, nh: 464, data: { layout: 1 } }
+        case "reminders": return { nw: 464, nh: 220, data: { layout: 2, title: "Reminders", accent: "blue", items: [] } }
+        case "news":      return { nw: 708, nh: 464, data: { layout: 2, sources: NewsService.defaultSources(), categories: NewsService.defaultCategories(), model: NewsService.defaultModel } }
+        case "calendar":  return { nw: 464, nh: 220, data: { layout: 2 } }
+        case "stock":     return { nw: 708, nh: 708, data: { symbol: "005930", market: "KRX", range: "1D", aiProvider: "none", analysisProfile: "balanced", dataMode: "demo", kisEnvironment: "paper", productionTradingEnabled: false, watchlist: [{ symbol: "005930", market: "KRX" }, { symbol: "000660", market: "KRX" }, { symbol: "035420", market: "KRX" }], priceAlerts: [] } }
+        case "youtube":   return { nw: 708, nh: 464, data: { layout: 3, url: "", mediaKind: "video", videoQuality: "best", audioFormat: "m4a", cookieBrowser: "auto" } }
         case "note":
         default:
             return { nw: 240, nh: 240, data: {
@@ -242,6 +338,15 @@ Singleton {
         } else if (type === "news") {
             let sz = root.newsSize(data.layout || 2)
             nw = sz.nw; nh = sz.nh
+        } else if (type === "calendar") {
+            let sz = root.calendarSize(data.layout || 2)
+            nw = sz.nw; nh = sz.nh
+        } else if (type === "stock") {
+            let sz = root.stockSize()
+            nw = sz.nw; nh = sz.nh
+        } else if (type === "youtube") {
+            let sz = root.youtubeSize(data.layout || 3)
+            nw = sz.nw; nh = sz.nh
         }
         widgetsModel.append({
             wid: root._newId(), type: type,
@@ -250,13 +355,16 @@ Singleton {
             nw: nw, nh: nh, payload: JSON.stringify(data)
         })
         root.persist()
+        if (type !== "note") root.relayoutNeeded()
         return widgetsModel.count - 1
     }
 
     function removeAt(index) {
         if (index < 0 || index >= widgetsModel.count) return
+        let wasNote = widgetsModel.get(index).type === "note"
         widgetsModel.remove(index)
         root.persist()
+        if (!wasNote) root.relayoutNeeded()
     }
 
     function typeAt(index) {
@@ -312,6 +420,7 @@ Singleton {
         widgetsModel.setProperty(index, "nw", sz.nw)
         widgetsModel.setProperty(index, "nh", sz.nh)
         setData(index, { layout: layout, faces: faces })
+        root.relayoutNeeded()
     }
 
     // Resize a weather widget to its layout's preferred size.
@@ -321,6 +430,7 @@ Singleton {
         widgetsModel.setProperty(index, "nw", sz.nw)
         widgetsModel.setProperty(index, "nh", sz.nh)
         setData(index, { layout: layout })
+        root.relayoutNeeded()
     }
 
     function setRemindersLayout(index, layout) {
@@ -329,6 +439,16 @@ Singleton {
         widgetsModel.setProperty(index, "nw", sz.nw)
         widgetsModel.setProperty(index, "nh", sz.nh)
         setData(index, { layout: layout })
+        root.relayoutNeeded()
+    }
+
+    function setCalendarLayout(index, layout) {
+        if (index < 0 || index >= widgetsModel.count) return
+        let sz = root.calendarSize(layout)
+        widgetsModel.setProperty(index, "nw", sz.nw)
+        widgetsModel.setProperty(index, "nh", sz.nh)
+        setData(index, { layout: layout })
+        root.relayoutNeeded()
     }
 
     function setNewsLayout(index, layout) {
@@ -337,5 +457,15 @@ Singleton {
         widgetsModel.setProperty(index, "nw", sz.nw)
         widgetsModel.setProperty(index, "nh", sz.nh)
         setData(index, { layout: layout })
+        root.relayoutNeeded()
+    }
+
+    function setYoutubeLayout(index, layout) {
+        if (index < 0 || index >= widgetsModel.count) return
+        let sz = root.youtubeSize(layout)
+        widgetsModel.setProperty(index, "nw", sz.nw)
+        widgetsModel.setProperty(index, "nh", sz.nh)
+        setData(index, { layout: layout })
+        root.relayoutNeeded()
     }
 }

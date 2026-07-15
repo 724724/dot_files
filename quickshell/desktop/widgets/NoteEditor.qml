@@ -4,7 +4,6 @@ import QtQuick.Controls
 // Editor for a sticky note (right-click → Edit): colour, font family and base
 // text size. The font list is the set of fonts actually installed on the
 // system (Qt.fontFamilies()), with a filter box. Per-run sizes set with
-// Ctrl +/- on a selection are independent of the base size chosen here.
 Item {
     id: ed
     property int index: -1
@@ -43,16 +42,19 @@ Item {
     }
 
     component StepBtn: Rectangle {
+        id: stepBtn
         property string label: ""
         signal clicked()
         width: 32; height: 32; radius: 8
         color: sbHover.hovered ? Qt.rgba(1, 1, 1, 0.18) : Qt.rgba(1, 1, 1, 0.09)
         border.color: Qt.rgba(1, 1, 1, 0.12); border.width: 1
+        scale: stepMa.pressed ? ThemeService.pressScale : 1.0
+        Behavior on scale { AppleSpring { spring: 18 } }
         Text { anchors.centerIn: parent; text: label; color: "#ffffff"
                font.family: "SF Pro Display"; font.pixelSize: 18 }
         HoverHandler { id: sbHover }
-        MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor
-                    onClicked: parent.clicked() }
+        MouseArea { id: stepMa; anchors.fill: parent; cursorShape: Qt.PointingHandCursor
+                    onClicked: stepBtn.clicked() }
     }
 
     Column {
@@ -139,7 +141,16 @@ Item {
                     anchors.fill: parent; anchors.margins: 4
                     clip: true
                     model: ed.filtered
-                    boundsBehavior: Flickable.StopAtBounds
+                    boundsBehavior: Flickable.DragAndOvershootBounds
+                    boundsMovement: Flickable.FollowBoundsBehavior
+                    rebound: Transition {
+                        SpringAnimation {
+                            properties: "x,y"
+                            spring: 18
+                            damping: ThemeService.momentumDamping
+                            epsilon: 0.25
+                        }
+                    }
                     ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
                     delegate: Rectangle {
                         required property var modelData

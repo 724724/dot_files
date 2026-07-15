@@ -23,7 +23,7 @@ PanelWindow {
 
     // ── Theme tokens (dark/light aware) ──────────────────────────────────
     readonly property bool dark: ThemeService.isDark
-    readonly property color cardBg:        ThemeService.bg
+    readonly property color cardBg:        ThemeService.popupBg
     readonly property color cardBorder:    ThemeService.stroke
     readonly property color primaryText:   dark ? "#ffffff" : "#1a1a1a"
     readonly property color secondaryText: dark ? Qt.rgba(1, 1, 1, 0.55) : Qt.rgba(0, 0, 0, 0.55)
@@ -34,6 +34,9 @@ PanelWindow {
     readonly property color thumbBg:       dark ? Qt.rgba(1, 1, 1, 0.07) : Qt.rgba(0, 0, 0, 0.06)
     readonly property color linkColor:     "#3AA0FF"
     readonly property color trashRed:      dark ? "#FF6961" : "#FF3B30"
+    // Fully opaque menu surface: the dropdown draws over the history list
+    // inside the same window, so a translucent bg would let rows show through.
+    readonly property color menuBg:        dark ? "#262626" : "#f2f2f2"
 
     readonly property bool shown: ShazamService.popupVisible
 
@@ -47,13 +50,11 @@ PanelWindow {
             if (ShazamService.popupVisible) {
                 if (ShazamService.targetScreen) win.screen = ShazamService.targetScreen
                 win._surfaceVisible = true
-                unmapTimer.stop()
             } else {
-                unmapTimer.restart()
+                card.srcMenuOpen = false
             }
         }
     }
-    Timer { id: unmapTimer; interval: 200; onTriggered: win._surfaceVisible = false }
     onVisibleChanged: if (visible) escScope.forceActiveFocus()
 
     FocusScope {
@@ -63,7 +64,7 @@ PanelWindow {
         Keys.onEscapePressed: ShazamService.popupVisible = false
 
         // Click anywhere outside the card closes the popup.
-        MouseArea { anchors.fill: parent; onClicked: ShazamService.popupVisible = false }
+        MouseArea { anchors.fill: parent; onPressed: ShazamService.popupVisible = false }
 
         Rectangle {
             id: card
@@ -73,6 +74,9 @@ PanelWindow {
             border.color: win.cardBorder
             border.width: 1
             clip: true
+
+            // Whether the audio-source dropdown (Internal / External) is open.
+            property bool srcMenuOpen: false
 
             readonly property int listMax: 400
             readonly property real listH: ShazamService.count > 0
@@ -88,13 +92,14 @@ PanelWindow {
             opacity: win.shown ? 1 : 0
             scale:   win.shown ? 1 : 0.97
             y:       win.shown ? BarState.contentTop : (BarState.contentTop - 8)
-            Behavior on opacity { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
-            Behavior on scale   { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
-            Behavior on y       { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+            Behavior on opacity { AppleSpring { spring: 11 } }
+            Behavior on scale { AppleSpring { spring: 10 } }
+            Behavior on y { AppleSpring {} }
+            onOpacityChanged: if (!win.shown && opacity <= 0.002) win._surfaceVisible = false
 
             // Swallow clicks on the card so they don't fall through to the
-            // dismiss layer behind it.
-            MouseArea { anchors.fill: parent }
+            // dismiss layer behind it; a stray click also closes the dropdown.
+            MouseArea { anchors.fill: parent; onPressed: card.srcMenuOpen = false }
 
             // ── Header: tap to recognize ─────────────────────────────────
             Rectangle {
@@ -102,14 +107,15 @@ PanelWindow {
                 anchors { top: parent.top; left: parent.left; right: parent.right }
                 height: 54
                 radius: 18
-                color: headerHover.hovered ? win.hoverFill : "transparent"
-                Behavior on color { ColorAnimation { duration: 120 } }
+                color: (headerHover.hovered && !srcMa.containsMouse) ? win.hoverFill : "transparent"
+                scale: headerTap.pressed ? 0.985 : 1
+                Behavior on scale { AppleSpring { spring: 13 } }
 
                 Row {
                     anchors {
                         left: parent.left; right: parent.right
                         verticalCenter: parent.verticalCenter
-                        leftMargin: 14; rightMargin: 14
+                        leftMargin: 14; rightMargin: 14 + srcBtn.width + 8
                     }
                     spacing: 10
 
@@ -120,15 +126,8 @@ PanelWindow {
                         smooth: true
                         fillMode: Image.PreserveAspectFit
                         source: ShazamService.iconUrl
-                        // Gentle pulse while listening.
-                        opacity: ShazamService.recognizing ? headerPulse : 1
-                        property real headerPulse: 1
-                        SequentialAnimation on headerPulse {
-                            running: ShazamService.recognizing
-                            loops: Animation.Infinite
-                            NumberAnimation { from: 1.0; to: 0.45; duration: 600; easing.type: Easing.InOutSine }
-                            NumberAnimation { from: 0.45; to: 1.0; duration: 600; easing.type: Easing.InOutSine }
-                        }
+                        opacity: ShazamService.recognizing ? 0.58 : 1
+                        Behavior on opacity { AppleSpring { spring: 7 } }
                     }
 
                     Column {
@@ -158,7 +157,61 @@ PanelWindow {
                 }
 
                 HoverHandler { id: headerHover; cursorShape: Qt.PointingHandCursor }
-                TapHandler { onTapped: ShazamService.recognize() }
+                TapHandler {
+                    id: headerTap
+                    onTapped: {
+                        card.srcMenuOpen = false
+                        ShazamService.recognize()
+                    }
+                }
+
+                // Audio-source dropdown button: Internal (system audio) vs
+                // External (microphone). Its MouseArea accepts the press, so
+                // clicking it never triggers the header's recognize tap.
+                Rectangle {
+                    id: srcBtn
+                    anchors.right: parent.right
+                    anchors.rightMargin: 12
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: srcBtnRow.width + 18
+                    height: 24
+                    radius: 12
+                    scale: srcMa.pressed ? ThemeService.pressScale : 1
+                    color: (srcMa.containsMouse || card.srcMenuOpen) ? win.hoverFill : win.thumbBg
+                    Behavior on scale { AppleSpring { spring: 13 } }
+
+                    Row {
+                        id: srcBtnRow
+                        anchors.centerIn: parent
+                        spacing: 5
+
+                        Text {
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: ShazamService.audioSource === "external" ? "External" : "Internal"
+                            color: win.secondaryText
+                            font.family: "SF Pro Display"
+                            font.pixelSize: 10
+                            font.weight: Font.DemiBold
+                        }
+                        Text {
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: ""   // nf-fa-chevron_down
+                            color: win.fadedText
+                            font.family: "JetBrainsMono Nerd Font Propo"
+                            font.pixelSize: 8
+                            rotation: card.srcMenuOpen ? 180 : 0
+                            Behavior on rotation { AppleSpring { spring: 11 } }
+                        }
+                    }
+
+                    MouseArea {
+                        id: srcMa
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: card.srcMenuOpen = !card.srcMenuOpen
+                    }
+                }
             }
 
             // ── Divider ──────────────────────────────────────────────────
@@ -195,7 +248,16 @@ PanelWindow {
                 }
                 height: card.listH
                 clip: true
-                boundsBehavior: Flickable.StopAtBounds
+                boundsBehavior: Flickable.DragAndOvershootBounds
+                boundsMovement: Flickable.FollowBoundsBehavior
+                rebound: Transition {
+                    SpringAnimation {
+                        properties: "x,y"
+                        spring: 8
+                        damping: ThemeService.momentumDamping
+                        epsilon: 0.25
+                    }
+                }
                 model: ShazamService.history
 
                 delegate: Item {
@@ -210,7 +272,6 @@ PanelWindow {
                     Rectangle {
                         anchors.fill: parent
                         color: rowHover.hovered ? win.rowHoverFill : "transparent"
-                        Behavior on color { ColorAnimation { duration: 100 } }
                     }
 
                     // Album art (rounded).
@@ -287,7 +348,7 @@ PanelWindow {
                             font.family: "SF Pro Display"
                             font.pixelSize: 11
                             opacity: rowHover.hovered ? 0 : 1
-                            Behavior on opacity { NumberAnimation { duration: 100 } }
+                            Behavior on opacity { AppleSpring { spring: 13 } }
                         }
 
                         Row {
@@ -297,15 +358,17 @@ PanelWindow {
                             spacing: 5
                             opacity: rowHover.hovered ? 1 : 0
                             visible: opacity > 0
-                            Behavior on opacity { NumberAnimation { duration: 100 } }
+                            Behavior on opacity { AppleSpring { spring: 13 } }
 
                             // View on Shazam (left button).
                             Rectangle {
+                                id: openButton
                                 width: 28; height: 28; radius: 7
+                                scale: openMa.pressed ? ThemeService.pressScale : 1
                                 color: openMa.containsMouse
                                     ? Qt.rgba(win.linkColor.r, win.linkColor.g, win.linkColor.b, 0.18)
                                     : win.thumbBg
-                                Behavior on color { ColorAnimation { duration: 100 } }
+                                Behavior on scale { AppleSpring { spring: 13 } }
                                 Text {
                                     anchors.centerIn: parent
                                     text: ""   // nf-fa-external-link
@@ -324,11 +387,13 @@ PanelWindow {
 
                             // Delete (right button).
                             Rectangle {
+                                id: trashButton
                                 width: 28; height: 28; radius: 7
+                                scale: trashMa.pressed ? ThemeService.pressScale : 1
                                 color: trashMa.containsMouse
                                     ? Qt.rgba(win.trashRed.r, win.trashRed.g, win.trashRed.b, 0.18)
                                     : win.thumbBg
-                                Behavior on color { ColorAnimation { duration: 100 } }
+                                Behavior on scale { AppleSpring { spring: 13 } }
                                 Text {
                                     anchors.centerIn: parent
                                     text: ""   // nf-fa-trash
@@ -357,6 +422,107 @@ PanelWindow {
                     }
 
                     HoverHandler { id: rowHover }
+                }
+            }
+
+            // ── Audio-source dropdown menu ───────────────────────────────
+            // Drops from the header's Internal/External button, above the
+            // history list. Sized to stay within the card even when empty.
+            Rectangle {
+                id: srcMenu
+                anchors.top: header.bottom
+                anchors.topMargin: 2
+                anchors.right: parent.right
+                anchors.rightMargin: 12
+                width: 172
+                height: srcMenuCol.height + 8
+                radius: 10
+                color: win.menuBg
+                border.color: win.cardBorder
+                border.width: 1
+                z: 20
+
+                // Soft elevation shadow so the opaque menu reads as a layer
+                // floating above the list rather than a flat patch.
+                layer.enabled: true
+                layer.effect: DropShadow {
+                    transparentBorder: true
+                    radius: 14; samples: 29
+                    verticalOffset: 3
+                    color: Qt.rgba(0, 0, 0, win.dark ? 0.45 : 0.22)
+                }
+
+                transformOrigin: Item.Top
+                opacity: card.srcMenuOpen ? 1 : 0
+                scale:   card.srcMenuOpen ? 1 : 0.95
+                visible: opacity > 0
+                Behavior on opacity { AppleSpring { spring: 11 } }
+                Behavior on scale { AppleSpring { spring: 10 } }
+
+                Column {
+                    id: srcMenuCol
+                    anchors { top: parent.top; left: parent.left; right: parent.right; margins: 4 }
+
+                    Repeater {
+                        model: [
+                            { key: "internal", label: "Internal", sub: "System audio" },
+                            { key: "external", label: "External", sub: "Microphone" }
+                        ]
+
+                        delegate: Rectangle {
+                            id: srcOpt
+                            required property var modelData
+                            width: srcMenuCol.width
+                            height: 36
+                            radius: 7
+                            scale: optMa.pressed ? ThemeService.pressScale : 1
+                            color: optMa.containsMouse ? win.hoverFill : "transparent"
+                            Behavior on scale { AppleSpring { spring: 13 } }
+
+                            Column {
+                                anchors.verticalCenter: parent.verticalCenter
+                                anchors.left: parent.left
+                                anchors.leftMargin: 10
+                                spacing: 0
+
+                                Text {
+                                    text: srcOpt.modelData.label
+                                    color: win.primaryText
+                                    font.family: "SF Pro Display"
+                                    font.pixelSize: 12
+                                    font.weight: Font.DemiBold
+                                }
+                                Text {
+                                    text: srcOpt.modelData.sub
+                                    color: win.secondaryText
+                                    font.family: "SF Pro Display"
+                                    font.pixelSize: 9
+                                }
+                            }
+
+                            Text {
+                                anchors.verticalCenter: parent.verticalCenter
+                                anchors.right: parent.right
+                                anchors.rightMargin: 10
+                                text: ""   // nf-fa-check
+                                color: win.linkColor
+                                font.family: "JetBrainsMono Nerd Font Propo"
+                                font.pixelSize: 10
+                                visible: ShazamService.audioSource === srcOpt.modelData.key
+                            }
+
+                            MouseArea {
+                                id: optMa
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: {
+                                    ShazamService.setAudioSource(srcOpt.modelData.key)
+                                    card.srcMenuOpen = false
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }

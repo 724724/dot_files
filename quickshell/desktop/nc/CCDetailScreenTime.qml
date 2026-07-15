@@ -206,6 +206,7 @@ Item {
                             font.family: "SF Pro Display"
                             font.pixelSize: 26
                             font.weight: Font.Bold
+                            font.letterSpacing: -0.55
                         }
                     }
 
@@ -225,7 +226,8 @@ Item {
                                 ? ThemeService.rowBgHover
                                 : ThemeService.rowBg
                             border.width: 0
-                            Behavior on color { ColorAnimation { duration: 100 } }
+                            scale: ddMa.pressed ? ThemeService.pressScale : 1
+                            Behavior on scale { AppleSpring { spring: 13 } }
 
                             Row {
                                 id: ddRow
@@ -277,7 +279,16 @@ Item {
                                     clip: true
                                     model: root.weekList
                                     spacing: 2
-                                    boundsBehavior: Flickable.StopAtBounds
+                                    boundsBehavior: Flickable.DragAndOvershootBounds
+                                    boundsMovement: Flickable.FollowBoundsBehavior
+                                    rebound: Transition {
+                                        SpringAnimation {
+                                            properties: "x,y"
+                                            spring: 13
+                                            damping: ThemeService.momentumDamping
+                                            epsilon: 0.25
+                                        }
+                                    }
                                     ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
 
                                     delegate: Rectangle {
@@ -286,6 +297,8 @@ Item {
                                         height: 34
                                         radius: 8
                                         readonly property bool sel: modelData.weekKey === root.selectedWeekKey
+                                        scale: rowMa.pressed ? 0.985 : 1
+                                        Behavior on scale { AppleSpring { spring: 13 } }
                                         color: sel
                                             ? ThemeService.rowBgActive
                                             : (rowMa.containsMouse ? ThemeService.rowBgHover
@@ -326,7 +339,8 @@ Item {
                             opacity: enabled ? 1 : 0.35
                             color: prevMa.containsMouse ? ThemeService.rowBgHover : ThemeService.rowBg
                             border.width: 0
-                            Behavior on color { ColorAnimation { duration: 100 } }
+                            scale: prevMa.pressed ? ThemeService.pressScale : 1
+                            Behavior on scale { AppleSpring { spring: 13 } }
                             Text {
                                 anchors.centerIn: parent
                                 text: "󰅁"
@@ -355,7 +369,8 @@ Item {
                                 ? ThemeService.rowBgHover
                                 : ThemeService.rowBg
                             border.width: 0
-                            Behavior on color { ColorAnimation { duration: 100 } }
+                            scale: todayMa.pressed ? ThemeService.pressScale : 1
+                            Behavior on scale { AppleSpring { spring: 13 } }
                             Text {
                                 id: todayText
                                 anchors.centerIn: parent
@@ -382,7 +397,8 @@ Item {
                             opacity: enabled ? 1 : 0.35
                             color: nextMa.containsMouse ? ThemeService.rowBgHover : ThemeService.rowBg
                             border.width: 0
-                            Behavior on color { ColorAnimation { duration: 100 } }
+                            scale: nextMa.pressed ? ThemeService.pressScale : 1
+                            Behavior on scale { AppleSpring { spring: 13 } }
                             Text {
                                 anchors.centerIn: parent
                                 text: "󰅂"
@@ -660,8 +676,17 @@ Item {
                 spacing: 0
                 // Only grab scroll/flick gestures when there's overflow.
                 interactive: count > appsCard.maxVisibleRows
-                boundsBehavior: Flickable.StopAtBounds
+                boundsBehavior: Flickable.DragAndOvershootBounds
+                boundsMovement: Flickable.FollowBoundsBehavior
                 flickableDirection: Flickable.VerticalFlick
+                rebound: Transition {
+                    SpringAnimation {
+                        properties: "x,y"
+                        spring: 13
+                        damping: ThemeService.momentumDamping
+                        epsilon: 0.25
+                    }
+                }
 
                 // Thin overlay scrollbar — fades in while scrolling the overflow.
                 ScrollBar.vertical: ScrollBar {
@@ -674,7 +699,7 @@ Item {
                         radius: 1.5
                         color: ThemeService.textTertiary
                         opacity: appsScroll.active ? 1 : 0
-                        Behavior on opacity { NumberAnimation { duration: 250 } }
+                        Behavior on opacity { AppleSpring { spring: 13 } }
                     }
                 }
 
@@ -694,10 +719,17 @@ Item {
                     interval: 70
                     onTriggered: {
                         let g = Kinetic.fling(appsList, appsList._ks, {})
-                        if (g) { appsGlide.from = g.from; appsGlide.to = g.to; appsGlide.duration = g.duration; appsGlide.restart() }
+                        if (g) { appsGlide.to = g.to; appsGlide.restart() }
                     }
                 }
-                NumberAnimation { id: appsGlide; target: appsList; property: "contentY"; easing.type: Easing.OutCubic }
+                SpringAnimation {
+                    id: appsGlide
+                    target: appsList
+                    property: "contentY"
+                    spring: 13
+                    damping: ThemeService.momentumDamping
+                    epsilon: 0.25
+                }
 
                 delegate: Item {
                         id: appRow
@@ -778,12 +810,15 @@ Item {
                         // App focus is a day-view feature; in week mode the list is
                         // a read-only weekly aggregate.
                         MouseArea {
+                            id: appRowMa
                             anchors.fill: parent
                             enabled: !root.weekMode
                             cursorShape: Qt.PointingHandCursor
                             onClicked: root.selectedApp =
                                 (root.selectedApp === modelData.cls ? "" : modelData.cls)
                         }
+                        scale: appRowMa.pressed ? 0.985 : 1
+                        Behavior on scale { AppleSpring { spring: 13 } }
                     }
             }
         }

@@ -35,6 +35,13 @@ Singleton {
         return isDark ? c.d : c.l
     }
 
+    // Calendar colors can be an accent *name* (tracks light/dark) or a raw
+    // "#RRGGBB" the user typed in the palette — pass hex straight through.
+    function resolveAccent(c) {
+        if (c && c.charAt(0) === "#") return c
+        return accent(c)
+    }
+
     // Reminders list icons (Nerd Font glyphs) — pickable in the editor.
     readonly property var reminderIcons: [
         { name: "list",      glyph: "\uf03a" },
@@ -63,6 +70,17 @@ Singleton {
     readonly property color label:     isDark ? "#FFFFFF" : "#000000"
     readonly property color secondaryLabel: isDark ? Qt.rgba(235/255, 235/255, 245/255, 0.6)
                                                    : Qt.rgba(60/255, 60/255, 67/255, 0.6)
+    readonly property color tertiaryLabel: isDark ? Qt.rgba(235/255, 235/255, 245/255, 0.3)
+                                                  : Qt.rgba(60/255, 60/255, 67/255, 0.3)
     readonly property color separator: isDark ? Qt.rgba(1, 1, 1, 0.12) : Qt.rgba(0, 0, 0, 0.10)
     readonly property color checkRing: isDark ? Qt.rgba(1, 1, 1, 0.30) : Qt.rgba(0, 0, 0, 0.22)
+    readonly property color panelBg: isDark ? Qt.rgba(36 / 255, 36 / 255, 38 / 255, 0.94)
+                                            : Qt.rgba(246 / 255, 246 / 255, 248 / 255, 0.96)
+    readonly property color controlBg: isDark ? "#48484a" : "#e5e5ea"
+    readonly property color controlBgHover: isDark ? "#5a5a5e" : "#d1d1d6"
+
+    readonly property real pressScale: 0.96
+    readonly property real spring: 8
+    readonly property real criticalDamping: 1.0
+    readonly property real momentumDamping: 0.8
 }

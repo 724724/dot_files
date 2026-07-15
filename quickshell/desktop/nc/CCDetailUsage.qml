@@ -45,6 +45,8 @@ Item {
         border.color: sel ? "#0A84FF"
                           : ThemeService.separator
         border.width: sel ? 2 : 1
+        scale: setMa.pressed ? ThemeService.pressScale : 1
+        Behavior on scale { AppleSpring { spring: 13 } }
 
         Column {
             anchors.centerIn: parent
@@ -81,6 +83,7 @@ Item {
         }
 
         MouseArea {
+            id: setMa
             anchors.fill: parent
             cursorShape: Qt.PointingHandCursor
             onClicked: SysUsageService.setRuncatSet(chip.setName)
@@ -94,6 +97,8 @@ Item {
             color: delMa.containsMouse ? "#ff4d4d" : "#ff5f57"
             border.color: Qt.rgba(0,0,0,0.18); border.width: 1
             z: 2
+            scale: delMa.pressed ? 0.90 : 1
+            Behavior on scale { AppleSpring { spring: 13 } }
             Text {
                 anchors.centerIn: parent
                 text: "−"
@@ -176,7 +181,7 @@ Item {
                 width: parent.width * Math.max(0, Math.min(1, frac))
                 height: parent.height; radius: parent.radius
                 color: barColor
-                Behavior on width { NumberAnimation { duration: 250; easing.type: Easing.OutCubic } }
+                Behavior on width { AppleSpring { spring: 11; epsilon: 0.25 } }
             }
         }
     }
@@ -210,7 +215,9 @@ Item {
         color: ThemeService.tileBg
         border.width: 0
         clip: true
-        Behavior on height { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
+        Behavior on height { AppleSpring { spring: 11; epsilon: 0.25 } }
+        scale: metricMa.pressed ? 0.985 : 1
+        Behavior on scale { AppleSpring { spring: 13 } }
 
         Item {
             id: head
@@ -218,6 +225,7 @@ Item {
             height: inner.implicitHeight + 22
 
             MouseArea {
+                id: metricMa
                 anchors.fill: parent
                 enabled: card.key !== ""
                 cursorShape: Qt.PointingHandCursor
@@ -243,7 +251,7 @@ Item {
                 anchors { right: parent.right; verticalCenter: parent.verticalCenter; rightMargin: 10 }
                 text: "󰅂"
                 rotation: card.expanded ? 90 : 0
-                Behavior on rotation { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+                Behavior on rotation { AppleSpring { spring: 13; epsilon: 0.25 } }
                 color: ThemeService.textTertiary
                 font.family: "JetBrainsMono Nerd Font Propo"
                 font.pixelSize: 14
@@ -297,7 +305,7 @@ Item {
                         width: parent.width * Math.max(0, Math.min(1, pct / 100))
                         height: parent.height; radius: parent.radius
                         color: accent
-                        Behavior on width { NumberAnimation { duration: 300; easing.type: Easing.OutCubic } }
+                        Behavior on width { AppleSpring { spring: 11; epsilon: 0.25 } }
                     }
                 }
             }
@@ -344,8 +352,8 @@ Item {
             color: ThemeService.tileBg
             border.width: 0
 
-            Behavior on height { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
-            Behavior on opacity { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+            Behavior on height { AppleSpring { spring: 11; epsilon: 0.25 } }
+            Behavior on opacity { AppleSpring { spring: 13 } }
 
             Column {
                 id: pickerCol
@@ -384,7 +392,8 @@ Item {
                             ? ThemeService.rowBgHover
                             : ThemeService.rowBg
                         border.width: 0
-                        Behavior on color { ColorAnimation { duration: 100 } }
+                        scale: addMa.pressed ? ThemeService.pressScale : 1
+                        Behavior on scale { AppleSpring { spring: 13 } }
 
                         Column {
                             anchors.centerIn: parent
@@ -638,9 +647,12 @@ Item {
                     font.pixelSize: 12
                 }
                 Rectangle {
+                    id: errorOkButton
                     anchors.right: parent.right
                     width: 64; height: 28; radius: 8
                     color: "#0A84FF"
+                    scale: errorOkMa.pressed ? ThemeService.pressScale : 1
+                    Behavior on scale { AppleSpring { spring: 13 } }
                     Text {
                         anchors.centerIn: parent
                         text: "OK"
@@ -650,6 +662,7 @@ Item {
                         font.weight: Font.DemiBold
                     }
                     MouseArea {
+                        id: errorOkMa
                         anchors.fill: parent
                         cursorShape: Qt.PointingHandCursor
                         onClicked: root.errorMsg = ""

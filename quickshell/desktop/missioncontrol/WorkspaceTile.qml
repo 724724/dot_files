@@ -17,6 +17,12 @@ Item {
 
     readonly property bool dark: ThemeService.isDark
     readonly property var wins: MCService.windowsForWorkspace(wsId)
+    // Address-keyed model for the mini previews (see MissionControlWindow.stageModel:
+    // avoids recreating every ScreencopyView on each hyprctl poll).
+    property var winModel: []
+    readonly property string _winSig: wins.map(w => w.address).join(",")
+    on_WinSigChanged: winModel = _winSig === "" ? [] : _winSig.split(",")
+    Component.onCompleted: winModel = _winSig === "" ? [] : _winSig.split(",")
     readonly property bool isActive: wsId === activeWsId
     readonly property bool hasFullscreen: MCService.workspaceHasFullscreen(wsId)
     readonly property bool isDropTarget: overview && overview.dropWsId === wsId
@@ -47,7 +53,9 @@ Item {
     // stays even (names elide with … instead of widening the tile).
     implicitWidth: tile.expanded ? tile.thumbW : Math.min(nameRow.implicitWidth, tile.thumbW)
     implicitHeight: thumbCard.height + (tile.expanded ? 6 : 0) + nameRow.implicitHeight
-    Behavior on implicitWidth { NumberAnimation { duration: 90; easing.type: Easing.OutQuad } }
+    Behavior on implicitWidth { AppleSpring { spring: 18; epsilon: 0.15 } }
+    scale: (tileTap.pressed || tileDrag.active) ? ThemeService.pressScale : 1.0
+    Behavior on scale { AppleSpring { spring: 18 } }
 
     // Dim while being dragged to a new position in the strip.
     opacity: (overview && overview.tileDragActive && overview.tileDragId === wsId) ? 0.35 : 1.0
@@ -65,9 +73,9 @@ Item {
         border.color: (tile.isDropTarget || tile.isSplitTarget || tile.isActive)
             ? "#0A84FF" : (tile.dark ? Qt.rgba(1, 1, 1, 0.18) : Qt.rgba(0, 0, 0, 0.18))
         border.width: (tile.isActive || tile.isDropTarget || tile.isSplitTarget) ? 3 : 1
-        Behavior on width { NumberAnimation { duration: 90; easing.type: Easing.OutQuad } }
-        Behavior on height { NumberAnimation { duration: 100; easing.type: Easing.OutCubic } }
-        Behavior on opacity { NumberAnimation { duration: 90 } }
+        Behavior on width { AppleSpring { spring: 18; epsilon: 0.15 } }
+        Behavior on height { AppleSpring { spring: 18; epsilon: 0.15 } }
+        Behavior on opacity { AppleSpring { spring: 18 } }
 
         // Real desktop wallpaper behind the previews → looks like the actual space.
         Rectangle {
@@ -76,7 +84,8 @@ Item {
         }
         Image {
             anchors.fill: parent
-            source: (tile.overview && tile.overview.wallpaperPath.length > 1) ? ("file://" + tile.overview.wallpaperPath) : ""
+            source: tile.overview ? tile.overview.wallpaperUrl : ""
+            sourceSize: tile.overview ? tile.overview.wallpaperThumbSourceSize : Qt.size(512, 512)
             fillMode: tile.overview ? tile.overview.wallpaperFillMode : Image.PreserveAspectCrop
             horizontalAlignment: Image.AlignHCenter
             verticalAlignment: Image.AlignVCenter
@@ -89,16 +98,16 @@ Item {
             anchors.fill: parent
             visible: tile.expanded
             Repeater {
-                model: tile.expanded ? tile.wins : []
+                model: tile.expanded ? tile.winModel : []
                 delegate: WindowThumb {
                     required property var modelData
-                    windowData: modelData
+                    windowData: MCService.windowByAddress(modelData)
                     monitorData: tile.monitorData
                     mscale: tile.miniScale
                     live: tile.isActive
                     flat: true
                     draggable: false
-                    iconUrl: tile.overview ? tile.overview.iconUrlForClass(modelData.class) : ""
+                    iconUrl: (tile.overview && windowData) ? tile.overview.iconUrlForClass(windowData.class) : ""
                 }
             }
         }
@@ -161,7 +170,7 @@ Item {
             height: 22
             radius: 6
             visible: tile.isActive && !tile.expanded
-            color: tile.dark ? Qt.rgba(1, 1, 1, 0.16) : Qt.rgba(1, 1, 1, 0.55)
+            color: ThemeService.controlBg
         }
         Text {
             id: nameLabel
@@ -195,17 +204,23 @@ Item {
     // Tap switches to this workspace and dismisses the overview. A TapHandler
     // (not a fill MouseArea) leaves the icon button clickable on top.
     TapHandler {
+        id: tileTap
         onTapped: if (tile.overview) tile.overview.activateWorkspace(tile.wsId)
     }
 
     // Drag to reorder the workspace within the strip. Cooperates with the
     // TapHandler (tap = switch, drag = reorder); only once the cells are revealed.
     DragHandler {
+        id: tileDrag
         target: null
         enabled: tile.expanded && tile.overview !== null
         dragThreshold: 8
         onActiveChanged: {
-            if (active) tile.overview.beginTileDrag(tile.wsId)
+            if (active) {
+                let centre = tile.mapToItem(null, tile.width / 2, tile.height / 2)
+                tile.overview.beginTileDrag(tile.wsId, centroid.scenePosition,
+                    centroid.scenePressPosition, centre)
+            }
             else tile.overview.endTileDrag()
         }
         onCentroidChanged: if (active && tile.overview) tile.overview.updateTileDrag(centroid.scenePosition)

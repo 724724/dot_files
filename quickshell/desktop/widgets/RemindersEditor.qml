@@ -55,11 +55,12 @@ Item {
                         color: ed.layout === n ? Qt.rgba(0.30, 0.52, 0.95, 0.9)
                              : (lh.hovered ? Qt.rgba(1, 1, 1, 0.16) : Qt.rgba(1, 1, 1, 0.08))
                         border.color: Qt.rgba(1, 1, 1, 0.12); border.width: 1
-                        Behavior on color { ColorAnimation { duration: 110 } }
+                        scale: layoutMa.pressed ? ThemeService.pressScale : 1.0
+                        Behavior on scale { AppleSpring { spring: 18 } }
                         Text { anchors.centerIn: parent; text: ed.layoutNames[parent.n - 1]
                                color: "#ffffff"; font.family: "SF Pro Display"; font.pixelSize: 11 }
                         HoverHandler { id: lh }
-                        MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor
+                        MouseArea { id: layoutMa; anchors.fill: parent; cursorShape: Qt.PointingHandCursor
                                     onClicked: ed.pickLayout(parent.n) }
                     }
                 }
@@ -126,11 +127,12 @@ Item {
                         color: sel ? ThemeService.accent(ed.accent)
                              : (ic.hovered ? Qt.rgba(1, 1, 1, 0.16) : Qt.rgba(1, 1, 1, 0.08))
                         border.color: Qt.rgba(1, 1, 1, 0.12); border.width: 1
-                        Behavior on color { ColorAnimation { duration: 110 } }
+                        scale: iconMa.pressed ? ThemeService.pressScale : 1.0
+                        Behavior on scale { AppleSpring { spring: 18 } }
                         Text { anchors.centerIn: parent; text: modelData.glyph; color: "#ffffff"
                                font.family: ThemeService.iconFont; font.pixelSize: 15 }
                         HoverHandler { id: ic }
-                        MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor
+                        MouseArea { id: iconMa; anchors.fill: parent; cursorShape: Qt.PointingHandCursor
                                     onClicked: ed.setIcon(modelData.name) }
                     }
                 }

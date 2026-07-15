@@ -56,7 +56,7 @@ Rectangle {
     border.color: ThemeService.notificationStroke
     border.width: 1
 
-    Behavior on implicitHeight { NumberAnimation { duration: 150 } }
+    Behavior on implicitHeight { AppleSpring { spring: 18; epsilon: 0.25 } }
 
     MouseArea {
         id: hoverArea
@@ -80,7 +80,7 @@ Rectangle {
         font.family: "SF Pro Display"
         font.pixelSize: 10
         opacity: hoverArea.containsMouse || closeMa.containsMouse ? 0 : 1
-        Behavior on opacity { NumberAnimation { duration: 100 } }
+        Behavior on opacity { AppleSpring { spring: 13 } }
         z: 5
     }
 
@@ -99,7 +99,9 @@ Rectangle {
             border.color: dark ? Qt.rgba(1,1,1,0.12) : Qt.rgba(0,0,0,0.14)
         border.width: 1
         opacity: hoverArea.containsMouse || closeMa.containsMouse ? 1 : 0
-        Behavior on opacity { NumberAnimation { duration: 100 } }
+        scale: closeMa.pressed ? 0.90 : 1
+        Behavior on opacity { AppleSpring { spring: 13 } }
+        Behavior on scale { AppleSpring { spring: 13 } }
         z: 10
 
         Text {
@@ -245,7 +247,8 @@ Rectangle {
                         color: actMa.containsMouse
                             ? (dark ? Qt.rgba(1,1,1,0.18) : Qt.rgba(0,0,0,0.10))
                             : (dark ? Qt.rgba(1,1,1,0.10) : Qt.rgba(0,0,0,0.06))
-                        Behavior on color { ColorAnimation { duration: 100 } }
+                        scale: actMa.pressed ? ThemeService.pressScale : 1
+                        Behavior on scale { AppleSpring { spring: 13 } }
 
                         Text {
                             id: actLabel
