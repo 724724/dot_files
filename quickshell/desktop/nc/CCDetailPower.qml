@@ -47,7 +47,7 @@ Item {
     // shutdown/reboot). execDetached has no such lifetime coupling.
     function _runDetached(cmd) {
         Quickshell.execDetached(
-            ["bash", "/home/sejunlee/.config/quickshell/scripts/power.sh", cmd])
+            ["bash", Quickshell.shellDir + "/../scripts/power.sh", cmd])
     }
 
     // Lookup running GUI apps, excluding shell internals. Triggered when an

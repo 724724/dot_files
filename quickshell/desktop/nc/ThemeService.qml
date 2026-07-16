@@ -79,7 +79,8 @@ Singleton {
     }
 
     Process {
-        command: ["gsettings", "monitor", "org.gnome.desktop.interface", "color-scheme"]
+        command: ["setpriv", "--pdeathsig", "TERM", "--", "gsettings", "monitor",
+                  "org.gnome.desktop.interface", "color-scheme"]
         running: true
         stdout: SplitParser {
             splitMarker: "\n"

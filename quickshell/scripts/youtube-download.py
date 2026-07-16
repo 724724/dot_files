@@ -6,8 +6,10 @@ import os
 import re
 import shutil
 import signal
+import struct
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
@@ -148,13 +150,23 @@ def clean_music_artist(value):
     return re.sub(r"\s+-\s+Topic$", "", value, flags=re.IGNORECASE).strip()
 
 
-def audio_metadata_options():
-    return [
+def audio_metadata_options(playlist=False):
+    options = [
         "--replace-in-metadata", "title", r"^(.*\S)\s*\(\s*\1\s*\)$", r"\1",
         "--replace-in-metadata", "uploader", r"\s+-\s+Topic$", "",
         "--parse-metadata", "%(uploader)s:%(artist)s",
         "--parse-metadata", "%(title)s:%(track)s",
     ]
+    if playlist:
+        options.extend([
+            # Album comes only from the track's real `album` field (written
+            # natively by --embed-metadata). Do NOT fall back to playlist_title:
+            # a mixed playlist like "Chill" would otherwise stamp every track
+            # with the playlist name as its album.
+            "--parse-metadata", "%(album_artist,artist,uploader)s:%(meta_album_artist)s",
+            "--parse-metadata", "%(track_number,playlist_index)s:%(meta_track)s",
+        ])
+    return options
 
 
 def output_template(directory, kind):
@@ -170,6 +182,213 @@ def ratio_value(value):
         return 0
 
 
+def _syncsafe(value):
+    if not 0 <= value < (1 << 28):
+        raise ValueError("ID3 data is too large.")
+    return bytes(((value >> 21) & 0x7f, (value >> 14) & 0x7f,
+                  (value >> 7) & 0x7f, value & 0x7f))
+
+
+def _unsyncsafe(value):
+    if len(value) != 4 or any(byte & 0x80 for byte in value):
+        raise ValueError("Invalid ID3 sync-safe size.")
+    return (value[0] << 21) | (value[1] << 14) | (value[2] << 7) | value[3]
+
+
+def artwork_mime(data):
+    if data.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if data.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if len(data) >= 12 and data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "image/webp"
+    raise ValueError("Album artwork is not a supported JPEG, PNG, or WebP image.")
+
+
+def _id3_parts(tag):
+    if len(tag) < 10 or tag[:3] != b"ID3":
+        raise ValueError("Invalid WAV ID3 tag.")
+    version = tag[3]
+    flags = tag[5]
+    if version not in (3, 4):
+        raise ValueError(f"Unsupported ID3v2.{version} tag in WAV file.")
+    if flags & 0x80 or (version == 4 and flags & 0x10):
+        raise ValueError("Unsynchronised or footer-bearing WAV ID3 tags are not supported safely.")
+    body_size = _unsyncsafe(tag[6:10])
+    if 10 + body_size > len(tag):
+        raise ValueError("Truncated WAV ID3 tag.")
+    body = tag[10:10 + body_size]
+    position = 0
+    prefix = b""
+    if flags & 0x40:
+        if len(body) < 4:
+            raise ValueError("Truncated extended ID3 header.")
+        extended_size = (4 + int.from_bytes(body[:4], "big")
+                         if version == 3 else _unsyncsafe(body[:4]))
+        if extended_size < 4 or extended_size > len(body):
+            raise ValueError("Invalid extended ID3 header.")
+        prefix = body[:extended_size]
+        position = extended_size
+
+    frames = []
+    while position + 10 <= len(body):
+        header = body[position:position + 10]
+        if header[:4] == b"\0\0\0\0":
+            break
+        if not re.fullmatch(rb"[A-Z0-9]{4}", header[:4]):
+            raise ValueError("Invalid ID3 frame in WAV file.")
+        frame_size = (_unsyncsafe(header[4:8]) if version == 4
+                      else int.from_bytes(header[4:8], "big"))
+        frame_end = position + 10 + frame_size
+        if frame_end > len(body):
+            raise ValueError("Truncated ID3 frame in WAV file.")
+        frames.append((header[:4], body[position:frame_end]))
+        position = frame_end
+    if any(body[position:]):
+        raise ValueError("Unexpected data after WAV ID3 frames.")
+    return version, flags, prefix, frames, len(body) - position
+
+
+def _id3_with_artwork(existing, image_data, mime):
+    version, flags, prefix, frames, old_padding = (
+        _id3_parts(existing) if existing else (3, 0, b"", [], 0)
+    )
+    description = b"Cover\0"
+    payload = b"\0" + mime.encode("ascii") + b"\0\x03" + description + image_data
+    frame_size = _syncsafe(len(payload)) if version == 4 else len(payload).to_bytes(4, "big")
+    apic = b"APIC" + frame_size + b"\0\0" + payload
+    kept = b"".join(raw for frame_id, raw in frames if frame_id != b"APIC")
+    padding = b"\0" * max(1024, old_padding)
+    body = prefix + kept + apic + padding
+    return b"ID3" + bytes((version, 0, flags)) + _syncsafe(len(body)) + body
+
+
+def _riff_chunks(path):
+    path = Path(path)
+    with path.open("rb") as source:
+        header = source.read(12)
+        if len(header) != 12 or header[:4] != b"RIFF" or header[8:12] != b"WAVE":
+            raise ValueError(f"Not a supported RIFF/WAVE file: {path.name}")
+        logical_end = int.from_bytes(header[4:8], "little") + 8
+        source.seek(0, os.SEEK_END)
+        file_size = source.tell()
+        if logical_end != file_size:
+            raise ValueError(f"Malformed RIFF size in WAV file: {path.name}")
+        chunks = []
+        position = 12
+        while position < logical_end:
+            if position + 8 > logical_end:
+                raise ValueError(f"Truncated RIFF chunk in WAV file: {path.name}")
+            source.seek(position)
+            chunk_header = source.read(8)
+            data_size = int.from_bytes(chunk_header[4:8], "little")
+            chunk_end = position + 8 + data_size + (data_size & 1)
+            if chunk_end > logical_end:
+                raise ValueError(f"Truncated RIFF chunk in WAV file: {path.name}")
+            chunks.append((chunk_header[:4], position, data_size, chunk_end))
+            position = chunk_end
+    return header, chunks
+
+
+def _copy_bytes(source, destination, count):
+    while count:
+        block = source.read(min(count, 1024 * 1024))
+        if not block:
+            raise OSError("Unexpected end of WAV file while copying.")
+        destination.write(block)
+        count -= len(block)
+
+
+def _wav_id3(path):
+    _, chunks = _riff_chunks(path)
+    with Path(path).open("rb") as source:
+        for chunk_id, position, data_size, _chunk_end in chunks:
+            if chunk_id.lower() == b"id3 ":
+                source.seek(position + 8)
+                return source.read(data_size)
+    return b""
+
+
+def embed_wav_artwork(audio_path, artwork_path):
+    audio_path = Path(audio_path)
+    artwork_path = Path(artwork_path)
+    image_data = artwork_path.read_bytes()
+    mime = artwork_mime(image_data)
+    header, chunks = _riff_chunks(audio_path)
+    existing = _wav_id3(audio_path)
+    new_tag = _id3_with_artwork(existing, image_data, mime)
+    temporary_name = ""
+    try:
+        with audio_path.open("rb") as source, tempfile.NamedTemporaryFile(
+                mode="w+b", prefix=f".{audio_path.name}.", suffix=".tmp",
+                dir=audio_path.parent, delete=False) as destination:
+            temporary_name = destination.name
+            destination.write(header)
+            wrote_id3 = False
+            for chunk_id, position, _data_size, chunk_end in chunks:
+                if chunk_id.lower() == b"id3 ":
+                    if wrote_id3:
+                        continue
+                    payload = new_tag
+                    destination.write(b"id3 " + len(payload).to_bytes(4, "little") + payload)
+                    if len(payload) & 1:
+                        destination.write(b"\0")
+                    wrote_id3 = True
+                    continue
+                source.seek(position)
+                _copy_bytes(source, destination, chunk_end - position)
+            if not wrote_id3:
+                payload = new_tag
+                destination.write(b"id3 " + len(payload).to_bytes(4, "little") + payload)
+                if len(payload) & 1:
+                    destination.write(b"\0")
+            total_size = destination.tell()
+            if total_size - 8 >= (1 << 32):
+                raise ValueError("WAV file is too large for RIFF artwork metadata.")
+            destination.seek(4)
+            destination.write((total_size - 8).to_bytes(4, "little"))
+            destination.flush()
+            os.fsync(destination.fileno())
+        shutil.copystat(audio_path, temporary_name)
+        os.replace(temporary_name, audio_path)
+        temporary_name = ""
+    finally:
+        if temporary_name:
+            Path(temporary_name).unlink(missing_ok=True)
+
+    saved = _wav_id3(audio_path)
+    _version, _flags, _prefix, frames, _padding = _id3_parts(saved)
+    if not any(frame_id == b"APIC" and raw.endswith(image_data) for frame_id, raw in frames):
+        raise RuntimeError(f"Could not verify embedded artwork in {audio_path.name}.")
+    return mime
+
+
+def _temporary_artwork(directory, stem):
+    directory = Path(directory)
+    for candidate in sorted(directory.glob(f"{stem}.*")):
+        try:
+            artwork_mime(candidate.read_bytes())
+            return candidate
+        except (OSError, ValueError):
+            continue
+    return None
+
+
+def embed_download_artwork(output_records, artwork_directory, playlist=False):
+    shared = _temporary_artwork(artwork_directory, "playlist") if playlist else None
+    embedded = 0
+    for output_path, video_id in output_records:
+        cover = shared or _temporary_artwork(artwork_directory, f"entry-{video_id}")
+        if cover is None and len(output_records) == 1:
+            cover = next((candidate for candidate in Path(artwork_directory).glob("entry-*")
+                          if candidate.is_file()), None)
+        if cover is None:
+            continue
+        embed_wav_artwork(output_path, cover)
+        embedded += 1
+    return embedded
+
+
 def media_details(path):
     executable = shutil.which("ffprobe")
     if not executable or not path or not Path(path).is_file():
@@ -180,7 +399,7 @@ def media_details(path):
                 executable,
                 "-v", "error",
                 "-show_entries",
-                "format=bit_rate:stream=codec_type,codec_name,width,height,r_frame_rate,bit_rate,sample_rate,channels",
+                "format=bit_rate:stream=codec_type,codec_name,width,height,r_frame_rate,bit_rate,sample_rate,channels:stream_disposition=attached_pic",
                 "-of", "json",
                 path,
             ],
@@ -194,7 +413,9 @@ def media_details(path):
     except (OSError, subprocess.SubprocessError, json.JSONDecodeError):
         return {}
     streams = value.get("streams") or []
-    video = next((stream for stream in streams if stream.get("codec_type") == "video"), {})
+    video = next((stream for stream in streams
+                  if stream.get("codec_type") == "video"
+                  and not (stream.get("disposition") or {}).get("attached_pic")), {})
     audio = next((stream for stream in streams if stream.get("codec_type") == "audio"), {})
     format_rate = int((value.get("format") or {}).get("bit_rate") or 0)
     audio_rate = int(audio.get("bit_rate") or (format_rate if audio and not video else 0))
@@ -292,6 +513,20 @@ def set_output_command(args):
     print(json.dumps({"ok": True, "outputDir": str(target)}, ensure_ascii=False))
 
 
+def embed_artwork_command(args):
+    cover = Path(args.cover).expanduser()
+    audio_paths = [Path(path).expanduser() for path in args.audio]
+    for audio_path in audio_paths:
+        embed_wav_artwork(audio_path, cover)
+    for image_path in args.delete:
+        Path(image_path).expanduser().unlink(missing_ok=True)
+    print(json.dumps({
+        "ok": True,
+        "cover": str(cover),
+        "files": [str(path) for path in audio_paths],
+    }, ensure_ascii=False))
+
+
 def info_command(args):
     url = normalize_input(args.input)
     playlist_requested = is_playlist_url(url)
@@ -339,6 +574,9 @@ def download_command(args):
     output_dir = output_directory()
     output_dir.mkdir(parents=True, exist_ok=True)
     template = output_template(output_dir, kind)
+    wav_artwork = kind == "audio" and args.audio_format == "wav"
+    artwork_temp = tempfile.TemporaryDirectory(prefix="quickshell-youtube-artwork-") if wav_artwork else None
+    artwork_dir = Path(artwork_temp.name) if artwork_temp else None
     command = [
         *base_command(args.browser, playlist),
         "--ignore-errors",
@@ -355,7 +593,7 @@ def download_command(args):
         "--print",
         "before_dl:__QS_ITEM__%(playlist_index)s\t%(playlist_count)s\t%(title)s",
         "--print",
-        "after_move:__QS_FILE__%(filepath)s",
+        "after_move:__QS_FILE__%(filepath)s\t%(id)s",
     ]
     if kind == "video":
         command.extend([
@@ -363,9 +601,16 @@ def download_command(args):
             "--format", video_selector(args.quality), "--merge-output-format", "mp4",
         ])
     elif kind == "audio":
-        command.extend(audio_metadata_options())
+        command.extend(audio_metadata_options(playlist))
         command.extend(["--convert-thumbnails", "jpg"])
-        command.append("--write-thumbnail" if args.audio_format == "wav" else "--embed-thumbnail")
+        if wav_artwork:
+            command.extend([
+                "--write-thumbnail",
+                "--output", f"thumbnail:{artwork_dir}/entry-%(id)s.%(ext)s",
+                "--output", f"pl_thumbnail:{artwork_dir}/playlist.%(ext)s",
+            ])
+        else:
+            command.append("--embed-thumbnail")
         command.extend(["--format", "ba/b", *audio_options(args.audio_format)])
     else:
         raise ValueError("Unsupported media type.")
@@ -389,6 +634,7 @@ def download_command(args):
     signal.signal(signal.SIGINT, terminate_child)
     output_path = ""
     output_paths = []
+    output_records = []
     item_index = 0
     item_count = 0
     recent = []
@@ -417,8 +663,11 @@ def download_command(args):
             title = fields[2].strip() if len(fields) > 2 else ""
             emit("item", title=title, index=item_index, count=item_count)
         elif line.startswith("__QS_FILE__"):
-            output_path = line.removeprefix("__QS_FILE__").strip()
+            fields = line.removeprefix("__QS_FILE__").split("\t", 1)
+            output_path = fields[0].strip()
+            video_id = fields[1].strip() if len(fields) > 1 else ""
             output_paths.append(output_path)
+            output_records.append((output_path, video_id))
             emit("itemCompleted", path=output_path, index=item_index, count=item_count,
                  completed=len(output_paths))
         elif line.startswith("__QS_STAGE__"):
@@ -431,8 +680,13 @@ def download_command(args):
         raise RuntimeError(recent[-1] if recent else "Download failed.")
     if not output_paths:
         raise RuntimeError(recent[-1] if recent else "No downloadable playlist items were found.")
+    if artwork_dir:
+        emit("processing", message="Embedding album artwork…")
+        embed_download_artwork(output_records, artwork_dir, playlist)
     emit("completed", progress=100, path=output_path, outputDir=str(output_dir),
          mediaInfo=media_details(output_path), files=len(output_paths), playlist=playlist)
+    if artwork_temp:
+        artwork_temp.cleanup()
 
 
 def parser():
@@ -441,6 +695,10 @@ def parser():
     subparsers.add_parser("status")
     set_output = subparsers.add_parser("set-output")
     set_output.add_argument("--path", required=True)
+    embed_artwork = subparsers.add_parser("embed-artwork")
+    embed_artwork.add_argument("--cover", required=True)
+    embed_artwork.add_argument("--audio", action="append", required=True)
+    embed_artwork.add_argument("--delete", action="append", default=[])
     info = subparsers.add_parser("info")
     info.add_argument("--input", required=True)
     info.add_argument("--browser", default="auto")
@@ -460,11 +718,13 @@ def main():
             status_command(args)
         elif args.command == "set-output":
             set_output_command(args)
+        elif args.command == "embed-artwork":
+            embed_artwork_command(args)
         elif args.command == "info":
             info_command(args)
         else:
             download_command(args)
-    except (ValueError, RuntimeError, subprocess.TimeoutExpired, json.JSONDecodeError) as error:
+    except (OSError, ValueError, RuntimeError, subprocess.TimeoutExpired, json.JSONDecodeError) as error:
         if args.command == "download":
             emit("error", message=str(error))
         else:

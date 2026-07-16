@@ -82,6 +82,17 @@ PanelWindow {
         readonly property int gridMarginX: 40
         readonly property int gridMarginTop: 96
         readonly property int gridMarginBottom: 40
+        // Centre the columns horizontally. `gridMarginX` is only the *minimum*
+        // side margin used to decide how many whole columns fit; whatever width
+        // is left over (board width minus those columns) is split evenly into
+        // left/right margins instead of piling up as dead space on the right
+        // edge — that leftover was almost a full column here, so the rightmost
+        // widget looked stranded with a big empty strip beside it. Every X
+        // placement calculation below uses this offset (Y stays top-anchored).
+        readonly property int gridOffsetX: {
+            let g = _gridDims()
+            return Math.max(gridMarginX, Math.round((board.width - (g.cols * g.unit - g.gap)) / 2))
+        }
 
         function _gridDims() {
             let unit = WidgetsService.gridUnit, gap = WidgetsService.gridGap
@@ -129,7 +140,7 @@ PanelWindow {
                 let s = _spans(i)
                 let sw = Math.min(g.cols, s.sw), sh = Math.min(g.rows, s.sh)
                 // Nearest cell to where the widget already is.
-                let c = Math.max(0, Math.min(g.cols - sw, Math.round((w.nx - gridMarginX) / g.unit)))
+                let c = Math.max(0, Math.min(g.cols - sw, Math.round((w.nx - gridOffsetX) / g.unit)))
                 let r = Math.max(0, Math.min(g.rows - sh, Math.round((w.ny - gridMarginTop) / g.unit)))
                 if (!fits(r, c, sw, sh)) {
                     let best = null, bestD = 1e9
@@ -142,7 +153,7 @@ PanelWindow {
                     if (best) { r = best.r; c = best.c }   // else: board full — leave overlapped
                 }
                 mark(r, c, sw, sh)
-                WidgetsService.setPosition(i, gridMarginX + c * g.unit, gridMarginTop + r * g.unit, false)
+                WidgetsService.setPosition(i, gridOffsetX + c * g.unit, gridMarginTop + r * g.unit, false)
                 WidgetsService.setSize(i, sw * g.unit - g.gap, sh * g.unit - g.gap, false)
             }
             WidgetsService.persist()
@@ -164,7 +175,7 @@ PanelWindow {
             let g = _gridDims()
             let s = _spans(index)
             let sw = Math.min(g.cols, s.sw), sh = Math.min(g.rows, s.sh)
-            let c = Math.max(0, Math.min(g.cols - sw, Math.round((cx - gridMarginX) / g.unit - sw / 2)))
+            let c = Math.max(0, Math.min(g.cols - sw, Math.round((cx - gridOffsetX) / g.unit - sw / 2)))
             let r = Math.max(0, Math.min(g.rows - sh, Math.round((cy - gridMarginTop) / g.unit - sh / 2)))
             let free = true
             for (let i = 0; i < WidgetsService.widgets.count && free; i++) {
@@ -172,11 +183,11 @@ PanelWindow {
                 let w = WidgetsService.widgets.get(i)
                 if (w.type === "note") continue
                 let s2 = _spans(i)
-                let c2 = Math.round((w.nx - gridMarginX) / g.unit)
+                let c2 = Math.round((w.nx - gridOffsetX) / g.unit)
                 let r2 = Math.round((w.ny - gridMarginTop) / g.unit)
                 if (c < c2 + s2.sw && c2 < c + sw && r < r2 + s2.sh && r2 < r + sh) free = false
             }
-            return { x: gridMarginX + c * g.unit, y: gridMarginTop + r * g.unit,
+            return { x: gridOffsetX + c * g.unit, y: gridMarginTop + r * g.unit,
                      w: sw * g.unit - g.gap, h: sh * g.unit - g.gap, free: free }
         }
         function updateDragPreview(index, cx, cy) {
@@ -218,7 +229,7 @@ PanelWindow {
                 let widget = WidgetsService.widgets.get(i)
                 if (widget.type === "note") continue
                 let current = _spans(i)
-                let column = Math.round((widget.nx - gridMarginX) / g.unit)
+                let column = Math.round((widget.nx - gridOffsetX) / g.unit)
                 let row = Math.round((widget.ny - gridMarginTop) / g.unit)
                 for (let dr = 0; dr < current.sh; dr++)
                     for (let dc = 0; dc < current.sw; dc++)
@@ -233,7 +244,7 @@ PanelWindow {
                 return true
             }
             let preferredColumn = Math.max(0, Math.min(g.cols - span.sw,
-                Math.round((x - gridMarginX) / g.unit)))
+                Math.round((x - gridOffsetX) / g.unit)))
             let preferredRow = Math.max(0, Math.min(g.rows - span.sh,
                 Math.round((y - gridMarginTop) / g.unit)))
             let best = null
@@ -244,7 +255,7 @@ PanelWindow {
                     let distance = Math.abs(row - preferredRow) + Math.abs(column - preferredColumn)
                     if (distance < bestDistance) {
                         bestDistance = distance
-                        best = { x: gridMarginX + column * g.unit,
+                        best = { x: gridOffsetX + column * g.unit,
                                  y: gridMarginTop + row * g.unit }
                     }
                 }
@@ -462,9 +473,9 @@ PanelWindow {
                 { kind: "news",      label: "News",      glyph: "\uf1ea" },
                 { kind: "note",      label: "Note",      glyph: "\uf249" },
                 { kind: "reminders", label: "Reminders", glyph: "\uf046" },
-                { kind: "stock",     label: "Stocks",    glyph: "\uf201" },
-                { kind: "youtube",   label: "YouTube",   glyph: "\uf167" },
-                { kind: "weather",   label: "Weather",   glyph: "\ue302" }
+                { kind: "stock",      label: "Stocks",     glyph: "\uf201" },
+                { kind: "downloader", label: "Downloader", glyph: "\uf019" },
+                { kind: "weather",    label: "Weather",    glyph: "\ue302" }
             ]
             function sectionVisible(kind, label) {
                 let q = searchField.text.trim().toLowerCase()
@@ -654,7 +665,7 @@ PanelWindow {
                         }
                     }
                     Column {
-                        visible: gallery.sectionVisible("youtube", "YouTube Downloader")
+                        visible: gallery.sectionVisible("downloader", "YouTube Downloader")
                         width: parent.width
                         spacing: 10
                         Text { text: "YouTube Downloader"; color: ThemeService.label
@@ -663,6 +674,18 @@ PanelWindow {
                             YoutubeAddCard { layoutId: 1 }
                             YoutubeAddCard { layoutId: 2 }
                             YoutubeAddCard { layoutId: 3 }
+                        }
+                    }
+                    Column {
+                        visible: gallery.sectionVisible("downloader", "Spotify Downloader")
+                        width: parent.width
+                        spacing: 10
+                        Text { text: "Spotify Downloader"; color: ThemeService.label
+                               font.family: "SF Pro Display"; font.pixelSize: 14; font.weight: Font.DemiBold }
+                        Flow { width: parent.width; spacing: 12
+                            SpotifyAddCard { layoutId: 1 }
+                            SpotifyAddCard { layoutId: 2 }
+                            SpotifyAddCard { layoutId: 3 }
                         }
                     }
                     Column {
@@ -1686,6 +1709,85 @@ PanelWindow {
                 let size = WidgetsService.youtubeSize(youtubeCard.layoutId)
                 board.tryAddWidget("youtube", board.width / 2 - size.nw / 2,
                     board.height / 2 - size.nh / 2, { layout: youtubeCard.layoutId })
+            }
+        }
+    }
+
+    component SpotifyAddCard: Rectangle {
+        id: spotifyCard
+        property int layoutId: 3
+        readonly property var layoutNames: ["Small", "Medium", "Large"]
+        width: layoutId === 1 ? 96 : (layoutId === 2 ? 134 : 150)
+        height: 116
+        radius: 14
+        color: spotifyHover.hovered ? gallery.cardHoverColor : gallery.cardColor
+        border.color: ThemeService.separator
+        border.width: 1
+        scale: spotifyArea.pressed ? ThemeService.pressScale : 1
+        Behavior on scale { AppleSpring { spring: 18 } }
+
+        Column {
+            anchors.centerIn: parent
+            spacing: 8
+            Rectangle {
+                anchors.horizontalCenter: parent.horizontalCenter
+                width: layoutId === 1 ? 68 : (layoutId === 2 ? 104 : 122)
+                height: 72
+                radius: 12
+                clip: true
+                color: ThemeService.cardBg
+                border.color: ThemeService.separator
+                Row {
+                    anchors.centerIn: parent
+                    spacing: 8
+                    Rectangle {
+                        width: layoutId === 1 ? 24 : 26
+                        height: layoutId === 1 ? 24 : 26
+                        radius: width / 2
+                        color: "#1DB954"
+                        Text {
+                            anchors.centerIn: parent
+                            text: ""
+                            color: "#ffffff"
+                            font.family: ThemeService.iconFont
+                            font.pixelSize: 14
+                        }
+                    }
+                    Column {
+                        visible: layoutId > 1
+                        anchors.verticalCenter: parent.verticalCenter
+                        spacing: 5
+                        Rectangle { width: layoutId === 2 ? 46 : 54; height: 5; radius: 2.5; color: ThemeService.label; opacity: 0.82 }
+                        Rectangle { width: layoutId === 2 ? 32 : 38; height: 4; radius: 2; color: ThemeService.secondaryLabel }
+                    }
+                }
+                Rectangle {
+                    anchors { left: parent.left; right: parent.right; bottom: parent.bottom }
+                    anchors.margins: 10
+                    height: 3
+                    radius: 1.5
+                    color: ThemeService.separator
+                    Rectangle { width: parent.width * 0.68; height: parent.height; radius: parent.radius; color: "#1DB954" }
+                }
+            }
+            Text {
+                anchors.horizontalCenter: parent.horizontalCenter
+                text: spotifyCard.layoutNames[spotifyCard.layoutId - 1]
+                color: ThemeService.label
+                font.family: "SF Pro Display"
+                font.pixelSize: 11
+            }
+        }
+
+        HoverHandler { id: spotifyHover }
+        MouseArea {
+            id: spotifyArea
+            anchors.fill: parent
+            cursorShape: Qt.PointingHandCursor
+            onPressed: {
+                let size = WidgetsService.spotifySize(spotifyCard.layoutId)
+                board.tryAddWidget("spotify", board.width / 2 - size.nw / 2,
+                    board.height / 2 - size.nh / 2, { layout: spotifyCard.layoutId })
             }
         }
     }

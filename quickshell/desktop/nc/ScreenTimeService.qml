@@ -23,9 +23,11 @@ Singleton {
     property var hours: ({})
     property string day: ""        // YYYY-MM-DD currently being accumulated
 
-    readonly property string dataDir:  "/home/sejunlee/.local/share/quickshell"
+    readonly property string dataDir:  Quickshell.env("HOME") + "/.local/share/quickshell"
     readonly property string dataFile: dataDir + "/screentime.json"
-    readonly property int tickSeconds: 20
+    // One focused-window sample per minute is sufficient for daily totals and
+    // cuts the bash + hyprctl + jq wakeups and state writes by two thirds.
+    readonly property int tickSeconds: 60
     readonly property int keepDays: 35    // drop anything older on load
 
     // Today's per-app map. Bindings that reference `apps` re-evaluate whenever

@@ -4,6 +4,7 @@ import Quickshell.Wayland
 import QtQuick
 import QtQuick.Layouts
 import "../missioncontrol" as MC
+import "../dock" as Dock
 
 Scope {
     id: barScope
@@ -37,7 +38,11 @@ Scope {
             // Returns as soon as any normal workspace becomes active.
             readonly property bool splitViewHere:
                 MC.MCService.splitViewActiveOn(win.modelData ? win.modelData.name : "")
-            visible: BarState.visible && !splitViewHere
+            readonly property bool fullscreenHere:
+                Dock.DockService.fullscreenMonitors.includes(win.modelData ? win.modelData.name : "")
+            // No overlay at all in real fullscreen: this allows direct scanout
+            // and avoids repainting a blurred bar over every 4K frame.
+            visible: BarState.visible && !splitViewHere && !fullscreenHere
             anchors { top: true; left: true; right: true }
             margins { top: 10; left: 10; right: 10 }
             implicitHeight: 33
@@ -75,7 +80,7 @@ Scope {
 
                 Item { Layout.fillWidth: true }
 
-                PrivacyIndicatorsWidget { id: privacyW; screen: win.modelData }
+                PrivacyIndicatorsWidget { id: privacyW }
                 MagicWidget { id: magicW }
                 TrayWidget { id: trayW; window: win }
                 VolumeWidget { id: volumeW }
@@ -92,6 +97,40 @@ Scope {
                 id: mediaW
                 anchors.horizontalCenter: parent.horizontalCenter
                 anchors.verticalCenter: parent.verticalCenter
+            }
+        }
+    }
+
+    // True fullscreen deliberately unmaps the full blurred bar for direct
+    // scanout. Retain only the tiny microphone privacy dot while it is in use.
+    Variants {
+        model: Quickshell.screens
+
+        PanelWindow {
+            id: privacyWin
+            required property var modelData
+            screen: modelData
+
+            readonly property bool fullscreenHere:
+                Dock.DockService.fullscreenMonitors.includes(
+                    privacyWin.modelData ? privacyWin.modelData.name : "")
+            readonly property bool privacyActive: PrivacyService.micActive
+
+            visible: fullscreenHere && privacyActive
+            WlrLayershell.namespace: "qs-privacy-indicators"
+            WlrLayershell.layer: WlrLayer.Overlay
+            WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
+            exclusionMode: ExclusionMode.Ignore
+            anchors { top: true; right: true }
+            margins { top: 10; right: 10 }
+            implicitWidth: Math.max(1, fullscreenPrivacy.implicitWidth)
+            implicitHeight: 33
+            color: "transparent"
+            mask: Region { item: fullscreenPrivacy }
+
+            PrivacyIndicatorsWidget {
+                id: fullscreenPrivacy
+                anchors.centerIn: parent
             }
         }
     }

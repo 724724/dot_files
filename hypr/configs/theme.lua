@@ -27,7 +27,7 @@ hl.config({
         dim_special      = 0.7,
 
         shadow = {
-            enabled      = true,
+            enabled      = false,
             range        = 5,
             render_power = 3,
             color        = "rgba(1a1a1aee)",
@@ -73,29 +73,41 @@ hl.config({
     misc = {
         force_default_wallpaper = -1,   -- Set to 0 or 1 to disable the anime mascot wallpapers
         disable_hyprland_logo   = true, -- If true disables the random hyprland logo / anime girl background. :(
+        -- windowsMove animates compositor-driven geometry (including
+        -- fullscreen/maximize), while direct manipulation remains 1:1.
+        animate_manual_resizes      = false,
+        animate_mouse_windowdragging = false,
     },
 })
 
 ----------------
 --- CURVES   ---
 ----------------
-hl.curve("overshot",  { type = "bezier", points = { { 0.05, 0.9 }, { 0.1,  1.05 } } })
-hl.curve("smoothOut", { type = "bezier", points = { { 0.36, 0   }, { 0.66, -0.56 } } })
-hl.curve("smoothIn",  { type = "bezier", points = { { 0.25, 1   }, { 0.5,  1 } } })
--- Non-overshooting ease-out for layer surfaces — prevents the small
--- upward bounce that the default curve introduced when the NC / dock
--- preview / spotlight result list grew in size.
-hl.curve("layerEase", { type = "bezier", points = { { 0.25, 0.46 }, { 0.45, 0.94 } } })
+-- Match Quickshell's AppleSpring house style with real physical springs.
+-- appleFluid is effectively critically damped (zeta ~= 0.99, response ~= .39s):
+-- no decorative bounce, interruption starts from the current presentation.
+-- appleSheet mirrors Apple's drawer/sheet recipe (zeta ~= .8, response ~= .37s)
+-- and is reserved for spatial, momentum-like transitions.
+hl.curve("appleFluid", {
+    type = "spring", mass = 1, stiffness = 260, dampening = 32,
+})
+hl.curve("appleSheet", {
+    type = "spring", mass = 1, stiffness = 280, dampening = 27,
+})
 
 ----------------
 --- ANIMATIONS ---
 ----------------
-hl.animation({ leaf = "windows",          enabled = true, speed = 3, bezier = "overshot",  style = "slide" })
-hl.animation({ leaf = "windowsOut",       enabled = true, speed = 3, bezier = "smoothOut", style = "slide" })
-hl.animation({ leaf = "windowsMove",      enabled = true, speed = 3, bezier = "default" })
-hl.animation({ leaf = "border",           enabled = true, speed = 3, bezier = "default" })
-hl.animation({ leaf = "fade",             enabled = true, speed = 3, bezier = "smoothIn" })
-hl.animation({ leaf = "fadeDim",          enabled = true, speed = 3, bezier = "smoothIn" })
-hl.animation({ leaf = "workspaces",       enabled = true, speed = 3, bezier = "default" })
-hl.animation({ leaf = "layers",           enabled = true, speed = 2, bezier = "layerEase", style = "fade" })
-hl.animation({ leaf = "specialWorkspace", enabled = true, speed = 5, bezier = "default",   style = "slidevert 50%" })
+-- speed is in deciseconds: keep the 0.3–0.4s response used by AppleSpring.
+-- Window drag/resize remains unanimated for true 1:1 direct manipulation.
+hl.animation({ leaf = "windows",          enabled = true,  speed = 4, spring = "appleFluid", style = "popin 96%" })
+hl.animation({ leaf = "windowsOut",       enabled = true,  speed = 4, spring = "appleFluid", style = "popin 96%" })
+-- Fullscreen/maximize uses the same critically damped spring in both
+-- directions. Hyprland retargets the running spring on rapid reversal.
+hl.animation({ leaf = "windowsMove",      enabled = true,  speed = 4, spring = "appleFluid" })
+hl.animation({ leaf = "border",           enabled = true,  speed = 2, spring = "appleFluid" })
+hl.animation({ leaf = "fade",             enabled = true,  speed = 3, spring = "appleFluid" })
+hl.animation({ leaf = "fadeDim",          enabled = true,  speed = 3, spring = "appleFluid" })
+hl.animation({ leaf = "workspaces",       enabled = true,  speed = 4, spring = "appleFluid", style = "slidefade 18%" })
+hl.animation({ leaf = "layers",           enabled = true,  speed = 3, spring = "appleFluid", style = "fade" })
+hl.animation({ leaf = "specialWorkspace", enabled = true,  speed = 3, spring = "appleSheet", style = "slidefadevert 20%" })

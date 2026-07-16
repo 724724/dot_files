@@ -148,6 +148,7 @@ Item {
                            : wf.type === "calendar"  ? calendarComp
                            : wf.type === "stock"     ? stockComp
                            : wf.type === "youtube"   ? youtubeComp
+                           : wf.type === "spotify"   ? spotifyComp
                            : noteComp
         }
         Component { id: noteComp;      NoteWidget      { frame: wf } }
@@ -158,6 +159,7 @@ Item {
         Component { id: calendarComp;  CalendarWidget  { frame: wf } }
         Component { id: stockComp;     StockWidget     { frame: wf } }
         Component { id: youtubeComp;   YoutubeWidget { frame: wf } }
+        Component { id: spotifyComp;   SpotifyWidget { frame: wf } }
 
         // ── Note title bar (macOS Stickies: close left, zoom + collapse
         //    right). Hover-only — the strip is hidden until you point at the

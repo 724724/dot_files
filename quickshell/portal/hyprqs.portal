@@ -1,0 +1,4 @@
+[portal]
+DBusName=org.freedesktop.impl.portal.desktop.hyprqs
+Interfaces=org.freedesktop.impl.portal.Wallpaper;
+UseIn=Hyprland;

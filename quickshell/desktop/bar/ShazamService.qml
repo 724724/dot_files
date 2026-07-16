@@ -175,7 +175,13 @@ Singleton {
 
     // ── Relative-time labels, refreshed on a 30s tick ────────────────────
     property int _tick: 0
-    Timer { interval: 30000; running: true; repeat: true; onTriggered: root._tick++ }
+    Timer {
+        interval: 30000
+        running: root.popupVisible && root.history.length > 0
+        repeat: true
+        triggeredOnStart: true
+        onTriggered: root._tick++
+    }
 
     function timeLabel(ts) {
         let _ = root._tick   // dependency so labels refresh

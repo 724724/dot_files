@@ -1,33 +1,48 @@
 #!/usr/bin/env bash
-# hide-unplugged-sinks.sh
-# Monitors audio card changes and hides unavailable (unplugged) sinks
-# via WirePlumber rules so they don't clutter pavucontrol.
+# Hide unavailable UCM outputs/inputs without hard-coding this laptop's card.
+# `pactl subscribe` sleeps in the server while idle; rules are regenerated only
+# after an audio topology event, and WirePlumber is restarted only when the
+# resulting configuration actually changed.
 
-CONF="$HOME/.config/wireplumber/wireplumber.conf.d/disable-unplugged.conf"
+set -u
+
+CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
+CONF="$CONFIG_HOME/wireplumber/wireplumber.conf.d/disable-unplugged.conf"
 mkdir -p "$(dirname "$CONF")"
 
-LAST_HASH=""
-COOLDOWN=0
-BASE="alsa_output.pci-0000_00_1f.3-platform-sof_sdw.HiFi__"
+get_unavailable_nodes() {
+    local card="" line direction port prefix suffix
 
-get_unavailable_sinks() {
-    pactl list cards 2>/dev/null \
-        | grep -E '^\s+\[Out\].*not available\)' \
-        | sed -E 's/.*\[Out\] ([^:]+):.*/\1/' \
-        | while read -r port; do
-            echo "${BASE}${port}__sink"
-        done
+    while IFS= read -r line; do
+        if [[ $line =~ Name:[[:space:]]+alsa_card\.(.+)$ ]]; then
+            card="${BASH_REMATCH[1]}"
+            continue
+        fi
+        [[ -n $card ]] || continue
+        if [[ $line =~ \[(Out|In)\][[:space:]]+([^:]+):.*not[[:space:]]available\) ]]; then
+            direction="${BASH_REMATCH[1]}"
+            port="${BASH_REMATCH[2]}"
+            if [[ $direction == Out ]]; then
+                prefix="alsa_output"
+                suffix="sink"
+            else
+                prefix="alsa_input"
+                suffix="source"
+            fi
+            printf '%s.%s.HiFi__%s__%s\n' "$prefix" "$card" "$port" "$suffix"
+        fi
+    done < <(pactl list cards 2>/dev/null)
 }
 
 generate_conf() {
-    local sinks=("$@")
-    echo "monitor.alsa.rules = ["
-    for i in "${!sinks[@]}"; do
-        [[ -z "${sinks[$i]}" ]] && continue
+    local node
+    printf 'monitor.alsa.rules = [\n'
+    while IFS= read -r node; do
+        [[ -n $node ]] || continue
         cat <<EOF
   {
     matches = [
-      { node.name = "${sinks[$i]}" }
+      { node.name = "$node" }
     ]
     actions = {
       update-props = {
@@ -36,53 +51,50 @@ generate_conf() {
     }
   }
 EOF
-    done
-    echo "]"
+    done < <(get_unavailable_nodes | sort -u)
+    printf ']\n'
 }
 
 apply_rules() {
-    local now
-    now=$(date +%s)
-    (( now - COOLDOWN < 8 )) && return
+    local tmp
+    tmp=$(mktemp "${CONF}.XXXXXX") || return
+    generate_conf > "$tmp"
 
-    local new_hash
-    mapfile -t sinks < <(get_unavailable_sinks)
-    new_hash=$(printf '%s\n' "${sinks[@]}" | md5sum | cut -d' ' -f1)
-    [[ "$new_hash" == "$LAST_HASH" ]] && return
-    LAST_HASH="$new_hash"
-
-    if [[ ${#sinks[@]} -gt 0 && -n "${sinks[0]}" ]]; then
-        generate_conf "${sinks[@]}" > "$CONF"
-    else
-        rm -f "$CONF"
+    if [[ -f $CONF ]] && cmp -s "$tmp" "$CONF"; then
+        rm -f "$tmp"
+        return
     fi
 
+    chmod 0644 "$tmp"
+    mv -f "$tmp" "$CONF"
     systemctl --user restart wireplumber
-    COOLDOWN=$(date +%s)
 }
 
-cleanup() {
-    rm -f "$CONF"
-    systemctl --user restart wireplumber
-    exit 0
-}
-trap cleanup EXIT INT TERM
+case "${1:-}" in
+    --print)
+        generate_conf
+        exit
+        ;;
+    --once)
+        apply_rules
+        exit
+        ;;
+esac
 
-# Initial clean state
-rm -f "$CONF"
-systemctl --user restart wireplumber
-sleep 5
 apply_rules
 
-# Watch for card/sink changes
 while true; do
-    pactl subscribe 2>/dev/null | while read -r line; do
+    while IFS= read -r line; do
         case "$line" in
-            *"change"*"card"*|*"new"*"sink"*|*"remove"*"sink"*)
-                sleep 3
+            *"change"*"card"*|*"new"*"card"*|*"remove"*"card"*|\
+            *"new"*"sink"*|*"remove"*"sink"*|\
+            *"new"*"source"*|*"remove"*"source"*)
+                # Let WirePlumber finish the topology burst, then compare the
+                # complete generated file. Repeated identical events are free.
+                sleep 1
                 apply_rules
                 ;;
         esac
-    done
+    done < <(pactl subscribe 2>/dev/null)
     sleep 3
 done

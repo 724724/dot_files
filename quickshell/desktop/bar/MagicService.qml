@@ -1,38 +1,22 @@
 pragma Singleton
 import Quickshell
-import Quickshell.Io
-import Quickshell.Hyprland
 import QtQuick
+import "../dock" as Dock
 
+// The dock already owns the shared Hyprland client snapshot. Derive the Magic
+// indicator from it instead of spawning another hyprctl+jq process on every
+// window event and on a periodic backstop.
 Singleton {
     id: root
-    property bool hasMagic: false
 
-    Process {
-        id: magicProc
-        command: ["bash", "-c",
-            "hyprctl clients -j 2>/dev/null | jq -e '.[] | select(.workspace.name == \"special:magic\")' > /dev/null 2>&1 && echo 1 || echo 0"]
-        running: true
-
-        stdout: StdioCollector {
-            onStreamFinished: root.hasMagic = text.trim() === "1"
+    readonly property bool hasMagic: {
+        let byClass = Dock.DockService.clientsByClass || {}
+        let classes = Object.keys(byClass)
+        for (let i = 0; i < classes.length; i++) {
+            let windows = byClass[classes[i]] || []
+            for (let j = 0; j < windows.length; j++)
+                if ((windows[j].ws || "") === "special:magic") return true
         }
-    }
-
-    // Event-driven: window opens/closes/moves (incl. to/from special:magic)
-    // all emit Hyprland events, so poll only then — the old 1s blind timer
-    // spawned bash+hyprctl+jq every second forever.
-    Connections {
-        target: Hyprland
-        function onRawEvent(event) { debounce.restart() }
-    }
-    Timer { id: debounce; interval: 150; onTriggered: if (!magicProc.running) magicProc.running = true }
-
-    // Slow backstop in case an event is ever missed.
-    Timer {
-        interval: 15000
-        running: true
-        repeat: true
-        onTriggered: if (!magicProc.running) magicProc.running = true
+        return false
     }
 }

@@ -65,19 +65,34 @@ Singleton {
     }
 
     // ── Keyboard backlight watcher ────────────────────────────────────────
-    // ThinkPad's Fn+Space cycles tpacpi::kbd_backlight via firmware/ACPI;
-    // userspace never sees a key event. sysfs emits no inotify events either,
-    // so the brightness file still has to be polled — but with FileView reads
-    // (in-process, no fork) instead of the old bash+cat pipeline that spawned
-    // ~15 processes per second.
+    // Some laptops cycle keyboard backlight in firmware, without a userspace
+    // key or an inotify event. Probe the machine-specific LED path once, then
+    // use a low-rate in-process FileView fallback only when such a device exists.
+    // This keeps the OSD working without doing ThinkPad-specific reads forever
+    // on machines that expose a different LED name (or no keyboard light).
+    property string _kbdPath: ""
     property int _kbdLevel: -1   // -1 = uninitialized; first read just seeds
     property int _kbdMax:   2
 
+    Process {
+        id: kbdProbe
+        command: ["bash", "-c",
+            "for d in /sys/class/leds/*::kbd_backlight /sys/class/leds/*kbd_backlight*; do " +
+            "[ -d \"$d\" ] && { printf '%s' \"$d\"; exit; }; done"]
+        running: true
+        stdout: StdioCollector {
+            onStreamFinished: root._kbdPath = text.trim()
+        }
+    }
+
     FileView {
         id: kbdMaxView
-        path: "/sys/class/leds/tpacpi::kbd_backlight/max_brightness"
-        blockLoading: true
+        path: root._kbdPath === "" ? "" : root._kbdPath + "/max_brightness"
         printErrors: false
+        onLoaded: {
+            let m = parseInt(text().trim())
+            if (!isNaN(m) && m > 0) root._kbdMax = m
+        }
     }
     // Tracks /tmp/kbd-osd-suppress by existence (the flag file may be empty):
     // a successful load means it exists, a failed one means it's gone.
@@ -91,7 +106,7 @@ Singleton {
     }
     FileView {
         id: kbdView
-        path: "/sys/class/leds/tpacpi::kbd_backlight/brightness"
+        path: root._kbdPath === "" ? "" : root._kbdPath + "/brightness"
         printErrors: false
         onLoaded: {
             let cur = parseInt(text().trim())
@@ -110,16 +125,22 @@ Singleton {
         }
     }
 
-    Component.onCompleted: {
-        let m = parseInt(kbdMaxView.text().trim())
-        if (!isNaN(m) && m > 0) root._kbdMax = m
-    }
-
     Timer {
+        // Firmware-only changes have no reliable event, so the brightness file
+        // is polled. The interval MUST stay under hypridle's suppress-flag grace
+        // window: on idle-resume it restores the backlight and removes
+        // /tmp/kbd-osd-suppress only 0.5s later (see hypridle.conf). A slower
+        // poll (e.g. 1s) reads the 0→N restore *after* the flag is already gone
+        // and fires a spurious OSD on every idle/resume cycle. 250ms reliably
+        // catches the change while the flag is still present. These are
+        // in-process FileView reads (no fork), so the cost is negligible.
         interval: 250
-        running: true
+        running: root._kbdPath !== ""
         repeat: true
         triggeredOnStart: true
-        onTriggered: { kbdSuppressView.reload(); kbdView.reload() }
+        onTriggered: {
+            kbdSuppressView.reload()
+            kbdView.reload()
+        }
     }
 }

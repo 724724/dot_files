@@ -39,7 +39,9 @@ Singleton {
     // which triggers one (debounced) state read — replacing the old blind 5s
     // poll. A slow fallback below covers a dead monitor process.
     Process {
-        command: ["nmcli", "monitor"]
+        // Kernel parent-death signal prevents an old monitor surviving a
+        // force-restarted QuickShell and duplicating the next instance.
+        command: ["setpriv", "--pdeathsig", "TERM", "--", "nmcli", "monitor"]
         running: true
         stdout: SplitParser {
             splitMarker: "\n"
@@ -49,7 +51,7 @@ Singleton {
     Timer { id: netDebounce; interval: 300; onTriggered: if (!netProc.running) netProc.running = true }
 
     Timer {
-        interval: 30000
+        interval: 60000
         running: true
         repeat: true
         onTriggered: if (!netProc.running) netProc.running = true

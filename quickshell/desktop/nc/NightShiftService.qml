@@ -49,7 +49,7 @@ Singleton {
 
     // Slow backstop: some writers replace the file in ways a watch can miss.
     Timer {
-        interval: 10000
+        interval: 60000
         running: true
         repeat: true
         onTriggered: stateView.reload()

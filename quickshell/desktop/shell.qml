@@ -38,7 +38,6 @@ Scope {
     // Music Recognition (Shazam) popup that drops from the bar Shazam button
     // (ShazamService singleton owns IpcHandler target "shazam").
     ShazamPopupWindow {}
-    CameraPopupWindow {}
 
     // Launchpad is created *before* the dock so its layer surface sits below the
     // dock — the dock then rises above the open launchpad instead of being

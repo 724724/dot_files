@@ -21,6 +21,11 @@ Singleton {
     property string resizeMode: "crop"
     property string paddingColor: "#000000"
     readonly property int fillMode: root._fillMode(root.resizeMode)
+    readonly property string configHome: {
+        let configured = Quickshell.env("XDG_CONFIG_HOME")
+        return configured && configured !== "" ? configured : Quickshell.env("HOME") + "/.config"
+    }
+    readonly property string wallpaperHelper: root.configHome + "/hypr/scripts/wallpaper.sh"
 
     function refresh() {
         if (!queryProc.running) queryProc.running = true
@@ -71,7 +76,7 @@ Singleton {
         root.resizeMode = m
         root.paddingColor = c
         root.current = path
-        applyProc.command = ["/home/sejunlee/.config/hypr/scripts/wallpaper.sh", path, m, c]
+        applyProc.command = [root.wallpaperHelper, path, m, c]
         applyProc.running = true
     }
     Process { id: applyProc; command: ["true"] }
@@ -80,7 +85,8 @@ Singleton {
     // dark mode). The local wallpaper portal also writes picture-options. React
     // to both and mirror the image/mode into awww.
     Process {
-        command: ["gsettings", "monitor", "org.gnome.desktop.background"]
+        command: ["setpriv", "--pdeathsig", "TERM", "--", "gsettings", "monitor",
+                  "org.gnome.desktop.background"]
         running: true
         stdout: SplitParser {
             splitMarker: "\n"

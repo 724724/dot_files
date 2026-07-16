@@ -23,6 +23,12 @@ Singleton {
     property string _winSig: ""
     property string _wsSig: ""
     property string _monSig: ""
+    // Advances only after a complete hyprctl snapshot has been parsed.  The
+    // controller waits for a revision requested at open time so a workspace
+    // switch that is still animating cannot map Mission Control with the
+    // previous workspace and then look like an in-overview workspace change.
+    property int snapshotRevision: 0
+    property bool _refreshQueued: false
 
     // User-added empty workspaces. Hyprland drops empty workspaces, so to keep a
     // freshly-added (still empty) space visible until the user removes it with ×,
@@ -309,17 +315,18 @@ Singleton {
         })
         return arr
     }
-    // fullscreen field: 0 none, 1 maximized, 2 real fullscreen. We only treat real
-    // fullscreen (2) specially — maximized stays a normal "Workspace N".
+    // fullscreen field: 0 none, 1 maximized, 2 fullscreen, 3 maximized+fullscreen.
+    // States 2 and 3 both cover the full output; maximize-only remains normal.
+    function isRealFullscreen(value) { return value === 2 || value === 3 }
     function workspaceHasFullscreen(wsId) {
-        return windowsForWorkspace(wsId).some(w => w.fullscreen === 2)
+        return windowsForWorkspace(wsId).some(w => root.isRealFullscreen(w.fullscreen))
     }
     // Name shown on a workspace tile: the window title when something is fullscreen
     // (macOS shows the app name for full-screen / split spaces), else "Workspace N".
     function workspaceLabel(wsId) {
         let ws = windowsForWorkspace(wsId)
         // Real fullscreen → the app's *initial* title (the UI elides it if long).
-        let fs = ws.find(w => w.fullscreen === 2)
+        let fs = ws.find(w => root.isRealFullscreen(w.fullscreen))
         if (fs) return fs.initialTitle || fs.title || ("Workspace " + wsId)
         // A Split View space made through Mission Control reads like macOS →
         // "A & B", left first. Manual dwindle splits keep the plain name.
@@ -439,11 +446,11 @@ Singleton {
     // from the window's current one (read from the polled client list).
     function _isFullscreen(address) {
         let w = windows.find(x => x.address === address)
-        return w ? w.fullscreen === 2 : false
+        return w ? root.isRealFullscreen(w.fullscreen) : false
     }
     function setFullscreen(address, on) {
         if (root._isFullscreen(address) === on) return
-        _dispatch("hl.dsp.window.fullscreen({window = 'address:" + address + "', mode = 0})")
+        _dispatch("hl.dsp.window.fullscreen({window = 'address:" + address + "', mode = 'fullscreen'})")
         refreshSoon()
     }
 
@@ -481,7 +488,7 @@ Singleton {
     function splitInto(fsAddress, draggedAddress, wsId, side) {
         let dir = (side === "left") ? "l" : "r"
         let seq =
-            "hyprctl dispatch \"hl.dsp.window.fullscreen({window = 'address:" + fsAddress + "', mode = 0})\"; " +
+            "hyprctl dispatch \"hl.dsp.window.fullscreen({window = 'address:" + fsAddress + "', mode = 'fullscreen'})\"; " +
             "hyprctl dispatch \"hl.dsp.window.float({window = 'address:" + fsAddress + "', state = false})\"; " +
             "hyprctl dispatch \"hl.dsp.window.float({window = 'address:" + draggedAddress + "', state = false})\"; " +
             "hyprctl dispatch \"hl.dsp.window.move({workspace = '" + wsId + "', follow = false, window = 'address:" + draggedAddress + "'})\"; " +
@@ -541,6 +548,20 @@ Singleton {
         if (!pollProc.running) pollProc.running = true
         Hyprland.refreshToplevels()
     }
+    // Return the revision that is guaranteed to come from a poll started for
+    // this open request. If another poll is already in flight, wait for one
+    // additional queued poll rather than accepting its possibly stale result.
+    function refreshForOpen() {
+        let target = root.snapshotRevision + 1
+        if (pollProc.running) {
+            root._refreshQueued = true
+            target += 1
+        } else {
+            pollProc.running = true
+        }
+        Hyprland.refreshToplevels()
+        return target
+    }
     function refreshSoon() { debounce.restart() }
     Timer { id: debounce; interval: 60; onTriggered: root.refresh() }
 
@@ -579,6 +600,15 @@ Singleton {
                         cl.some(w => w.workspace && w.workspace.id === id)
                         || root.workspaces.some(w => w.id === id))
                 root._reconcileSplitViews()
+                root.snapshotRevision += 1
+            }
+        }
+        onRunningChanged: {
+            if (!running && root._refreshQueued) {
+                root._refreshQueued = false
+                // Process cannot be restarted from its own completion edge on
+                // every Qt version; defer one event-loop turn.
+                Qt.callLater(() => pollProc.running = true)
             }
         }
     }

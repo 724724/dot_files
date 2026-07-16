@@ -23,7 +23,7 @@ Item {
 
     Process {
         id: mediaProc
-        command: ["/home/sejunlee/.config/hypr/scripts/media-info.sh"]
+        command: [Quickshell.env("HOME") + "/.config/hypr/scripts/media-info.sh"]
         running: true
         stdout: StdioCollector {
             onStreamFinished: {
@@ -51,7 +51,7 @@ Item {
     // PID — see focus-media-player.sh.
     Process {
         id: focusProc
-        command: ["/home/sejunlee/.config/hypr/scripts/focus-media-player.sh"]
+        command: [Quickshell.env("HOME") + "/.config/hypr/scripts/focus-media-player.sh"]
     }
 
     // Poll only while the control center is actually on screen — this panel

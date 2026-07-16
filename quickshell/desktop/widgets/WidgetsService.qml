@@ -139,6 +139,15 @@ Singleton {
         }
     }
 
+    function spotifySize(layout) {
+        switch (layout) {
+        case 1:  return { nw: 220, nh: 220 }
+        case 2:  return { nw: 464, nh: 220 }
+        case 3:
+        default: return { nw: 708, nh: 464 }
+        }
+    }
+
     // Canonical size for a grid widget, derived from its type + layout. The
     // board relayout always sizes from this (never from persisted nw/nh, which
     // a mis-timed early relayout could otherwise shrink permanently). Notes
@@ -152,6 +161,7 @@ Singleton {
         case "calendar":  return calendarSize(layout || 2)
         case "stock":     return stockSize()
         case "youtube":   return youtubeSize(layout || 3)
+        case "spotify":   return spotifySize(layout || 3)
         }
         return null
     }
@@ -312,6 +322,7 @@ Singleton {
         case "calendar":  return { nw: 464, nh: 220, data: { layout: 2 } }
         case "stock":     return { nw: 708, nh: 708, data: { symbol: "005930", market: "KRX", range: "1D", aiProvider: "none", analysisProfile: "balanced", dataMode: "demo", kisEnvironment: "paper", productionTradingEnabled: false, watchlist: [{ symbol: "005930", market: "KRX" }, { symbol: "000660", market: "KRX" }, { symbol: "035420", market: "KRX" }], priceAlerts: [] } }
         case "youtube":   return { nw: 708, nh: 464, data: { layout: 3, url: "", mediaKind: "video", videoQuality: "best", audioFormat: "m4a", cookieBrowser: "auto" } }
+        case "spotify":   return { nw: 708, nh: 464, data: { layout: 3, url: "", audioFormat: "opus", bitrate: "auto" } }
         case "note":
         default:
             return { nw: 240, nh: 240, data: {
@@ -346,6 +357,9 @@ Singleton {
             nw = sz.nw; nh = sz.nh
         } else if (type === "youtube") {
             let sz = root.youtubeSize(data.layout || 3)
+            nw = sz.nw; nh = sz.nh
+        } else if (type === "spotify") {
+            let sz = root.spotifySize(data.layout || 3)
             nw = sz.nw; nh = sz.nh
         }
         widgetsModel.append({

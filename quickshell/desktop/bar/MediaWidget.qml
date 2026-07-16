@@ -79,16 +79,20 @@ PillContainer {
             asynchronous: true
             sourceSize.width: 256
             sourceSize.height: 256
-            visible: false   // drawn via the blur effect below
+            visible: false   // rendered once through the material blur below
         }
         MultiEffect {
+            visible: true
             anchors.fill: parent
             source: bgArt
             autoPaddingEnabled: false
+            // Frosted album-art material. The effect is confined to the tiny
+            // media pill and changes only with cover art, so it preserves the
+            // Apple-like material without reintroducing a full-screen cost.
             blurEnabled: true
-            blur: 1.0
-            blurMax: 48
-            opacity: 0.92
+            blur: 0.78
+            blurMax: 32
+            opacity: 0.90
         }
     }
 
@@ -222,7 +226,9 @@ PillContainer {
             // (linear) speed so the motion feels uniform — no easing, no
             // snap-back. Slow enough to read comfortably.
             SequentialAnimation {
-                running: marquee.needsScroll && root.visible
+                // Continuous marquee motion prevents VFR from idling the
+                // compositor. Long titles remain clipped inside the pill.
+                running: false
                 loops: Animation.Infinite
 
                 PauseAnimation { duration: 1800 }

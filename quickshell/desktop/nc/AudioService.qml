@@ -87,7 +87,7 @@ Singleton {
     Timer { id: devDebounce; interval: 300; onTriggered: root.refreshDevices() }
 
     Process {
-        command: ["pactl", "subscribe"]
+        command: ["setpriv", "--pdeathsig", "TERM", "--", "pactl", "subscribe"]
         running: true
         stdout: SplitParser {
             splitMarker: "\n"

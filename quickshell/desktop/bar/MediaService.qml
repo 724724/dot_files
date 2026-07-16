@@ -29,7 +29,7 @@ Singleton {
 
     Process {
         id: mediaProc
-        command: ["/home/sejunlee/.config/hypr/scripts/media-info.sh"]
+        command: [Quickshell.env("HOME") + "/.config/hypr/scripts/media-info.sh"]
         running: true
         stdout: StdioCollector {
             onStreamFinished: {
@@ -55,7 +55,8 @@ Singleton {
     // playerctl + jq forever, even with nothing playing).
     Process {
         id: followProc
-        command: ["playerctl", "--player=playerctld",
+        command: ["setpriv", "--pdeathsig", "TERM", "--",
+                  "playerctl", "--player=playerctld",
                   "metadata", "--format", "{{status}}|{{title}}", "--follow"]
         running: true
         stdout: SplitParser {
@@ -72,7 +73,7 @@ Singleton {
     // Slow backstop: catches anything the follow stream misses (e.g. a player
     // that updates metadata without emitting a change).
     Timer {
-        interval: 10000
+        interval: 60000
         running: true
         repeat: true
         onTriggered: root.refresh()

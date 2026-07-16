@@ -53,7 +53,7 @@ Singleton {
 
     Process {
         id: pollProc
-        command: ["/home/sejunlee/.config/quickshell/desktop/dock/poll-clients.sh"]
+        command: [Quickshell.shellDir + "/dock/poll-clients.sh"]
         stdout: StdioCollector {
             onStreamFinished: {
                 let raw = text.trim()
@@ -88,7 +88,7 @@ Singleton {
 
     // Slow backstop in case an event is ever missed.
     Timer {
-        interval: 15000; running: true; repeat: true
+        interval: 60000; running: true; repeat: true
         onTriggered: root.refresh()
     }
 
@@ -168,7 +168,8 @@ Singleton {
         root._persist()
     }
 
-    // Class → friendly name + icon (mirrors DockWindow's mapping).
+    // Class → friendly name + icon. Single source of truth for the dock's
+    // class remapping — DockWindow's live-app row reuses this too.
     function _remapClass(cls) {
         let lc = cls.toLowerCase()
         if (lc === "explorer.exe") return { name: "Ableton", iconName: "ableton", base: cls, exact: true }

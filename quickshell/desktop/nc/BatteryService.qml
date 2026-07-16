@@ -1,31 +1,62 @@
 pragma Singleton
 import Quickshell
 import Quickshell.Io
+import Quickshell.Services.UPower
 import QtQuick
+import "battery-history.js" as BatteryHistory
 
 Singleton {
     id: root
-    property int level: 0           // 0-100
-    property string status: ""      // Charging | Discharging | Full | Not charging
-    property string mode: ""        // performance | balanced | power-saver
-    property real power: 0          // instantaneous battery power, watts
-    property bool onAcPower: false
-    property bool batteryPresent: false
+    readonly property var device: UPower.displayDevice
+    readonly property int level: device && device.isPresent
+        ? Math.round(device.percentage * 100) : 0
+    readonly property string status: root._batteryStateName(device ? device.state : UPowerDeviceState.Unknown)
+    readonly property string mode: root._profileName(PowerProfiles.profile)
+    readonly property real power: device ? Math.abs(device.changeRate || 0) : 0
+    readonly property bool batteryPresent: !!(device && device.isPresent)
+    readonly property bool onAcPower: batteryPresent && !UPower.onBattery
     property string _powerContext: ""
-    property string _pendingMode: ""
-    property bool _pendingModeNotification: false
 
-    readonly property bool charging: status === "Charging" || status === "Full"
+    readonly property bool charging: device && (
+        device.state === UPowerDeviceState.Charging
+        || device.state === UPowerDeviceState.FullyCharged
+        || device.state === UPowerDeviceState.PendingCharge)
+
+    function _batteryStateName(value) {
+        if (value === UPowerDeviceState.Charging) return "Charging"
+        if (value === UPowerDeviceState.Discharging) return "Discharging"
+        if (value === UPowerDeviceState.FullyCharged) return "Full"
+        if (value === UPowerDeviceState.PendingCharge
+                || value === UPowerDeviceState.PendingDischarge) return "Not charging"
+        if (value === UPowerDeviceState.Empty) return "Empty"
+        return ""
+    }
+
+    function _profileName(value) {
+        if (value === PowerProfile.Performance) return "performance"
+        if (value === PowerProfile.PowerSaver) return "power-saver"
+        return "balanced"
+    }
+
+    function _profileValue(value) {
+        if (value === "performance") return PowerProfile.Performance
+        if (value === "power-saver") return PowerProfile.PowerSaver
+        return PowerProfile.Balanced
+    }
 
     // ── Battery health ───────────────────────────────────────────────────────
     property int cycleCount: 0
     property int maxCapacity: 0     // energy_full / energy_full_design, percent
     property int chargeLimit: 100   // charge_control_end_threshold (100 = no cap)
+    property int chargeStartLimit: 0
     property int chargeLimitPref: 80          // remembered cap for the slider (80–100)
     // The Optimized Battery Charging toggle. Kept separate from chargeLimit so the
     // slider can sit at 100% without the toggle flipping itself off.
     property bool optimizedEnabled: false
     property double optimizedSnoozeUntil: 0   // epoch-ms; while in the future, paused "until tomorrow"
+    property bool _hasStoredOptimizationState: false
+    property bool _restorePending: false
+    property int _restoreTarget: 100
 
     readonly property bool chargeLimited: chargeLimit > 0 && chargeLimit < 100
     // Apple-style condition: Normal unless capacity has degraded below 80% or
@@ -49,6 +80,7 @@ Singleton {
         let startv = Math.max(0, endv - 5)
         let lowering = endv <= root.chargeLimit
         root.chargeLimit = endv   // optimistic; healthProc reconciles
+        root.chargeStartLimit = startv
         let endf   = "\"$b/charge_control_end_threshold\""
         let startf = "\"$b/charge_control_start_threshold\""
         let w = (v, f) => "echo " + v + " | sudo -n /usr/bin/tee " + f + " >/dev/null 2>&1"
@@ -104,8 +136,9 @@ Singleton {
         }
     }
 
-    // Persist the slider preference + snooze deadline (the hardware threshold
-    // itself survives in sysfs, but these don't).
+    // Persist the slider preference + snooze deadline. Some EC drivers reset
+    // their sysfs thresholds at reboot, so the saved state is also the source
+    // used by the one-shot startup reconciliation below.
     FileView {
         id: optStore
         path: Quickshell.stateDir + "/battery-optimized.json"
@@ -125,12 +158,32 @@ Singleton {
             try {
                 let p = JSON.parse(raw)
                 if (p && typeof p === "object") {
-                    if (typeof p.enabled === "boolean") root.optimizedEnabled = p.enabled
-                    if (p.pref) root.chargeLimitPref = p.pref
+                    if (typeof p.enabled === "boolean") {
+                        root.optimizedEnabled = p.enabled
+                        root._hasStoredOptimizationState = true
+                    }
+                    if (p.pref) root.chargeLimitPref = Math.max(80, Math.min(100, Math.round(p.pref)))
                     if (p.snoozeUntil) root.optimizedSnoozeUntil = p.snoozeUntil
                 }
             } catch (e) { /* start fresh */ }
         }
+
+        // The EC/driver may reset its sysfs thresholds during reboot. Restore a
+        // saved preference once per shell start, but only after reading the real
+        // start/end values; matching values cause no sudo call or hardware write.
+        if (root._hasStoredOptimizationState) {
+            if (root.optimizedSnoozeUntil > 0 && Date.now() >= root.optimizedSnoozeUntil) {
+                root.optimizedSnoozeUntil = 0
+                root.optimizedEnabled = true
+                root._persistOpt()
+            } else if (root.optimizedSnoozeUntil > Date.now()) {
+                root.optimizedEnabled = false
+            }
+            root._restoreTarget = root.optimizedEnabled ? root.chargeLimitPref : 100
+            root._restorePending = true
+            Qt.callLater(() => healthProc.running = true)
+        }
+        root._reconcilePowerContext()
     }
 
     // ── 24h battery-level history ────────────────────────────────────────────
@@ -141,7 +194,7 @@ Singleton {
     property var samples: []
     property double histStart: 0
 
-    function refresh() { batProc.running = true; modeProc.running = true; histProc.running = true; healthProc.running = true }
+    function refresh() { histProc.running = true; healthProc.running = true }
 
     function _validMode(m) {
         return m === "performance" || m === "balanced" || m === "power-saver"
@@ -149,24 +202,11 @@ Singleton {
 
     function _queueMode(m, notifyUser) {
         if (!_validMode(m)) return
-        root.mode = m
-        root._pendingMode = m
-        root._pendingModeNotification = notifyUser === true
-        if (!setProc.running) root._writePendingMode()
-    }
-
-    function _writePendingMode() {
-        if (!root._pendingMode || setProc.running) return
-        let m = root._pendingMode
-        let notifyUser = root._pendingModeNotification
-        root._pendingMode = ""
-        root._pendingModeNotification = false
-        let command = "powerprofilesctl set " + m + " >/dev/null 2>&1"
-        if (notifyUser)
-            command += " && notify-send -a power 'Power Mode' '" + m.charAt(0).toUpperCase() + m.slice(1) + "'"
-        setProc.command = ["bash", "-c",
-            command]
-        setProc.running = true
+        let wanted = root._profileValue(m)
+        if (PowerProfiles.profile !== wanted) PowerProfiles.profile = wanted
+        if (notifyUser === true)
+            Quickshell.execDetached(["notify-send", "-a", "power", "Power Mode",
+                m.charAt(0).toUpperCase() + m.slice(1)])
     }
 
     function _reconcilePowerContext() {
@@ -183,56 +223,12 @@ Singleton {
         root._queueMode(m, true)
     }
 
-    Process {
-        id: batProc
-        // power_now is in µW; if the kernel only exposes current/voltage,
-        // derive it as current_now(µA) × voltage_now(µV) / 1e6 → µW.
-        command: ["bash", "-c",
-            "b=$(ls -d /sys/class/power_supply/BAT* 2>/dev/null | head -1);" +
-            "lvl=$(cat \"$b/capacity\" 2>/dev/null);" +
-            "st=$(cat \"$b/status\" 2>/dev/null);" +
-            "pw=$(cat \"$b/power_now\" 2>/dev/null);" +
-            "if [ -z \"$pw\" ]; then c=$(cat \"$b/current_now\" 2>/dev/null);" +
-            "v=$(cat \"$b/voltage_now\" 2>/dev/null);" +
-            "[ -n \"$c\" ] && [ -n \"$v\" ] && pw=$((c*v/1000000)); fi;" +
-            "ac=0; for f in /sys/class/power_supply/AC*/online /sys/class/power_supply/ADP*/online; do " +
-            "[ -r \"$f\" ] && [ \"$(cat \"$f\" 2>/dev/null)\" = 1 ] && ac=1; done;" +
-            "[ -n \"$b\" ] && has=1 || has=0;" +
-            "echo \"$lvl|$st|$pw|$ac|$has\""]
-        stdout: StdioCollector {
-            onStreamFinished: {
-                let p = text.trim().split("|")
-                root.level = parseInt(p[0]) || 0
-                root.status = p[1] || ""
-                root.power = (parseFloat(p[2]) || 0) / 1000000   // µW → W
-                root.batteryPresent = p[4] === "1"
-                root.onAcPower = p[3] === "1"
-                    || root.status === "Charging" || root.status === "Full"
-                    || root.status === "Not charging"
-                root._reconcilePowerContext()
-            }
-        }
-    }
-
-    Process {
-        id: modeProc
-        // powerprofilesctl get prints just the active profile name, which
-        // already matches our mode values (performance | balanced | power-saver).
-        command: ["powerprofilesctl", "get"]
-        stdout: StdioCollector {
-            onStreamFinished: {
-                let m = text.trim()
-                if (m) root.mode = m
-            }
-        }
-    }
-
-    Process { id: setProc; command: ["true"]
-        onRunningChanged: if (!running) {
-            if (root._pendingMode) Qt.callLater(() => root._writePendingMode())
-            else modeProc.running = true
-        }
-    }
+    // UPower and power-profiles-daemon are exposed as reactive QML services.
+    // Property changes drive these handlers directly, replacing the old 3s
+    // bash/sysfs poll and the 60s `powerprofilesctl get` subprocess.
+    onLevelChanged: root._reconcilePowerContext()
+    onOnAcPowerChanged: root._reconcilePowerContext()
+    onBatteryPresentChanged: root._reconcilePowerContext()
 
     // Battery health: cycle count, maximum capacity (full vs design), and the
     // current charge cap. All of these sysfs files are world-readable.
@@ -246,7 +242,8 @@ Singleton {
             "[ -z \"$ef\" ]  && ef=$(cat \"$b/charge_full\" 2>/dev/null);" +
             "[ -z \"$efd\" ] && efd=$(cat \"$b/charge_full_design\" 2>/dev/null);" +
             "lim=$(cat \"$b/charge_control_end_threshold\" 2>/dev/null);" +
-            "echo \"$cyc|$ef|$efd|$lim\""]
+            "startlim=$(cat \"$b/charge_control_start_threshold\" 2>/dev/null);" +
+            "echo \"$cyc|$ef|$efd|$lim|$startlim\""]
         stdout: StdioCollector {
             onStreamFinished: {
                 let p = text.trim().split("|")
@@ -255,13 +252,23 @@ Singleton {
                 let efd = parseFloat(p[2]) || 0
                 root.maxCapacity = (efd > 0) ? Math.round(ef / efd * 100) : 0
                 root.chargeLimit = (p[3] && p[3] !== "") ? (parseInt(p[3]) || 100) : 100
+                root.chargeStartLimit = (p[4] && p[4] !== "") ? (parseInt(p[4]) || 0) : 0
                 // A hardware cap below 100 means optimization is on, and is the
-                // source of truth for the slider position. (At exactly 100 we
-                // leave `optimizedEnabled` alone so the toggle can stay on with a
-                // 100% cap.)
-                if (root.chargeLimit > 0 && root.chargeLimit < 100) {
+                // source of truth only on first use, before a saved preference
+                // exists. A saved state must win so reboot-reset EC values can be
+                // restored instead of silently overwriting the user's choice.
+                if (!root._hasStoredOptimizationState
+                        && root.chargeLimit > 0 && root.chargeLimit < 100) {
                     root.chargeLimitPref = root.chargeLimit
                     root.optimizedEnabled = true
+                }
+                if (root._restorePending) {
+                    let target = root._restoreTarget
+                    let targetStart = Math.max(0, target - 5)
+                    let needsWrite = root.chargeLimit !== target
+                        || root.chargeStartLimit !== targetStart
+                    root._restorePending = false
+                    if (needsWrite) Qt.callLater(() => root.setChargeLimit(target))
                 }
             }
         }
@@ -272,87 +279,30 @@ Singleton {
         onRunningChanged: if (!running) healthProc.running = true
     }
 
-    // Pick the laptop battery's charge-history file (largest, excluding
-    // peripherals like the MX Master mouse) and dump it. Lines are
-    //   <unix_ts>\t<percent>\t<state>
+    // Query the real laptop battery through UPower's public D-Bus API.  The
+    // daemon's files in /var/lib/upower are root:root 0640 on current Arch, so
+    // reading them directly always produced an empty graph for normal users.
     Process {
         id: histProc
         command: ["bash", "-c",
-            "f=$(ls -S /var/lib/upower/history-charge-*.dat 2>/dev/null " +
-            "| grep -vEi 'MX_Master|generic_id|mouse|keyboard|trackpad' | head -1); " +
-            "[ -n \"$f\" ] && cat \"$f\""]
+            "d=$(upower -e 2>/dev/null | sed -n '/\\/battery_/ {p;q}'); " +
+            "[ -n \"$d\" ] && exec busctl --system --json=short call " +
+            "org.freedesktop.UPower \"$d\" org.freedesktop.UPower.Device " +
+            "GetHistory suu charge 86400 96"]
         stdout: StdioCollector {
             onStreamFinished: root._parseHistory(text)
         }
     }
 
     function _parseHistory(text) {
-        let now = Date.now()
-        let slotMs = 15 * 60 * 1000          // 15 minutes
-        let cellMs = 3 * 3600 * 1000         // one 3-hour cell
-        // Snap to fixed 3-hour cells. The right edge is the *next* 3-hour clock
-        // boundary and the window is exactly the 24h (8 cells) before it. Buckets
-        // from `now` onward stay empty, so the current cell shows up as an empty
-        // cell that fills with data over the next 3 hours — and the whole chart
-        // only shifts when the clock crosses a 3-hour mark, never continuously.
-        let d = new Date(now)
-        let cellStart = new Date(d.getFullYear(), d.getMonth(), d.getDate(),
-                                 d.getHours() - (d.getHours() % 3), 0, 0, 0).getTime()
-        let rightEdge = (cellStart >= now) ? cellStart : (cellStart + cellMs)
-        let start = rightEdge - 24 * 3600 * 1000
-        let nSlots = 96                      // exactly 24h of 15-min buckets
-        root.histStart = start
-
-        // Latest reading wins per slot (file is chronological).
-        let lvl = new Array(nSlots).fill(-1)
-        let chg = new Array(nSlots).fill(false)
-
-        // Seed from the last reading *before* the window so the left edge isn't
-        // blank until the first in-window sample.
-        let seedLvl = -1, seedChg = false
-
-        let lines = text.split("\n")
-        for (let i = 0; i < lines.length; i++) {
-            let p = lines[i].trim().split(/\s+/)
-            if (p.length < 3) continue
-            let ts = parseInt(p[0]) * 1000    // upower timestamps are seconds
-            let pct = Math.round(parseFloat(p[1]))
-            let state = p[2]
-            // First-sample 0%/"unknown" rows are bogus; skip them.
-            if (!ts || isNaN(pct) || pct <= 0 || state === "unknown") continue
-            if (ts < start) { seedLvl = pct; seedChg = (state !== "discharging"); continue }
-            if (ts > now) continue
-            let s = Math.floor((ts - start) / slotMs)
-            if (s < 0 || s >= nSlots) continue
-            lvl[s] = pct
-            chg[s] = (state !== "discharging")
-        }
-
-        // Carry the last known level/state forward through gaps (seeded from the
-        // last sample before the window so the whole 24h fills in). Buckets at or
-        // after `now` are left empty so the current 3-hour cell reads as an empty
-        // cell that fills in over time.
-        let out = []
-        let lastLvl = seedLvl, lastChg = seedChg
-        for (let s = 0; s < nSlots; s++) {
-            if (start + s * slotMs >= now) {
-                out.push({ level: 0, charging: false, has: false })
-                continue
-            }
-            if (lvl[s] >= 0) { lastLvl = lvl[s]; lastChg = chg[s] }
-            out.push({
-                level:    lastLvl >= 0 ? lastLvl : 0,
-                charging: lastLvl >= 0 ? lastChg : false,
-                has:      lastLvl >= 0
-            })
-        }
-        root.samples = out
+        let result = BatteryHistory.buildBuckets(text, Date.now())
+        root.histStart = result.histStart
+        root.samples = result.samples
     }
 
-    // Full refresh (level/mode/health + the whole upower history parse) only
-    // while the control center is on screen — nothing outside it consumes
-    // these, and the always-on 30s cycle was reading and bucketing the entire
-    // upower history file around the clock. triggeredOnStart refreshes the
+    // Health + the whole UPower history parse only while the control center is
+    // on screen. Level/status/profile are reactive services above, so this is
+    // the only periodic battery work left. triggeredOnStart refreshes the
     // moment the CC opens.
     Timer {
         interval: 30000
@@ -362,24 +312,4 @@ Singleton {
         onTriggered: refresh()
     }
 
-    // Lightweight always-on poll drives automatic profiles on AC/battery
-    // transitions and at the 30% boundary. A manual NC choice remains active
-    // until one of those contexts changes.
-    Timer {
-        interval: 3000
-        running: true
-        repeat: true
-        triggeredOnStart: true
-        onTriggered: batProc.running = true
-    }
-
-    // The bar's battery pill tints yellow in power-saver mode, so keep `mode`
-    // loosely fresh even with the CC closed (setMode reconciles instantly).
-    Timer {
-        interval: 60000
-        running: !NcServer.controlCenterVisible
-        repeat: true
-        triggeredOnStart: true
-        onTriggered: modeProc.running = true
-    }
 }

@@ -20,6 +20,15 @@ Singleton {
     readonly property bool igpuAvailable: igpuDriver === "i915"
     property real igpu: 0          // % (i915 via intel_gpu_top)
     property string igpuName: ""
+    property real igpuRender: 0
+    property real igpuBlitter: 0
+    property real igpuVideo: 0
+    property real igpuVideoEnhance: 0
+    property real igpuClock: 0
+    property real igpuRequestedClock: 0
+    property real igpuPower: 0
+    property real igpuRc6: 0
+    property var igpuProcs: []     // [{name,pid,busy,mem(bytes)}]
 
     // NVIDIA dGPU (nvidia-smi).
     property real dgpu: 0          // %
@@ -27,6 +36,8 @@ Singleton {
     property real dgpuMemTotal: 0  // MiB
     property real dgpuTemp: 0      // °C
     property string dgpuName: ""
+    property bool dgpuDetected: false
+    readonly property bool dgpuAvailable: dgpuDetected && dgpuName !== ""
 
     property real memUsed: 0       // bytes
     property real memTotal: 0      // bytes
@@ -60,6 +71,7 @@ Singleton {
     readonly property string assetsPath: _configDir + "/quickshell/assets/runcat"
     readonly property string assetsUrl: "file://" + assetsPath
     readonly property string scanScript: _configDir + "/quickshell/assets/runcat-scan.py"
+    readonly property string intelGpuScript: _configDir + "/quickshell/scripts/intel-gpu-stats.sh"
     property var runcatSetNames: []          // ["cat","horse",…]
     property var runcatFramesMap: ({})        // name → ["0.png",…]
     property var runcatColoredMap: ({})       // name → bool (true = show as-is)
@@ -121,7 +133,8 @@ Singleton {
         // the matching Timer below keeps it updated afterwards.
         if (expandedDetail === "cpu") statView.reload()
         else if (expandedDetail === "mem" && !memTopProc.running) memTopProc.running = true
-        else if (expandedDetail === "gpu" && !gpuDetailProc.running) gpuDetailProc.running = true
+        else if (expandedDetail === "igpu" && !igpuProc.running) igpuProc.running = true
+        else if (expandedDetail === "dgpu" && !gpuDetailProc.running) gpuDetailProc.running = true
         else if (expandedDetail === "net" && !netDetailProc.running) netDetailProc.running = true
         else if (expandedDetail === "disk") refreshDiskTop(false)
     }
@@ -152,8 +165,9 @@ Singleton {
         statView.reload()
         if (root.detailActive) {
             statsProc.running = true
-            gpuProc.running = true
-            if (root.igpuAvailable) igpuProc.running = true
+            if (root.dgpuAvailable) gpuProc.running = true
+            if (root.igpuAvailable && root.expandedDetail === "igpu" && !igpuProc.running)
+                igpuProc.running = true
             // Model names come from the disk cache; re-verify once per session.
             if (!root._infoChecked) { root._infoChecked = true; infoProc.running = true }
         }
@@ -193,7 +207,11 @@ Singleton {
         printErrors: false
     }
     Component.onCompleted: {
-        root.runcatEnabled = (runcatStore.text().trim() === "1")
+        // Battery-first default for this older laptop. RunCat can still be
+        // enabled manually for the current session, but never starts animating
+        // and polling immediately after login.
+        root.runcatEnabled = false
+        if (runcatStore.text().trim() !== "0") runcatStore.setText("0")
         let s = runcatSetStore.text().trim()
         if (s) root.runcatSet = s
         try {
@@ -228,14 +246,31 @@ Singleton {
     // Intel iGPU utilization via intel_gpu_top (i915 only; needs perf access).
     Process {
         id: igpuProc
-        command: ["bash", "-c",
-            "timeout 1.6 intel_gpu_top -J -s 1200 2>/dev/null | " +
-            "grep -oE '\"busy\":[ ]*[0-9.]+' | " +
-            "awk -F: '{if ($2+0 > m) m = $2+0} END {printf \"%d\", m+0.5}'"]
+        command: ["bash", root.intelGpuScript]
         stdout: StdioCollector {
             onStreamFinished: {
-                let v = parseInt(text.trim())
-                if (!isNaN(v)) root.igpu = Math.max(0, Math.min(100, v))
+                let gotStats = false
+                let procs = []
+                for (let line of text.trim().split("\n")) {
+                    let p = line.split("\t")
+                    if (p[0] === "stats" && p.length >= 9) {
+                        root.igpuRender = parseFloat(p[1]) || 0
+                        root.igpuBlitter = parseFloat(p[2]) || 0
+                        root.igpuVideo = parseFloat(p[3]) || 0
+                        root.igpuVideoEnhance = parseFloat(p[4]) || 0
+                        root.igpuClock = parseFloat(p[5]) || 0
+                        root.igpuRequestedClock = parseFloat(p[6]) || 0
+                        root.igpuPower = parseFloat(p[7]) || 0
+                        root.igpuRc6 = parseFloat(p[8]) || 0
+                        root.igpu = Math.max(root.igpuRender, root.igpuBlitter,
+                            root.igpuVideo, root.igpuVideoEnhance)
+                        gotStats = true
+                    } else if (p[0] === "proc" && p.length >= 5) {
+                        procs.push({ name: p[1], pid: parseInt(p[2]) || 0,
+                            busy: parseFloat(p[3]) || 0, mem: parseFloat(p[4]) || 0 })
+                    }
+                }
+                if (gotStats) root.igpuProcs = procs
             }
         }
     }
@@ -288,7 +323,10 @@ Singleton {
                     let v = line.substring(i + 1).trim()
                     if (k === "cpu") root.cpuModel = v
                     else if (k === "igpu") root.igpuName = v
-                    else if (k === "dgpu") root.dgpuName = v
+                    else if (k === "dgpu") {
+                        root.dgpuName = v
+                        root.dgpuDetected = v !== ""
+                    }
                     else if (k === "disk") {
                         let f = v.split(/\s+/)
                         root.diskInfo = f.length >= 2 ? (f[0] + "  (" + f[1] + ")") : v
@@ -431,7 +469,7 @@ Singleton {
         onTriggered: if (!memTopProc.running) memTopProc.running = true
     }
 
-    // GPU extras: power/clock/P-state + per-process VRAM (pmon shows both
+    // NVIDIA GPU extras: power/clock/P-state + per-process VRAM (pmon shows both
     // compute and graphics clients; fb column is MiB).
     Process {
         id: gpuDetailProc
@@ -465,7 +503,7 @@ Singleton {
     }
     Timer {
         interval: 2000; repeat: true
-        running: root.detailActive && root.expandedDetail === "gpu"
+        running: root.detailActive && root.dgpuAvailable && root.expandedDetail === "dgpu"
         onTriggered: if (!gpuDetailProc.running) gpuDetailProc.running = true
     }
 
@@ -561,11 +599,10 @@ Singleton {
         }
     }
 
-    // 1s so RunCat's pace tracks load changes promptly. The CPU read is a
-    // fork-free FileView reload; the heavier stats still only run with the
-    // Usage panel open (refresh() gates them on detailActive).
+    // Three seconds is responsive enough for a status panel and avoids waking
+    // the CPU (and starting helper processes) every second while it is open.
     Timer {
-        interval: 1000
+        interval: 3000
         running: root.runcatEnabled || root.detailActive
         repeat: true
         triggeredOnStart: true

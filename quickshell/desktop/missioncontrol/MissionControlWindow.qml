@@ -163,6 +163,9 @@ PanelWindow {
 
     onShowChanged: {
         if (show) {
+            // Refresh before mapping the overlay. The current cached wallpaper
+            // remains available immediately while awww/gsettings reconcile.
+            WallpaperService.refresh()
             _resetDrag()
             _resetWorkspaceSlide()
             win._spreadImmediate = true
@@ -181,7 +184,6 @@ PanelWindow {
             Dock.DockService.overviewScreen = ""
             Dock.DockService.overviewOpen = true
             MCService.open = true
-            WallpaperService.refresh()
         } else {
             Dock.DockService.overviewOpen = false
             MCService.open = false
@@ -310,7 +312,8 @@ PanelWindow {
     // Exit-fullscreen button: turn off fullscreen AND bring that window to the
     // current workspace as a normal (restored) window.
     function requestExitFullscreen(wsId) {
-        let fs = MCService.windowsForWorkspace(wsId).find(w => w.fullscreen === 2)
+        let fs = MCService.windowsForWorkspace(wsId).find(
+            w => MCService.isRealFullscreen(w.fullscreen))
         if (!fs) return
         MCService.setFullscreen(fs.address, false)
         if (wsId !== win.activeWorkspaceId)
@@ -468,7 +471,8 @@ PanelWindow {
         if (addr === "") { _resetDrag(); return }
 
         if (win.dropSplitWsId >= 1) {
-            let fs = MCService.windowsForWorkspace(win.dropSplitWsId).find(w => w.fullscreen === 2)
+            let fs = MCService.windowsForWorkspace(win.dropSplitWsId).find(
+                w => MCService.isRealFullscreen(w.fullscreen))
             if (fs) MCService.splitInto(fs.address, addr, win.dropSplitWsId, win.dropSplitSide)
         } else if (win.dropNewFullscreen) {
             MCService.moveWindowToNewFullscreen(addr)
@@ -491,6 +495,13 @@ PanelWindow {
     Item {
         id: wallpaper
         readonly property real stripBottom: Math.max(0, stripBg.height - 1 + win.stripSlide)
+        // Never paint the padding-color placeholder while the asynchronous
+        // wallpaper image is still attaching to the remapped scene graph. Until
+        // it is ready the transparent overlay leaves the identical live awww
+        // desktop underneath visible, preserving frame-to-frame continuity.
+        readonly property bool imageReady: wallpaperImage.status === Image.Ready
+        readonly property bool colorOnly: win.wallpaperUrl === ""
+            || wallpaperImage.status === Image.Error
         anchors {
             top: parent.top
             left: parent.left
@@ -499,7 +510,7 @@ PanelWindow {
             topMargin: stripBottom
         }
         clip: true
-        opacity: win.show ? 1 : 0
+        opacity: win.show && (imageReady || colorOnly) ? 1 : 0
         Behavior on opacity { AppleSpring { spring: 18 } }
 
         Rectangle {
@@ -508,9 +519,15 @@ PanelWindow {
             width: win.width
             height: win.height
             color: win.wallpaperPaddingColor
+            // Never place a full-screen padding-colour plane behind a valid
+            // wallpaper. Crop/stretch do not need it; fit/pad can reveal the
+            // identical live awww padding through the transparent margins.
+            // This makes a late texture frame transparent instead of blue.
+            visible: wallpaper.colorOnly
         }
 
         Image {
+            id: wallpaperImage
             x: 0
             y: -wallpaper.stripBottom
             width: win.width
@@ -522,6 +539,7 @@ PanelWindow {
             verticalAlignment: Image.AlignVCenter
             cache: true
             asynchronous: true
+            retainWhileLoading: true
         }
 
         // Empty-area click dismisses.

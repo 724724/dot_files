@@ -32,7 +32,7 @@ Item {
 
     // App name of the full-screen window (for the split-preview name).
     readonly property string fsAppName: {
-        let fs = tile.wins.find(w => w.fullscreen === 2)
+        let fs = tile.wins.find(w => MCService.isRealFullscreen(w.fullscreen))
         return (fs && tile.overview) ? tile.overview.appNameForClass(fs.class) : ""
     }
     // "dragged & fullscreen" or "fullscreen & dragged" depending on drop side.

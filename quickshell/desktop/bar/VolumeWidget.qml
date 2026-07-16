@@ -1,3 +1,4 @@
+import Quickshell
 import Quickshell.Io
 import QtQuick
 import QtQuick.Layouts
@@ -18,7 +19,7 @@ PillContainer {
     // if one's already open (instant on subsequent clicks).
     Process {
         id: launchProc
-        command: ["/home/sejunlee/.config/hypr/scripts/pavucontrol-launch.sh"]
+        command: [Quickshell.env("HOME") + "/.config/hypr/scripts/pavucontrol-launch.sh"]
     }
 
     TapHandler {

@@ -195,13 +195,6 @@ PanelWindow {
 
     // ── Pinned apps ────────────────────────────────────────────────────────
 
-    // KakaoTalk runs under Wine, whose .desktop entry only declares its raw
-    // hash icon (DDB7_KakaoTalk.0) — themes ship a clean "KakaoTalk" instead.
-    // Prefer the themed name (follows the active icon theme); fall back to the
-    // always-present Wine hash if the theme doesn't provide it.
-    readonly property string kakaoIcon:
-        Quickshell.iconPath("KakaoTalk", true) !== "" ? "KakaoTalk" : "DDB7_KakaoTalk.0"
-
     // Pinned state lives in DockService — the single source of truth shared with
     // the launchpad — so a pin made in either place shows up here instantly. This
     // window is just a view + thin delegates over it.
@@ -428,28 +421,6 @@ PanelWindow {
         win.closeMenu()
     }
 
-    // Class → friendly name+icon. Handles:
-    //  - Wine apps in virtual-desktop mode (class "explorer.exe" → Ableton)
-    //  - KakaoTalk (Wine-extracted icon hash)
-    //  - Qt apps that append _PID_RANDOM to the class on every launch
-    //    (transmission, etc.) — strip the suffix so the icon theme finds it
-    function _remapClass(cls) {
-        let lc = cls.toLowerCase()
-        // Wine apps report a generic class with no matching desktop entry, so
-        // map them by hand and skip the heuristic icon lookup (exact: true).
-        if (lc === "explorer.exe") return { name: "Ableton", iconName: "ableton", base: cls, exact: true }
-        // KakaoTalk's .desktop icon is Wine's raw hash; use the themed kakaoIcon
-        // directly (exact: true) rather than re-resolving to that hash.
-        if (lc === "kakaotalk.exe") return { name: "KakaoTalk", iconName: win.kakaoIcon, base: cls, exact: true }
-        let m = cls.match(/^(.+?)_\d+_\d+$/)
-        let base = m ? m[1] : cls
-        let baseLc = base.toLowerCase()
-        if (baseLc === "code") return { name: "VS Code", iconName: "visual-studio-code", base: base, exact: false }
-        if (baseLc === "com.transmissionbt.transmission")
-            return { name: "Transmission", iconName: "transmission", base: base, exact: false }
-        return { name: base, iconName: base, base: base, exact: false }
-    }
-
     // Resolve a window class to a real icon-theme name. The dock only knows the
     // Hyprland window class, which often differs from the icon the .desktop
     // entry declares (e.g. class "code" → icon "visual-studio-code", not
@@ -467,7 +438,7 @@ PanelWindow {
     readonly property var _liveExtras: DockService.runningClasses
         .filter(cls => !pinnedClasses.includes(cls))
         .map(cls => {
-            let m = _remapClass(cls)
+            let m = DockService._remapClass(cls)
             return { name: m.name, wmClass: cls, iconName: _iconForClass(m), execCmd: [] }
         })
     // The Repeater binds to this. Normally it tracks _liveExtras, but during a

@@ -23,10 +23,8 @@ hl.config({
     },
 
     debug = {
-        disable_scale_checks = true,
-    },
-
-    render = {
-        direct_scanout = 1,
+        disable_scale_checks = false,
+        damage_tracking      = 2,
+        disable_logs         = true,
     },
 })

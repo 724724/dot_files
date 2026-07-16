@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 
+import ctypes
 import json
 import os
+import select
+import signal
 import shutil
 import subprocess
 import sys
@@ -12,40 +15,26 @@ from pathlib import Path
 IGNORED_APPS = {
     "pipewire",
     "quickshell",
-    "v4l2-ctl",
     "wireplumber",
     "xdg-desktop-portal",
     "xdg-desktop-portal-hyprland",
 }
-VOICE_MARKERS = ("noise", "cancel", "isolation", "rnnoise", "echo", "easyeffects")
 
 
-def state_path():
-    base = os.environ.get("XDG_STATE_HOME") or str(Path.home() / ".local/state")
-    path = Path(base) / "quickshell"
-    path.mkdir(parents=True, exist_ok=True)
-    return path / "privacy-controls.json"
-
-
-def load_state():
-    try:
-        value = json.loads(state_path().read_text())
-        return value if isinstance(value, dict) else {}
-    except (OSError, ValueError):
-        return {}
-
-
-def save_state(value):
-    path = state_path()
-    path.write_text(json.dumps(value, separators=(",", ":")))
-    path.chmod(0o600)
+def child_exits_with_parent():
+    """Terminate an observer if its Quickshell-owned parent disappears."""
+    if sys.platform.startswith("linux"):
+        libc = ctypes.CDLL(None)
+        libc.prctl(1, signal.SIGTERM)  # PR_SET_PDEATHSIG
+        if os.getppid() == 1:
+            os.kill(os.getpid(), signal.SIGTERM)
 
 
 def run(command):
     return subprocess.run(command, check=True, capture_output=True, text=True).stdout.strip()
 
 
-def pipewire_graph():
+def pipewire_nodes():
     graph = json.loads(run(["pw-dump"]))
     clients = {}
     for item in graph:
@@ -53,20 +42,18 @@ def pipewire_graph():
             clients[item.get("id")] = item.get("info", {}).get("props", {})
 
     nodes = []
-    links = []
     for item in graph:
-        if item.get("type") == "PipeWire:Interface:Link":
-            info = item.get("info", {})
-            if str(info.get("state", "")).lower() == "active":
-                links.append({"output": info.get("output-node-id"), "input": info.get("input-node-id")})
-            continue
         if item.get("type") != "PipeWire:Interface:Node":
             continue
         info = item.get("info", {})
         props = dict(clients.get(info.get("props", {}).get("client.id"), {}))
         props.update(info.get("props", {}))
-        nodes.append({"id": item.get("id"), "state": str(info.get("state", "")).lower(), "props": props})
-    return nodes, links
+        nodes.append({
+            "id": item.get("id"),
+            "state": str(info.get("state", "")).lower(),
+            "props": props,
+        })
+    return nodes
 
 
 def app_info(node):
@@ -87,23 +74,6 @@ def active_apps(nodes, media_class):
     seen = set()
     for node in nodes:
         if node["state"] != "running" or node["props"].get("media.class") != media_class:
-            continue
-        app = app_info(node)
-        if not app:
-            continue
-        key = (app["name"].lower(), app["id"])
-        if key not in seen:
-            seen.add(key)
-            apps.append(app)
-    return apps
-
-
-def linked_apps(nodes, links, source_ids, media_class):
-    input_ids = {link["input"] for link in links if link["output"] in source_ids}
-    apps = []
-    seen = set()
-    for node in nodes:
-        if node["id"] not in input_ids or node["props"].get("media.class") != media_class:
             continue
         app = app_info(node)
         if not app:
@@ -138,7 +108,7 @@ def process_app(pid):
     return {"name": comm, "id": lower_comm, "binary": lower_comm}
 
 
-def direct_device_apps(device_test):
+def direct_microphone_apps():
     apps = []
     seen = set()
     uid = os.getuid()
@@ -151,13 +121,16 @@ def direct_device_apps(device_test):
             fds = list((proc / "fd").iterdir())
         except OSError:
             continue
-        targets = []
+        using_microphone = False
         for fd in fds:
             try:
-                targets.append(os.readlink(fd))
+                target = os.readlink(fd)
             except OSError:
                 continue
-        if not any(device_test(target) for target in targets):
+            if target.startswith("/dev/snd/pcm") and target.endswith("c"):
+                using_microphone = True
+                break
+        if not using_microphone:
             continue
         app = process_app(proc.name)
         if not app:
@@ -181,36 +154,17 @@ def merge_apps(*groups):
     return merged
 
 
-def source_nodes(nodes, media_class):
-    return [node for node in nodes if node["props"].get("media.class") == media_class]
-
-
 def source_name(node):
     props = node["props"]
-    return str(props.get("node.description") or props.get("device.description") or props.get("node.nick") or props.get("node.name") or "")
-
-
-def is_voice_source(node):
-    props = node["props"]
-    text = " ".join(str(props.get(key, "")).lower() for key in ("node.name", "node.description", "device.description", "node.nick"))
-    return any(marker in text for marker in VOICE_MARKERS)
+    return str(props.get("node.description") or props.get("device.description")
+               or props.get("node.nick") or props.get("node.name") or "")
 
 
 def is_monitor_source(node):
     props = node["props"]
-    text = " ".join(str(props.get(key, "")).lower() for key in ("node.name", "node.description", "device.description"))
+    text = " ".join(str(props.get(key, "")).lower()
+                    for key in ("node.name", "node.description", "device.description"))
     return props.get("device.class") == "monitor" or ".monitor" in text or "monitor of" in text
-
-
-def is_camera_source(node):
-    props = node["props"]
-    return props.get("media.role") == "Camera" or props.get("device.api") == "v4l2" or bool(props.get("api.v4l2.path"))
-
-
-def is_virtual_camera(node):
-    props = node["props"]
-    text = " ".join(str(props.get(key, "")).lower() for key in ("node.name", "node.description", "node.nick", "api.v4l2.cap.card"))
-    return any(marker in text for marker in ("virtual camera", "quickshell camera", "qs camera", "v4l2loopback"))
 
 
 def pulse_source_mutes():
@@ -229,196 +183,144 @@ def microphone_is_muted(active_microphones, source_mutes):
     return bool(relevant) and all(relevant)
 
 
-def backend_path():
-    configured = os.environ.get("QUICKSHELL_CAMERA_EFFECTS_BACKEND", "")
-    if configured and os.access(configured, os.X_OK):
-        return configured
-    local = Path(__file__).with_name("camera-effects.py")
-    if os.access(local, os.X_OK):
-        return str(local)
-    return shutil.which("quickshell-camera-effects") or ""
-
-
-def camera_model_path():
-    base = os.environ.get("XDG_DATA_HOME") or str(Path.home() / ".local/share")
-    return Path(base) / "quickshell/camera-effects/SINet_Softmax.onnx"
-
-
-def qs_camera_device(device_path=None, sys_class=None):
-    device = Path(device_path or os.environ.get("QS_CAMERA_OUTPUT", "/dev/video10"))
-    sys_root = Path(sys_class or "/sys/class/video4linux")
-    if not device.exists():
-        return {}
-    try:
-        name = (sys_root / device.name / "name").read_text().strip()
-    except OSError:
-        return {}
-    if name.lower() != "qs camera":
-        return {}
-    return {"path": str(device), "name": name}
-
-
 def status():
-    state = load_state()
     try:
-        nodes, links = pipewire_graph()
+        nodes = pipewire_nodes()
         error = ""
     except (OSError, subprocess.SubprocessError, ValueError) as exc:
         nodes = []
-        links = []
         error = str(exc)
 
-    cameras = [node for node in source_nodes(nodes, "Video/Source") if is_camera_source(node)]
-    virtual_cameras = [node for node in cameras if is_virtual_camera(node)]
-    qs_cameras = [node for node in virtual_cameras if "qs camera" in source_name(node).lower()]
-    physical_cameras = [node for node in cameras if not is_virtual_camera(node)]
-    microphones = [node for node in source_nodes(nodes, "Audio/Source") if not is_monitor_source(node)]
-    active_cameras = [node for node in physical_cameras if node["state"] == "running"]
-    active_virtual_cameras = [node for node in qs_cameras if node["state"] == "running"]
+    microphones = [
+        node for node in nodes
+        if node["props"].get("media.class") == "Audio/Source" and not is_monitor_source(node)
+    ]
     active_microphones = [node for node in microphones if node["state"] == "running"]
-    voice_sources = [node for node in microphones if is_voice_source(node)]
-    physical_sources = [node for node in microphones if not is_voice_source(node)]
-    effect_backend = backend_path()
-    qs_device = qs_camera_device()
-    source_mutes = pulse_source_mutes()
-    physical_camera_paths = {
-        str(node["props"].get("api.v4l2.path", ""))
-        for node in physical_cameras
-        if node["props"].get("api.v4l2.path")
-    }
-    virtual_camera_paths = {
-        str(node["props"].get("api.v4l2.path", ""))
-        for node in qs_cameras
-        if node["props"].get("api.v4l2.path")
-    }
-    if qs_device:
-        virtual_camera_paths.add(qs_device["path"])
-
-    direct_mic_apps = direct_device_apps(lambda target: target.startswith("/dev/snd/pcm") and target.endswith("c"))
-    direct_physical_camera_apps = direct_device_apps(lambda target: target in physical_camera_paths)
-    direct_virtual_camera_apps = direct_device_apps(lambda target: target in virtual_camera_paths)
-    pipewire_mic_apps = active_apps(nodes, "Stream/Input/Audio") if active_microphones else []
-    pipewire_physical_camera_apps = linked_apps(nodes, links, {node["id"] for node in active_cameras}, "Stream/Input/Video")
-    pipewire_virtual_camera_apps = linked_apps(nodes, links, {node["id"] for node in active_virtual_cameras}, "Stream/Input/Video")
-    mic_apps = merge_apps(pipewire_mic_apps, direct_mic_apps)
-    physical_camera_apps = merge_apps(pipewire_physical_camera_apps, direct_physical_camera_apps)
-    virtual_camera_apps = merge_apps(pipewire_virtual_camera_apps, direct_virtual_camera_apps)
-    camera_apps = merge_apps(virtual_camera_apps, physical_camera_apps)
-
-    using_virtual_camera = bool(virtual_camera_apps)
-    camera = ((active_virtual_cameras or qs_cameras) if using_virtual_camera else (active_cameras or physical_cameras) or [None])[0]
-    virtual_camera_name = source_name(qs_cameras[0]) if qs_cameras else qs_device.get("name", "")
-    microphone = (active_microphones or physical_sources or microphones or [None])[0]
-    voice = (voice_sources or [None])[0]
-    mic_muted = microphone_is_muted(active_microphones, source_mutes)
+    pipewire_apps = active_apps(nodes, "Stream/Input/Audio")
+    direct_apps = direct_microphone_apps()
+    mic_apps = merge_apps(pipewire_apps, direct_apps)
+    microphone = (active_microphones or microphones or [None])[0]
+    mic_muted = microphone_is_muted(active_microphones, pulse_source_mutes())
     return {
         "ok": not error,
         "error": error,
-        "micActive": bool(mic_apps) and not mic_muted,
+        "micActive": bool(mic_apps or active_microphones) and not mic_muted,
         "micMuted": mic_muted,
         "micApps": mic_apps,
         "micApp": mic_apps[0] if mic_apps else {},
         "micName": source_name(microphone) if microphone else "Microphone",
-        "cameraActive": bool(camera_apps),
-        "cameraApps": camera_apps,
-        "cameraApp": camera_apps[0] if camera_apps else {},
-        "cameraName": virtual_camera_name if using_virtual_camera else (source_name(camera) if camera else "Camera"),
-        "cameraAvailable": bool(physical_cameras or qs_cameras or qs_device),
-        "cameraUsingVirtual": using_virtual_camera,
-        "cameraPreviewAvailable": bool(qs_cameras or qs_device),
-        "cameraPreviewName": virtual_camera_name,
-        "voiceIsolationAvailable": bool(voice),
-        "voiceIsolationSource": voice["props"].get("node.name", "") if voice else "",
-        "micMode": state.get("micMode", "standard"),
-        "portraitAvailable": bool(effect_backend and qs_device and camera_model_path().exists()),
-        "portraitEnabled": bool(state.get("portraitEnabled", False)),
-        "backgroundAvailable": bool(effect_backend and qs_device and camera_model_path().exists()),
-        "backgroundMode": state.get("backgroundMode", "none"),
-        "backgroundValue": state.get("backgroundValue", ""),
-        "backgroundImage": state.get("backgroundImage", "") or (
-            state.get("backgroundValue", "") if state.get("backgroundMode") == "image" else ""
-        ),
     }
 
 
-def set_mic_mode(mode):
-    if mode not in ("standard", "voice-isolation"):
-        raise ValueError("invalid microphone mode")
-    current = status()
-    state = load_state()
-    if mode == "voice-isolation":
-        source = current["voiceIsolationSource"]
-        if not source:
-            raise RuntimeError("Voice Isolation source is unavailable")
+def pulse_microphone_event(line):
+    event = line.lower()
+    return "source-output" in event or " on source #" in event
+
+
+def pipewire_microphone_event(line):
+    # pw-dump's monitor output is multiline; node/link changes are settled into
+    # one refresh, whose status path considers Audio nodes only.
+    return "PipeWire:Interface:Node" in line or "PipeWire:Interface:Link" in line
+
+
+def monitor(settle_seconds=0.5):
+    """Emit microphone state only when Pulse/PipeWire reports a change."""
+    settle_seconds = max(0.25, min(2.0, settle_seconds))
+    observers = []
+
+    def stop(_signum, _frame):
+        for observer, _kind in observers:
+            if observer.poll() is None:
+                observer.terminate()
+        raise SystemExit(0)
+
+    signal.signal(signal.SIGTERM, stop)
+    signal.signal(signal.SIGINT, stop)
+
+    def emit():
+        print(json.dumps(status(), separators=(",", ":")), flush=True)
+
+    emit()
+    while True:
+        observers = []
+        if shutil.which("pactl"):
+            observers.append((subprocess.Popen(
+                ["pactl", "subscribe"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                text=True,
+                bufsize=1,
+                preexec_fn=child_exits_with_parent,
+            ), "pulse"))
+        if shutil.which("pw-dump"):
+            command = ["pw-dump", "-m"]
+            if shutil.which("stdbuf"):
+                command = ["stdbuf", "-oL", *command]
+            observers.append((subprocess.Popen(
+                command,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                text=True,
+                bufsize=1,
+                preexec_fn=child_exits_with_parent,
+            ), "pipewire"))
+
+        streams = {
+            observer.stdout: kind
+            for observer, kind in observers
+            if observer.stdout is not None
+        }
+        if not streams:
+            time.sleep(5)
+            emit()
+            continue
+
+        dirty = False
+        last_event = 0.0
         try:
-            default_source = run(["pactl", "get-default-source"])
-            if default_source and default_source != source:
-                state["standardSource"] = default_source
-        except (OSError, subprocess.SubprocessError):
-            pass
-    else:
-        source = state.get("standardSource", "")
-        if not source:
-            raise RuntimeError("Standard microphone source is unavailable")
-
-    run(["pactl", "set-default-source", source])
-    for index in run(["pactl", "list", "short", "source-outputs"]).splitlines():
-        fields = index.split("\t")
-        if fields:
-            subprocess.run(["pactl", "move-source-output", fields[0], source], capture_output=True)
-    state["micMode"] = mode
-    save_state(state)
-    return status()
-
-
-def set_effect(kind, value=""):
-    backend = backend_path()
-    if not backend:
-        raise RuntimeError("Camera effects backend is unavailable")
-    state = load_state()
-    if kind == "portrait":
-        enabled = value.lower() == "true"
-        run([backend, "portrait", "on" if enabled else "off"])
-        state["portraitEnabled"] = enabled
-    elif kind == "background":
-        mode, _, selected = value.partition(":")
-        if mode not in ("none", "color", "image", "chroma"):
-            raise ValueError("invalid background mode")
-        saved_image = state.get("backgroundImage", "")
-        if not saved_image and state.get("backgroundMode") == "image":
-            saved_image = state.get("backgroundValue", "")
-        if mode == "image" and not selected:
-            selected = saved_image
-        run([backend, "background", mode, selected])
-        state["backgroundMode"] = mode
-        state["backgroundValue"] = selected
-        if mode == "image":
-            state["backgroundImage"] = selected
-        elif saved_image:
-            state["backgroundImage"] = saved_image
-    else:
-        raise ValueError("invalid effect")
-    save_state(state)
-    return status()
+            while all(observer.poll() is None for observer, _kind in observers):
+                timeout = max(0.0, settle_seconds - (time.monotonic() - last_event)) if dirty else None
+                ready, _, _ = select.select(list(streams), [], [], timeout)
+                if dirty and not ready:
+                    emit()
+                    dirty = False
+                    continue
+                restart = False
+                for stream in ready:
+                    line = stream.readline()
+                    if line == "":
+                        restart = True
+                        break
+                    kind = streams[stream]
+                    if ((kind == "pulse" and pulse_microphone_event(line))
+                            or (kind == "pipewire" and pipewire_microphone_event(line))):
+                        dirty = True
+                        last_event = time.monotonic()
+                if restart:
+                    break
+        finally:
+            for observer, _kind in observers:
+                if observer.poll() is None:
+                    observer.terminate()
+                try:
+                    observer.wait(timeout=1)
+                except subprocess.TimeoutExpired:
+                    observer.kill()
+                    observer.wait()
+        time.sleep(1)
+        emit()
 
 
 def main():
     try:
         command = sys.argv[1] if len(sys.argv) > 1 else "status"
         if command == "monitor":
-            interval = max(0.25, min(5.0, float(sys.argv[2]) if len(sys.argv) > 2 else 0.5))
-            while True:
-                print(json.dumps(status(), separators=(",", ":")), flush=True)
-                time.sleep(interval)
-        elif command == "status":
-            result = status()
-        elif command == "mic-mode":
-            result = set_mic_mode(sys.argv[2])
-        elif command == "effect":
-            result = set_effect(sys.argv[2], sys.argv[3] if len(sys.argv) > 3 else "")
-        else:
+            interval = float(sys.argv[2]) if len(sys.argv) > 2 else 0.5
+            monitor(interval)
+            return
+        if command != "status":
             raise ValueError("unknown command")
-        print(json.dumps(result, separators=(",", ":")))
+        print(json.dumps(status(), separators=(",", ":")))
     except Exception as exc:
         print(json.dumps({"ok": False, "error": str(exc)}, separators=(",", ":")))
         raise SystemExit(1)

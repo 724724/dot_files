@@ -457,14 +457,45 @@ Item {
         }
         Metric {
             visible: SysUsageService.igpuAvailable   // i915 only; hidden on xe
+            key: "igpu"
             icon: "󰢮"; name: "iGPU"; accent: "#34C759"
             info: SysUsageService.igpuName
             pct: SysUsageService.igpu
             value: Math.round(SysUsageService.igpu) + "%"
+            detailData: [
+                DRow { label: "Render / 3D"; val: SysUsageService.igpuRender.toFixed(1) + "%" },
+                DRow { label: "Video decode"; val: SysUsageService.igpuVideo.toFixed(1) + "%" },
+                DRow { label: "Video enhance"; val: SysUsageService.igpuVideoEnhance.toFixed(1) + "%" },
+                DRow { label: "Blitter"; val: SysUsageService.igpuBlitter.toFixed(1) + "%" },
+                DRow {
+                    label: "GPU clock"
+                    val: Math.round(SysUsageService.igpuClock) + " MHz"
+                        + (SysUsageService.igpuRequestedClock > 0
+                            ? "  (req " + Math.round(SysUsageService.igpuRequestedClock) + ")" : "")
+                },
+                DRow { label: "Power draw"; val: SysUsageService.igpuPower.toFixed(1) + " W" },
+                DRow { label: "RC6 idle"; val: SysUsageService.igpuRc6.toFixed(1) + "%" },
+                Hint {
+                    visible: SysUsageService.igpuProcs.length === 0
+                    text: "No active GPU processes"
+                },
+                Repeater {
+                    model: SysUsageService.igpuProcs
+                    BarRow {
+                        label: modelData.name + (modelData.pid > 0 ? "  " + modelData.pid : "")
+                        val: modelData.busy.toFixed(1) + "% · "
+                            + SysUsageService.fmtBytes(modelData.mem)
+                        frac: modelData.busy / Math.max(1,
+                            (SysUsageService.igpuProcs[0] || {}).busy || 0)
+                        barColor: "#34C759"
+                    }
+                }
+            ]
         }
         Metric {
-            key: "gpu"
-            icon: "󰢮"; name: "GPU"; accent: "#30D158"
+            visible: SysUsageService.dgpuAvailable
+            key: "dgpu"
+            icon: "󰢮"; name: "dGPU"; accent: "#30D158"
             info: SysUsageService.dgpuName
             pct: SysUsageService.dgpu
             value: Math.round(SysUsageService.dgpu) + "%   "

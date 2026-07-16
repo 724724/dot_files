@@ -44,12 +44,13 @@ Item {
     property color gradTop: "#1a74d4"
     property color gradBottom: "#73b7ef"
 
-    onEffLatChanged: fetchDebounce.restart()
-    onEffLonChanged: fetchDebounce.restart()
-    Component.onCompleted: fetchDebounce.restart()
+    onEffLatChanged: if (active) fetchDebounce.restart()
+    onEffLonChanged: if (active) fetchDebounce.restart()
+    onActiveChanged: if (active) fetchDebounce.restart()
+    Component.onCompleted: if (active) fetchDebounce.restart()
 
     Timer { id: fetchDebounce; interval: 80; onTriggered: wRoot._fetch() }
-    Timer { interval: 15 * 60 * 1000; repeat: true; running: true; onTriggered: wRoot._fetch() }
+    Timer { interval: 15 * 60 * 1000; repeat: true; running: wRoot.active; onTriggered: wRoot._fetch() }
     // Failed fetch (offline, API unreachable) → retry in 1 min instead of
     // waiting for the 15-min tick. Restarted, not accumulated, so at most one
     // retry is ever pending.
@@ -62,6 +63,7 @@ Item {
     }
 
     function _fetch() {
+        if (!wRoot.active) return
         if (isNaN(effLat) || isNaN(effLon)) return
         let url = "https://api.open-meteo.com/v1/forecast?latitude=" + effLat + "&longitude=" + effLon
             + "&current=temperature_2m,apparent_temperature,weather_code,is_day,relative_humidity_2m,wind_speed_10m"

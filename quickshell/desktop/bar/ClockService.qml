@@ -18,15 +18,14 @@ Singleton {
     property double stopwatchStartedAt: 0
     property double stopwatchStartedFrom: 0
     readonly property int stopwatchSeconds: Math.floor(stopwatchElapsedMs / 1000)
-    readonly property var now: clock.date
+    // Reuse the bar's seconds clock instead of keeping a second 1Hz SystemClock.
+    readonly property var now: Time.now
     readonly property string configDir: {
         let value = Quickshell.env("XDG_CONFIG_HOME")
         return value && value !== "" ? value : Quickshell.env("HOME") + "/.config"
     }
     readonly property string soundScript: configDir + "/quickshell/scripts/clock-sound.py"
     readonly property string soundDir: Quickshell.stateDir + "/alarm-sounds"
-
-    SystemClock { id: clock; precision: SystemClock.Seconds }
 
     FileView {
         id: stateStore
@@ -37,14 +36,17 @@ Singleton {
 
     Timer {
         interval: 1000
-        running: root.hasRunningTimer() || root.hasRunningPomodoro() || root.alarms.length > 0
+        running: root.hasRunningTimer() || root.hasRunningPomodoro() || root.hasEnabledAlarm()
         repeat: true
         onTriggered: root.tick()
     }
 
     Timer {
         interval: 16
-        running: root.stopwatchRunning
+        // Hundredths are only rendered inside the open clock popup. While it is
+        // hidden, Date.now() remains the source of truth and the 10s persistence
+        // tick below is sufficient; no reason to wake QML at ~60Hz off-screen.
+        running: root.stopwatchRunning && root.popupVisible
         repeat: true
         onTriggered: root.updateStopwatch()
     }
@@ -53,10 +55,14 @@ Singleton {
         interval: 10000
         running: root.stopwatchRunning || root.hasRunningTimer() || root.hasRunningPomodoro()
         repeat: true
-        onTriggered: root.persist()
+        onTriggered: {
+            if (root.stopwatchRunning) root.updateStopwatch()
+            root.persist()
+        }
     }
 
     Component.onCompleted: load()
+    onPopupVisibleChanged: if (popupVisible && stopwatchRunning) updateStopwatch()
 
     function load() {
         let raw = stateStore.text()
@@ -133,6 +139,12 @@ Singleton {
         let displayHour = hour % 12
         if (displayHour === 0) displayHour = 12
         return displayHour + ":" + two(alarm.minute) + " " + suffix
+    }
+
+    function hasEnabledAlarm() {
+        for (let i = 0; i < alarms.length; i++)
+            if (alarms[i] && alarms[i].enabled) return true
+        return false
     }
 
     function replaceAt(source, index, value) {
