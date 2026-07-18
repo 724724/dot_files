@@ -166,7 +166,7 @@ Singleton {
         if (root.detailActive) {
             statsProc.running = true
             if (root.dgpuAvailable) gpuProc.running = true
-            if (root.igpuAvailable && root.expandedDetail === "igpu" && !igpuProc.running)
+            if (root.igpuAvailable && !igpuProc.running)
                 igpuProc.running = true
             // Model names come from the disk cache; re-verify once per session.
             if (!root._infoChecked) { root._infoChecked = true; infoProc.running = true }
@@ -599,10 +599,10 @@ Singleton {
         }
     }
 
-    // Three seconds is responsive enough for a status panel and avoids waking
-    // the CPU (and starting helper processes) every second while it is open.
+    // 1.5s keeps the panel feeling live; it only runs while the panel is open
+    // (or RunCat is on), so the extra wakeups never happen unattended.
     Timer {
-        interval: 3000
+        interval: 1500
         running: root.runcatEnabled || root.detailActive
         repeat: true
         triggeredOnStart: true
