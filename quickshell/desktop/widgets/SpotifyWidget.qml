@@ -91,8 +91,13 @@ Item {
     function metadataLine() {
         if (!hasMetadata) return service.inspectError || "Fetch info to preview this Spotify link."
         let kind = service.metadata.kind || contentKind
-        if (service.metadata.isPlaylist && Number(service.metadata.entryCount) > 0)
-            return kindLabel(kind) + " · " + Number(service.metadata.entryCount) + " tracks"
+        if (service.metadata.isPlaylist && Number(service.metadata.entryCount) > 0) {
+            let line = kindLabel(kind) + " · " + Number(service.metadata.entryCount) + " tracks"
+            // Spotify's embed exposes only the first 100 tracks of a playlist.
+            if (service.metadata.truncated)
+                line += " (first 100)"
+            return line
+        }
         return kindLabel(kind)
     }
 

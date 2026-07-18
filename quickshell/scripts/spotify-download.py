@@ -1,37 +1,36 @@
 #!/usr/bin/env python3
-"""Spotify → YouTube downloader backend (no spotdl).
+"""Spotify → YouTube downloader backend (no spotdl, no auth).
 
-Pipeline, mirroring what spotdl does but built directly on yt-dlp + ffmpeg so it
-is not affected by spotdl's blocked YouTube-Music search path:
+  1. Resolve the Spotify track/album/playlist to its track list from Spotify's
+     public embed page (no login). NOTE: the embed exposes only the FIRST 100
+     tracks — the authenticated Web API that would page further is geo-blocked
+     from some regions (e.g. Korea → 403), so 100 is the practical cap here.
+  2. Find each track on YouTube with `yt-dlp "ytsearch1:artist - title"` and
+     download the best audio.
+  3. Tag the file (title / artist / album / cover art) with ffmpeg from the
+     Spotify metadata. Existing files are skipped, so a big list can be run in
+     chunks / re-run to fill gaps.
 
-  1. Resolve the Spotify track/album/playlist to its track list via Spotify's
-     public *embed* page (no auth, no API rate limit) → title + artist + cover.
-  2. Find each track on YouTube with `yt-dlp "ytsearch1:artist - title"`, which
-     handles YouTube's JS/PoToken challenges, and download the best audio.
-  3. Tag the file (title / artist / album / cover art) with ffmpeg, using the
-     Spotify metadata — not YouTube's.
-
-Speaks the same newline-JSON event protocol the QML SpotifyService consumes, so
-the CLI (status / info / download / set-output) is unchanged.
+Newline-delimited JSON event protocol; CLI: status / info / download / set-output.
 """
 
 import argparse
+import base64
 import json
 import os
 import re
 import shutil
 import signal
 import struct
-import base64
 import subprocess
 import sys
 import tempfile
+import time
 import urllib.parse
 import urllib.request
 from pathlib import Path
 
 AUDIO_FORMATS = {"mp3", "m4a", "flac", "opus", "wav"}
-_ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 _UA = "Mozilla/5.0"
 
 
@@ -143,18 +142,31 @@ def _oembed_cover(spotify_url):
 
 
 def _embed_entity(kind, sid):
-    html = _http_get("https://open.spotify.com/embed/{}/{}".format(kind, sid))
-    match = re.search(r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>', html, re.S)
-    if not match:
-        raise ValueError("embed payload not found")
-    data = json.loads(match.group(1))
-    return data["props"]["pageProps"]["state"]["data"]["entity"]
+    # The embed page occasionally serves a variant without the expected shape;
+    # a couple of retries makes the preview reliable.
+    last = None
+    for _ in range(3):
+        try:
+            html = _http_get("https://open.spotify.com/embed/{}/{}".format(kind, sid))
+            match = re.search(r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>', html, re.S)
+            if not match:
+                raise ValueError("embed payload not found")
+            data = json.loads(match.group(1))
+            entity = (((data.get("props") or {}).get("pageProps") or {})
+                      .get("state") or {}).get("data", {}).get("entity")
+            if entity:
+                return entity
+            last = ValueError("embed entity missing")
+        except Exception as error:
+            last = error
+        time.sleep(0.6)
+    raise last or ValueError("embed entity unavailable")
 
 
 def resolve_tracks(url):
-    """→ (meta, tracks). meta = {kind,title,cover,count}; each track =
-    {title, artists, album, cover, spotify_url}. cover may be '' (fetched lazily
-    per track at download time for playlists)."""
+    """→ (meta, tracks) from the public embed page. meta['truncated'] is set when
+    the embed's 100-track cap was hit. Each track: {title, artists, album, cover,
+    spotify_url}; cover may be '' (fetched lazily per track at download time)."""
     kind = _kind_from_url(url)
     sid = _spotify_id(url)
     entity = _embed_entity(kind, sid)
@@ -168,7 +180,7 @@ def resolve_tracks(url):
         artists = _clean(", ".join(names)) or _clean(entity.get("subtitle"))
         track = {"title": title, "artists": artists,
                  "album": "", "cover": cover, "spotify_url": _open_url("track", sid)}
-        return {"kind": kind, "title": title, "cover": cover, "count": 1}, [track]
+        return {"kind": kind, "title": title, "cover": cover, "count": 1, "truncated": False}, [track]
 
     album_name = title if kind == "album" else ""
     shared_cover = cover if kind == "album" else ""   # playlists → per-track cover
@@ -182,7 +194,8 @@ def resolve_tracks(url):
             "cover": shared_cover,
             "spotify_url": _open_url("track", tid) if tid else "",
         })
-    return {"kind": kind, "title": title, "cover": cover, "count": len(tracks)}, tracks
+    return ({"kind": kind, "title": title, "cover": cover,
+             "count": len(tracks), "truncated": len(tracks) >= 100}, tracks)
 
 
 # ── tagging (ffmpeg) ─────────────────────────────────────────────────────────
@@ -256,12 +269,19 @@ def _fetch_cover(url, dest):
 
 
 def _download_one(ytdlp, ffmpeg, track, fmt, bitrate, out_dir, tmp):
-    """Search + download + tag one track. Returns the final path or None."""
+    """Search + download + tag one track.
+    Returns (status, path) with status in {'done', 'skipped', 'failed'}."""
     query = "{} - {}".format(track["artists"], track["title"]).strip(" -")
     if not query:
-        return None
-    quality = bitrate if (bitrate and bitrate != "auto") else "0"
+        return ("failed", None)
 
+    dest = out_dir / "{}.{}".format(_safe_name(query), fmt)
+    # Already in the folder from a previous run → skip. Lets a big list be run in
+    # chunks or re-run to fill gaps without re-downloading what's done.
+    if dest.exists() and dest.stat().st_size > 0:
+        return ("skipped", dest)
+
+    quality = bitrate if (bitrate and bitrate != "auto") else "0"
     work = tmp / "audio.%(ext)s"
     for stale in tmp.glob("audio.*"):
         stale.unlink()
@@ -275,21 +295,20 @@ def _download_one(ytdlp, ffmpeg, track, fmt, bitrate, out_dir, tmp):
                             text=True, preexec_fn=_preexec)
     produced = next(iter(tmp.glob("audio." + fmt)), None) or next(iter(tmp.glob("audio.*")), None)
     if result.returncode != 0 or not produced:
-        return None
+        return ("failed", None)
 
     cover_url = track.get("cover") or _oembed_cover(track.get("spotify_url", ""))
     cover_path = tmp / "cover.jpg"
     have = _fetch_cover(cover_url, cover_path)
 
-    dest = out_dir / "{}.{}".format(_safe_name(query), fmt)
     try:
         _tag_file(ffmpeg, str(produced), str(cover_path) if have else "", track, fmt, str(dest))
     except Exception:
         shutil.move(str(produced), str(dest))   # tagging failed → keep the audio
-    produced_leftover = tmp / ("audio." + fmt)
-    if produced_leftover.exists():
-        produced_leftover.unlink()
-    return dest
+    leftover = tmp / ("audio." + fmt)
+    if leftover.exists():
+        leftover.unlink()
+    return ("done", dest)
 
 
 def cmd_download(args):
@@ -321,6 +340,7 @@ def cmd_download(args):
         return
 
     done = 0
+    skipped = 0
     failed = 0
     last_title = ""
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -331,20 +351,26 @@ def cmd_download(args):
             emit("progress", progress=(index - 1) / total * 100.0,
                  index=index, count=total, title=last_title)
             try:
-                path = _download_one(ytdlp, ffmpeg, track, fmt, args.bitrate, out_dir, tmp)
+                status, path = _download_one(ytdlp, ffmpeg, track, fmt, args.bitrate, out_dir, tmp)
             except Exception:
-                path = None
-            if path:
+                status, path = "failed", None
+            if status == "done":
                 done += 1
-                emit("itemCompleted", completed=done, path=str(path))
+                emit("itemCompleted", completed=done + skipped, path=str(path))
+            elif status == "skipped":
+                skipped += 1
+                emit("itemCompleted", completed=done + skipped, path=str(path), skipped=True)
             else:
                 failed += 1
             emit("progress", progress=index / total * 100.0,
                  index=index, count=total, title=last_title)
 
-    if done > 0:
-        emit("completed", outputDir=str(out_dir), files=done,
-             playlist=done != 1, path=str(out_dir), mediaInfo={})
+    saved = done + skipped
+    if saved > 0:
+        emit("completed", outputDir=str(out_dir), files=saved,
+             downloaded=done, skipped=skipped, failed=failed,
+             truncated=bool(meta.get("truncated")),
+             playlist=saved != 1, path=str(out_dir), mediaInfo={})
     else:
         emit("error", message="No tracks could be downloaded (no YouTube match found).")
 
@@ -382,6 +408,7 @@ def cmd_info(args):
         reply(ok=True, kind=meta["kind"], isPlaylist=meta["kind"] in ("album", "playlist"),
               title=meta["title"] or ("Spotify " + kind),
               uploader="", entryCount=len(tracks),
+              truncated=bool(meta.get("truncated")),
               thumbnail=meta.get("cover") or _oembed_cover(url), duration=0)
     except Exception:
         # embed parse failed → minimal answer from oEmbed + URL kind
@@ -396,7 +423,7 @@ def cmd_info(args):
             pass
         reply(ok=True, kind=kind, isPlaylist=kind in ("album", "playlist"),
               title=title or ("Spotify " + kind), uploader="",
-              entryCount=0, thumbnail=thumb, duration=0)
+              entryCount=0, truncated=False, thumbnail=thumb, duration=0)
 
 
 # ── entry point ─────────────────────────────────────────────────────────────

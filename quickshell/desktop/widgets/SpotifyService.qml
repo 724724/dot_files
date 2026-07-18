@@ -4,9 +4,9 @@ import Quickshell.Io
 import QtQuick
 
 // Spotify playlist/track downloader. The backend (scripts/spotify-download.py)
-// reads the Spotify metadata from the public embed page and downloads the
-// matching audio with yt-dlp + ffmpeg — no spotdl, no browser cookies. Mirrors
-// YoutubeService's event protocol; audio-only.
+// reads the track list from Spotify's public embed page (first 100 tracks) and
+// downloads the matching audio with yt-dlp + ffmpeg — no spotdl, no login.
+// Mirrors YoutubeService's event protocol; audio-only.
 Singleton {
     id: root
 
@@ -206,9 +206,18 @@ Singleton {
                 root.mediaInfo = value.mediaInfo || ({})
                 root.completedItems = Number(value.files) || root.completedItems
                 root.playlist = value.playlist === true
-                root.phase = root.completedItems > 1
-                    ? "Saved " + root.completedItems + " items"
-                    : "Saved"
+                let dl = Number(value.downloaded)
+                let sk = Number(value.skipped)
+                let fa = Number(value.failed)
+                if (root.completedItems > 1) {
+                    root.phase = "Saved " + root.completedItems
+                    let extra = []
+                    if (sk > 0) extra.push(sk + " already there")
+                    if (fa > 0) extra.push(fa + " not found")
+                    if (extra.length) root.phase += " (" + extra.join(", ") + ")"
+                } else {
+                    root.phase = sk > 0 ? "Already downloaded" : "Saved"
+                }
                 root.speed = ""
                 root.eta = ""
             } else if (value.event === "error") {

@@ -121,8 +121,19 @@ AWWW_FILL_COLOR="$(awww_color_for "$PADDING_COLOR")"
 
 # 데몬이 이미 실행 중인지 확인하고 없으면 실행
 if ! pgrep -x "awww-daemon" > /dev/null; then
-    awww-daemon &
-    sleep 0.5
+    # 데몬이 패닉으로 죽으면 소켓 파일이 남는다. 그대로 두면 다음 실행에서
+    # awww가 그 소켓에 붙으려다 "connection refused"로 실패한다.
+    rm -f "${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/${WAYLAND_DISPLAY:-wayland-1}-awww-daemon.sock"
+    # setsid + 완전 분리: 그냥 `awww-daemon &` 로 띄우면 데몬이 이 스크립트의
+    # stdout/stderr(파이프)를 물려받아, 호출자가 파이프를 닫는 순간 SIGPIPE로
+    # 죽는다. 부모와의 수명 결합을 끊는다.
+    setsid awww-daemon >/dev/null 2>&1 </dev/null &
+    # 고정 sleep 0.5는 부팅 시 짧아서, 소켓이 열리기 전에 아래 `awww img`가
+    # 실행돼 배경이 아예 안 깔리는 레이스가 있었다. 준비될 때까지 폴링한다.
+    for _ in $(seq 1 60); do
+        awww query >/dev/null 2>&1 && break
+        sleep 0.1
+    done
 fi
 
 # 배경화면 설정

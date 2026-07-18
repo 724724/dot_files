@@ -23,7 +23,7 @@ hl.config({
     },
 
     debug = {
-        disable_scale_checks = false,
+        disable_scale_checks = true,
         damage_tracking      = 2,
         disable_logs         = true,
     },

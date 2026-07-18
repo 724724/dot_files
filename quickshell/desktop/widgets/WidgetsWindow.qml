@@ -790,6 +790,7 @@ PanelWindow {
                               || WidgetsService.typeAt(board.ctxIndex) === "calendar"
                               || WidgetsService.typeAt(board.ctxIndex) === "stock"
                               || WidgetsService.typeAt(board.ctxIndex) === "youtube"
+                              || WidgetsService.typeAt(board.ctxIndex) === "spotify"
                               || WidgetsService.typeAt(board.ctxIndex) === "note"
                         onTriggered: board.openEditor(board.ctxIndex)
                     }
@@ -886,6 +887,7 @@ PanelWindow {
                             if (t === "calendar") return calendarEditorComp
                             if (t === "stock") return stockEditorComp
                             if (t === "youtube") return youtubeEditorComp
+                            if (t === "spotify") return spotifyEditorComp
                             if (t === "note") return noteEditorComp
                             return noOptionsComp
                         }
@@ -914,6 +916,7 @@ PanelWindow {
                 Component { id: calendarEditorComp; CalendarEditor { index: board.editIndex } }
                 Component { id: stockEditorComp; StockEditor { index: board.editIndex } }
                 Component { id: youtubeEditorComp; YoutubeEditor { index: board.editIndex } }
+                Component { id: spotifyEditorComp; SpotifyEditor { index: board.editIndex } }
                 Component { id: noteEditorComp; NoteEditor { index: board.editIndex } }
                 Component {
                     id: noOptionsComp

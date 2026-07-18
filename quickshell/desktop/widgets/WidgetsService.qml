@@ -482,4 +482,13 @@ Singleton {
         setData(index, { layout: layout })
         root.relayoutNeeded()
     }
+
+    function setSpotifyLayout(index, layout) {
+        if (index < 0 || index >= widgetsModel.count) return
+        let sz = root.spotifySize(layout)
+        widgetsModel.setProperty(index, "nw", sz.nw)
+        widgetsModel.setProperty(index, "nh", sz.nh)
+        setData(index, { layout: layout })
+        root.relayoutNeeded()
+    }
 }
