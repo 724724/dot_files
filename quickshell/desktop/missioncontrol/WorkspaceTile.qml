@@ -12,6 +12,7 @@ Item {
     property var monitorData: null
     property int activeWsId: MCService.activeWorkspaceId
     property bool expanded: false
+    property bool captureEnabled: false
     property var overview: null
     property real layoutThumbW: 176
 
@@ -105,6 +106,7 @@ Item {
                     monitorData: tile.monitorData
                     mscale: tile.miniScale
                     live: tile.isActive
+                    captureEnabled: tile.captureEnabled
                     flat: true
                     draggable: false
                     iconUrl: (tile.overview && windowData) ? tile.overview.iconUrlForClass(windowData.class) : ""

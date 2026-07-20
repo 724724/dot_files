@@ -37,7 +37,7 @@ Rectangle {
             anchors { left: parent.left; top: parent.top }
             anchors.leftMargin: 16
             anchors.topMargin: 12
-            text: root.kisEnvironment === "paper" ? "Paper Orders" : "Production Orders"
+            text: root.kisEnvironment === "paper" ? root.t("Paper Orders") : root.t("Production Orders")
             color: root.foregroundColor
             font.family: "SF Pro Display"
             font.pixelSize: 15
@@ -48,7 +48,8 @@ Rectangle {
             anchors.left: ordersTitle.right
             anchors.leftMargin: 8
             anchors.verticalCenter: ordersTitle.verticalCenter
-            text: root.orderHistoryBusy ? "Updating…" : (root.pendingOrderCount + " cancelable")
+            text: root.orderHistoryBusy ? root.t("Updating…")
+                : root.t("%1 cancelable", [root.pendingOrderCount])
             color: root.secondaryColor
             font.family: "SF Pro Display"
             font.pixelSize: 10
@@ -65,7 +66,7 @@ Rectangle {
             Behavior on scale { AppleSpring { spring: 22 } }
             Text {
                 anchors.centerIn: parent
-                text: "Activity"
+                text: root.t("Activity")
                 color: root.foregroundColor
                 font.family: "SF Pro Display"
                 font.pixelSize: 10
@@ -135,7 +136,7 @@ Rectangle {
                             color: modelData.side === "buy" ? root.positiveColor : root.negativeColor
                             Text {
                                 anchors.centerIn: parent
-                                text: modelData.side === "buy" ? "Buy" : "Sell"
+                                text: modelData.side === "buy" ? root.t("Buy") : root.t("Sell")
                                 color: "#ffffff"
                                 font.family: "SF Pro Display"
                                 font.pixelSize: 10
@@ -167,7 +168,7 @@ Rectangle {
                         Text {
                             anchors.verticalCenter: parent.verticalCenter
                             width: 118
-                            text: root.orderStateLabel(modelData.state)
+                            text: root.t(root.orderStateLabel(modelData.state))
                             color: modelData.canCancel ? "#0a84ff" : root.secondaryColor
                             font.family: "SF Pro Display"
                             font.pixelSize: 10
@@ -185,7 +186,7 @@ Rectangle {
                             Behavior on scale { AppleSpring { spring: 18 } }
                             Text {
                                 anchors.centerIn: parent
-                                text: "Cancel"
+                                text: root.t("Cancel")
                                 color: modelData.canCancel ? root.negativeColor : root.secondaryColor
                                 font.family: "SF Pro Display"
                                 font.pixelSize: 10
@@ -207,8 +208,9 @@ Rectangle {
             Text {
                 visible: root.orderHistory.length === 0 || root.orderHistoryError !== ""
                 width: parent.width
-                text: root.orderHistoryError !== "" ? root.orderHistoryError
-                    : (root.orderHistoryBusy ? "Loading recent orders…" : "No recent orders for this symbol.")
+                text: root.orderHistoryError !== "" ? root.t(root.orderHistoryError)
+                    : (root.orderHistoryBusy ? root.t("Loading recent orders…")
+                        : root.t("No recent orders for this symbol."))
                 color: root.orderHistoryError !== "" ? root.negativeColor : root.secondaryColor
                 font.family: "SF Pro Display"
                 font.pixelSize: 11
@@ -228,7 +230,7 @@ Rectangle {
             anchors.margins: 18
             spacing: 6
             Text {
-                text: "Cancel Remaining Order"
+                text: root.t("Cancel Remaining Order")
                 color: root.foregroundColor
                 font.family: "SF Pro Display"
                 font.pixelSize: 16
@@ -236,16 +238,20 @@ Rectangle {
                 font.letterSpacing: -0.2
             }
             Text {
-                text: (root.cancelTarget.side === "sell" ? "Sell " : "Buy ")
-                    + Number(root.cancelTarget.cancelQuantity || 0) + " " + (root.cancelTarget.name || root.cancelTarget.symbol || "")
+                text: root.cancelTarget.side === "sell"
+                    ? root.t("Sell %1 %2", [Number(root.cancelTarget.cancelQuantity || 0),
+                        root.cancelTarget.name || root.cancelTarget.symbol || ""])
+                    : root.t("Buy %1 %2", [Number(root.cancelTarget.cancelQuantity || 0),
+                        root.cancelTarget.name || root.cancelTarget.symbol || ""])
                 color: root.secondaryColor
                 font.family: "SF Pro Display"
                 font.pixelSize: 12
             }
             Text {
-                text: root.orderHistoryError !== "" ? root.orderHistoryError
-                    : (root.kisEnvironment === "prod" ? "Type LIVE to cancel the unfilled quantity in your production account."
-                    : "Only the unfilled quantity will be canceled in your KIS mock account.")
+                text: root.orderHistoryError !== "" ? root.t(root.orderHistoryError)
+                    : (root.kisEnvironment === "prod"
+                        ? root.t("Type LIVE to cancel the unfilled quantity in your production account.")
+                        : root.t("Only the unfilled quantity will be canceled in your KIS mock account."))
                 color: root.orderHistoryError !== "" ? root.negativeColor : root.secondaryColor
                 font.family: "SF Pro Display"
                 font.pixelSize: 11
@@ -279,7 +285,7 @@ Rectangle {
             anchors.margins: 16
             spacing: 8
             SheetButton {
-                label: "Keep Order"
+                label: root.t("Keep Order")
                 filled: false
                 enabled: !root.cancelRunning
                 onTriggered: {
@@ -289,7 +295,7 @@ Rectangle {
                 }
             }
             SheetButton {
-                label: root.cancelRunning ? "Canceling…" : "Cancel Remaining"
+                label: root.cancelRunning ? root.t("Canceling…") : root.t("Cancel Remaining")
                 filled: true
                 destructive: true
                 enabled: !root.cancelRunning && (root.kisEnvironment !== "prod" || cancelLiveConfirmField.text.trim() === "LIVE")
@@ -328,4 +334,3 @@ Rectangle {
         }
     }
 }
-

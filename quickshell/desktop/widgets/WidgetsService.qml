@@ -320,14 +320,14 @@ Singleton {
         case "reminders": return { nw: 464, nh: 220, data: { layout: 2, title: "Reminders", accent: "blue", items: [] } }
         case "news":      return { nw: 708, nh: 464, data: { layout: 2, sources: NewsService.defaultSources(), categories: NewsService.defaultCategories(), model: NewsService.defaultModel } }
         case "calendar":  return { nw: 464, nh: 220, data: { layout: 2 } }
-        case "stock":     return { nw: 708, nh: 708, data: { symbol: "005930", market: "KRX", range: "1D", aiProvider: "none", analysisProfile: "balanced", dataMode: "demo", kisEnvironment: "paper", productionTradingEnabled: false, watchlist: [{ symbol: "005930", market: "KRX" }, { symbol: "000660", market: "KRX" }, { symbol: "035420", market: "KRX" }], priceAlerts: [] } }
+        case "stock":     return { nw: 708, nh: 708, data: { language: "ko", symbol: "005930", market: "KRX", range: "1D", aiProvider: "none", analysisProfile: "balanced", dataMode: "demo", kisEnvironment: "paper", productionTradingEnabled: false, watchlist: [{ symbol: "005930", market: "KRX" }, { symbol: "000660", market: "KRX" }, { symbol: "035420", market: "KRX" }], priceAlerts: [] } }
         case "youtube":   return { nw: 708, nh: 464, data: { layout: 3, url: "", mediaKind: "video", videoQuality: "best", audioFormat: "m4a", cookieBrowser: "auto" } }
-        case "spotify":   return { nw: 708, nh: 464, data: { layout: 3, url: "", audioFormat: "opus", bitrate: "auto" } }
+        case "spotify":   return { nw: 708, nh: 464, data: { layout: 3, url: "", audioFormat: "opus", bitrate: "auto", cookieBrowser: "auto" } }
         case "note":
         default:
             return { nw: 240, nh: 240, data: {
                 content: "", swatch: root.palette[root._countOfType("note") % root.palette.length],
-                fontSize: 15, fontFamily: "Pretendard Variable", collapsed: false } }
+                fontSize: 15, fontFamily: "Apple SD Gothic Neo", collapsed: false } }
         }
     }
 

@@ -21,6 +21,7 @@ Item {
         return ["mp3", "m4a", "flac", "opus", "wav"].indexOf(value) >= 0 ? value : "mp3"
     }
     property string bitrate: widgetData.bitrate || "auto"
+    property string cookieBrowser: widgetData.cookieBrowser || "auto"
     readonly property color foreground: ThemeService.label
     readonly property color secondary: ThemeService.secondaryLabel
     readonly property color tertiary: ThemeService.tertiaryLabel
@@ -54,7 +55,8 @@ Item {
             layout: layout,
             url: inputValue,
             audioFormat: audioFormat,
-            bitrate: bitrate
+            bitrate: bitrate,
+            cookieBrowser: cookieBrowser
         })
     }
 
@@ -73,6 +75,11 @@ Item {
         saveOptions()
     }
 
+    function setCookieBrowser(id) {
+        cookieBrowser = id
+        saveOptions()
+    }
+
     function inspect(value) {
         updateInput(value)
         service.inspect(inputValue)
@@ -80,7 +87,7 @@ Item {
 
     function download(value) {
         updateInput(value)
-        service.start(inputValue, audioFormat, bitrate)
+        service.start(inputValue, audioFormat, bitrate, cookieBrowser)
     }
 
     function kindLabel(kind) {
@@ -91,13 +98,8 @@ Item {
     function metadataLine() {
         if (!hasMetadata) return service.inspectError || "Fetch info to preview this Spotify link."
         let kind = service.metadata.kind || contentKind
-        if (service.metadata.isPlaylist && Number(service.metadata.entryCount) > 0) {
-            let line = kindLabel(kind) + " · " + Number(service.metadata.entryCount) + " tracks"
-            // Spotify's embed exposes only the first 100 tracks of a playlist.
-            if (service.metadata.truncated)
-                line += " (first 100)"
-            return line
-        }
+        if (service.metadata.isPlaylist && Number(service.metadata.entryCount) > 0)
+            return kindLabel(kind) + " · " + Number(service.metadata.entryCount) + " tracks"
         return kindLabel(kind)
     }
 

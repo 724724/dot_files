@@ -20,6 +20,7 @@ PanelWindow {
 
     property bool _surfaceVisible: false
     visible: _surfaceVisible
+    readonly property bool captureEnabled: win.show && win._surfaceVisible
 
     // ── Drag state (shared with WindowThumb / WorkspaceTile children) ─────────
     property bool dragActive: false
@@ -628,6 +629,7 @@ PanelWindow {
                         monitorData: win.monitorData
                         activeWsId: win.activeWorkspaceId
                         expanded: topBand.expanded
+                        captureEnabled: win.captureEnabled
                         layoutThumbW: topBand.workspaceThumbW(modelData)
                         overview: win
                     }
@@ -832,6 +834,7 @@ PanelWindow {
                             windowData: MCService.windowByAddress(modelData)
                             draggable: false
                             live: false
+                            captureEnabled: win.captureEnabled
                             overview: null
                             iconUrl: win.iconUrlForClass(windowData ? windowData.class : "")
                             monitorData: win.monitorData
@@ -868,6 +871,7 @@ PanelWindow {
                             windowData: MCService.windowByAddress(modelData)
                             draggable: true
                             live: true
+                            captureEnabled: win.captureEnabled
                             overview: win
                             iconUrl: win.iconUrlForClass(windowData ? windowData.class : "")
                             // Geometry inputs let the thumb start at the window's real
@@ -949,8 +953,8 @@ PanelWindow {
             clip: true
             ScreencopyView {
                 anchors.fill: parent
-                captureSource: dragProxy.dragToplevel
-                live: true
+                captureSource: win.captureEnabled && win.dragActive ? dragProxy.dragToplevel : null
+                live: win.captureEnabled && win.dragActive
                 paintCursor: false
             }
         }

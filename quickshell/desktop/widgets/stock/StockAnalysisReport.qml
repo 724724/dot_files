@@ -41,7 +41,7 @@ Item {
             anchors { left: parent.left; top: parent.top }
             anchors.leftMargin: 22
             anchors.topMargin: 18
-            text: "AI Scenario Report"
+            text: root.t("AI Scenario Report")
             color: root.foregroundColor
             font.family: "SF Pro Display"
             font.pixelSize: 20
@@ -55,9 +55,13 @@ Item {
             width: parent.width - 88
             text: {
                 let context = root.analysisResult.analysisContext || ({})
-                return (root.snapshot.name || root.symbol) + " · "
-                    + (root.analysisResult.horizon || "1–5 trading days")
-                    + (context.label ? " · " + context.label + " · " + Number(context.sampleCount || 0) + " sessions" : "")
+                let result = root.t("%1 · %2", [
+                    root.snapshot.name || root.symbol,
+                    root.analysisResult.horizon || root.t("1–5 trading days")
+                ])
+                if (context.label)
+                    result += root.t(" · %1 · %2 sessions", [root.t(context.label), Number(context.sampleCount || 0)])
+                return result
                     + (root.analysisTime(root.analysisResult.generatedAt) !== ""
                         ? " · " + root.analysisTime(root.analysisResult.generatedAt) : "")
             }
@@ -158,58 +162,65 @@ Item {
                     spacing: 10
                     ReportMetric {
                         width: (parent.width - 30) / 4
-                        title: "SCENARIO"
+                        title: root.t("SCENARIO")
                         value: root.stanceLabel(root.analysisResult.stance)
                         valueColor: root.analysisResult.stance === "bullish" ? root.positiveColor
                             : (root.analysisResult.stance === "bearish" ? root.negativeColor : "#0a84ff")
                     }
                     ReportMetric {
                         width: (parent.width - 30) / 4
-                        title: "CONFIDENCE"
+                        title: root.t("CONFIDENCE")
                         value: Number(root.analysisResult.rawConfidence || root.analysisResult.confidence)
                             !== Number(root.analysisResult.confidence)
-                            ? Number(root.analysisResult.confidence || 0) + "% · raw "
-                                + Number(root.analysisResult.rawConfidence || 0) + "%"
+                            ? root.t("%1% · raw %2%", [
+                                Number(root.analysisResult.confidence || 0),
+                                Number(root.analysisResult.rawConfidence || 0)
+                            ])
                             : Number(root.analysisResult.confidence || 0) + "%"
                     }
                     ReportMetric {
                         width: (parent.width - 30) / 4
-                        title: "UP / FLAT / DOWN"
+                        title: root.t("UP / FLAT / DOWN")
                         value: Number(root.analysisResult.upProbability || 0) + " / "
                             + Number(root.analysisResult.flatProbability || 0) + " / "
                             + Number(root.analysisResult.downProbability || 0)
                     }
                     ReportMetric {
                         width: (parent.width - 30) / 4
-                        title: "SOURCES"
-                        value: Number(root.analysisResult.newsCount || 0) + " news · "
-                            + Number((root.analysisResult.newsContext || {}).sourceCount || 0) + " src"
+                        title: root.t("SOURCES")
+                        value: root.t("%1 news · %2 sources", [
+                            Number(root.analysisResult.newsCount || 0),
+                            Number((root.analysisResult.newsContext || {}).sourceCount || 0)
+                        ])
                     }
                 }
 
                 ReportSection {
                     width: parent.width
-                    title: "Summary"
-                    body: root.analysisResult.summary || "No summary available."
+                    title: root.t("Summary")
+                    body: root.analysisResult.summary || root.t("No summary available.")
                     accent: "#0a84ff"
                 }
 
                 ReportSection {
                     visible: root.analysisResult.providerStatus !== undefined
                     width: parent.width
-                    title: "Provider Status"
+                    title: root.t("Provider Status")
                     body: {
                         let status = root.analysisResult.providerStatus || ({})
                         let effective = status.effective || []
                         let completed = []
                         for (let i = 0; i < effective.length; ++i)
-                            completed.push(StockService.providerLabel(effective[i]))
-                        let message = "Completed · " + (completed.length > 0 ? completed.join(" + ") : "Unknown")
+                            completed.push(root.t(StockService.providerLabel(effective[i])))
+                        let message = root.t("Completed · %1", [
+                            completed.length > 0 ? completed.join(" + ") : root.t("Unknown")
+                        ])
                         let failures = status.failures || []
                         for (let j = 0; j < failures.length; ++j) {
                             let failure = failures[j]
-                            message += "  |  " + StockService.providerLabel(failure.provider)
-                                + " unavailable · " + failure.message
+                            message += "  |  " + root.t("%1 unavailable · %2", [
+                                root.t(StockService.providerLabel(failure.provider)), root.t(failure.message)
+                            ])
                         }
                         return message
                     }
@@ -220,39 +231,46 @@ Item {
                 ReportSection {
                     visible: Number((root.analysisResult.analysisUsage || {}).calls || 0) > 0
                     width: parent.width
-                    title: "Token Usage"
+                    title: root.t("Token Usage")
                     body: {
                         let usage = root.analysisResult.analysisUsage || ({})
-                        return Number(usage.calls || 0) + " API call"
-                            + (Number(usage.calls || 0) === 1 ? "" : "s")
-                            + " · input " + root.formatTokenCount(usage.billableInputTokens)
-                            + " · output " + root.formatTokenCount(usage.outputTokens)
-                            + " · total " + root.formatTokenCount(usage.totalTokens)
-                            + (Number(usage.cachedInputTokens || 0) > 0
-                                ? " · cached " + root.formatTokenCount(usage.cachedInputTokens) : "")
-                            + (Number(usage.reasoningTokens || 0) > 0
-                                ? " · reasoning " + root.formatTokenCount(usage.reasoningTokens) : "")
+                        let message = root.t("%1 API calls · input %2 · output %3 · total %4", [
+                            Number(usage.calls || 0),
+                            root.formatTokenCount(usage.billableInputTokens),
+                            root.formatTokenCount(usage.outputTokens),
+                            root.formatTokenCount(usage.totalTokens)
+                        ])
+                        if (Number(usage.cachedInputTokens || 0) > 0)
+                            message += root.t(" · cached %1", [root.formatTokenCount(usage.cachedInputTokens)])
+                        if (Number(usage.reasoningTokens || 0) > 0)
+                            message += root.t(" · reasoning %1", [root.formatTokenCount(usage.reasoningTokens)])
+                        return message
                     }
                     accent: "#64d2ff"
                 }
 
                 ReportSection {
                     width: parent.width
-                    title: "Historical Confidence Calibration"
+                    title: root.t("Historical Confidence Calibration")
                     body: {
                         let calibration = root.analysisResult.calibrationAdjustment || ({})
                         if (calibration.status === "applied")
-                            return "Adjusted " + calibration.rawConfidence + "% → "
-                                + calibration.adjustedConfidence + "% using " + calibration.qualified
-                                + " qualified predictions · hit " + Number(calibration.qualifiedHitRate || 0).toFixed(1)
-                                + "% · Brier " + Number(calibration.qualifiedBrierScore || 0).toFixed(3)
+                            return root.t("Adjusted %1% → %2% using %3 qualified predictions · hit %4% · Brier %5", [
+                                calibration.rawConfidence,
+                                calibration.adjustedConfidence,
+                                calibration.qualified,
+                                Number(calibration.qualifiedHitRate || 0).toFixed(1),
+                                Number(calibration.qualifiedBrierScore || 0).toFixed(3)
+                            ])
                         if (calibration.status === "validated")
-                            return "No reduction required · " + calibration.qualified
-                                + " qualified predictions · hit "
-                                + Number(calibration.qualifiedHitRate || 0).toFixed(1) + "%"
-                        return "Not applied · " + Number(calibration.qualified || 0)
-                            + " of " + Number(calibration.minimumSamples || 5)
-                            + " required resolved qualified predictions"
+                            return root.t("No reduction required · %1 qualified predictions · hit %2%", [
+                                calibration.qualified,
+                                Number(calibration.qualifiedHitRate || 0).toFixed(1)
+                            ])
+                        return root.t("Not applied · %1 of %2 required resolved qualified predictions", [
+                            Number(calibration.qualified || 0),
+                            Number(calibration.minimumSamples || 5)
+                        ])
                     }
                     accent: (root.analysisResult.calibrationAdjustment || {}).status === "applied"
                         ? "#ff9f0a" : ((root.analysisResult.calibrationAdjustment || {}).status === "validated"
@@ -261,19 +279,22 @@ Item {
 
                 ReportSection {
                     width: parent.width
-                    title: "Ensemble Agreement"
+                    title: root.t("Ensemble Agreement")
                     body: {
                         let agreement = root.analysisResult.ensembleAgreement || ({})
                         if (agreement.status === "single_model")
-                            return "Single provider · cross-model agreement is unavailable"
-                        let label = agreement.status === "high" ? "High"
-                            : (agreement.status === "mixed" ? "Mixed" : "Low")
-                        return label + " agreement · score " + Number(agreement.agreementScore || 0)
-                            + "/100 · probability disagreement "
-                            + Number(agreement.probabilityDisagreement || 0).toFixed(1) + "pp · confidence "
-                            + Number(agreement.originalConfidence || 0) + "% → "
-                            + Number(agreement.adjustedConfidence || 0) + "%"
-                            + (agreement.directConflict ? " · bullish/bearish conflict" : "")
+                            return root.t("Single provider · cross-model agreement is unavailable")
+                        let label = agreement.status === "high" ? root.t("High")
+                            : (agreement.status === "mixed" ? root.t("Mixed") : root.t("Low"))
+                        let message = root.t("%1 agreement · score %2/100 · probability disagreement %3pp · confidence %4% → %5%", [
+                            label,
+                            Number(agreement.agreementScore || 0),
+                            Number(agreement.probabilityDisagreement || 0).toFixed(1),
+                            Number(agreement.originalConfidence || 0),
+                            Number(agreement.adjustedConfidence || 0)
+                        ])
+                        if (agreement.directConflict) message += root.t(" · bullish/bearish conflict")
+                        return message
                     }
                     accent: (root.analysisResult.ensembleAgreement || {}).status === "high"
                         ? root.positiveColor : ((root.analysisResult.ensembleAgreement || {}).status === "low"
@@ -283,23 +304,27 @@ Item {
 
                 ReportSection {
                     width: parent.width
-                    title: "Historical Model Weighting"
+                    title: root.t("Historical Model Weighting")
                     body: {
                         let weighting = root.analysisResult.modelWeighting || ({})
                         let models = weighting.models || []
                         if (models.length === 0)
-                            return "No model performance history is available."
+                            return root.t("No model performance history is available.")
                         let parts = []
                         for (let i = 0; i < models.length; ++i) {
                             let model = models[i]
-                            parts.push(model.model + " " + Number(model.share || 0).toFixed(1)
-                                + "% · n" + Number(model.qualified || 0)
-                                + (model.qualified > 0 ? " · hit "
-                                    + Number(model.qualifiedHitRate || 0).toFixed(1) + "%" : ""))
+                            let part = root.t("%1 %2% · n%3", [
+                                model.model,
+                                Number(model.share || 0).toFixed(1),
+                                Number(model.qualified || 0)
+                            ])
+                            if (model.qualified > 0)
+                                part += root.t(" · hit %1%", [Number(model.qualifiedHitRate || 0).toFixed(1)])
+                            parts.push(part)
                         }
-                        let prefix = weighting.status === "applied" ? "Applied"
-                            : (weighting.status === "equal" ? "Equal weights"
-                            : (weighting.status === "single_model" ? "Single model" : "Not applied"))
+                        let prefix = weighting.status === "applied" ? root.t("Applied")
+                            : (weighting.status === "equal" ? root.t("Equal weights")
+                            : (weighting.status === "single_model" ? root.t("Single model") : root.t("Not applied")))
                         return prefix + " · " + parts.join("  |  ")
                     }
                     accent: (root.analysisResult.modelWeighting || {}).status === "applied"
@@ -312,30 +337,33 @@ Item {
                     spacing: 12
                     ReportSection {
                         width: (parent.width - 12) / 2
-                        title: "Chart Signal"
-                        body: root.analysisResult.chartSignal || "No chart signal available."
+                        title: root.t("Chart Signal")
+                        body: root.analysisResult.chartSignal || root.t("No chart signal available.")
                         accent: root.movementColor
                     }
                     ReportSection {
                         width: (parent.width - 12) / 2
-                        title: "News Signal"
-                        body: root.analysisResult.newsSignal || "No news signal available."
+                        title: root.t("News Signal")
+                        body: root.analysisResult.newsSignal || root.t("No news signal available.")
                         accent: "#bf5af2"
                     }
                 }
 
                 ReportSection {
                     width: parent.width
-                    title: "News Evidence Quality"
+                    title: root.t("News Evidence Quality")
                     body: {
                         let context = root.analysisResult.newsContext || ({})
-                        let status = context.status === "usable" ? "Usable"
-                            : (context.status === "limited" ? "Limited" : "Insufficient")
-                        return status + " · quality " + Number(context.qualityScore || 0) + "/100 · "
-                            + Number(context.headlineCount || 0) + " unique headlines · "
-                            + Number(context.sourceCount || 0) + " sources · "
-                            + Number(context.recent24h || 0) + " within 24h · median age "
-                            + Number(context.medianAgeHours || 0).toFixed(1) + "h"
+                        let status = context.status === "usable" ? root.t("Usable")
+                            : (context.status === "limited" ? root.t("Limited") : root.t("Insufficient"))
+                        return root.t("%1 · quality %2/100 · %3 unique headlines · %4 sources · %5 within 24h · median age %6h", [
+                            status,
+                            Number(context.qualityScore || 0),
+                            Number(context.headlineCount || 0),
+                            Number(context.sourceCount || 0),
+                            Number(context.recent24h || 0),
+                            Number(context.medianAgeHours || 0).toFixed(1)
+                        ])
                     }
                     accent: (root.analysisResult.newsContext || {}).status === "usable"
                         ? root.positiveColor : ((root.analysisResult.newsContext || {}).status === "limited"
@@ -343,7 +371,7 @@ Item {
                 }
 
                 Text {
-                    text: "Chart Metrics"
+                    text: root.t("Chart Metrics")
                     color: root.foregroundColor
                     font.family: "SF Pro Display"
                     font.pixelSize: 13
@@ -354,22 +382,22 @@ Item {
                     spacing: 10
                     ReportMetric {
                         width: (parent.width - 30) / 4
-                        title: "20D RETURN"
+                        title: root.t("20D RETURN")
                         value: StockService.signed((root.analysisResult.features || {}).periodReturnPct, 2) + "%"
                     }
                     ReportMetric {
                         width: (parent.width - 30) / 4
-                        title: "MA SPREAD"
+                        title: root.t("MA SPREAD")
                         value: StockService.signed((root.analysisResult.features || {}).maSpreadPct, 2) + "%"
                     }
                     ReportMetric {
                         width: (parent.width - 30) / 4
-                        title: "20D ANN VOL"
+                        title: root.t("20D ANN VOL")
                         value: Number((root.analysisResult.features || {}).sampleVolatilityPct || 0).toFixed(2) + "%"
                     }
                     ReportMetric {
                         width: (parent.width - 30) / 4
-                        title: "RSI 14"
+                        title: root.t("RSI 14")
                         value: Number((root.analysisResult.features || {}).rsi14 || 0).toFixed(1)
                     }
                 }
@@ -379,29 +407,29 @@ Item {
                     spacing: 10
                     ReportMetric {
                         width: (parent.width - 30) / 4
-                        title: "60D RETURN"
+                        title: root.t("60D RETURN")
                         value: StockService.signed((root.analysisResult.features || {}).return60dPct, 2) + "%"
                     }
                     ReportMetric {
                         width: (parent.width - 30) / 4
-                        title: "PRICE / MA60"
+                        title: root.t("PRICE / MA60")
                         value: StockService.signed((root.analysisResult.features || {}).priceVsMa60Pct, 2) + "%"
                     }
                     ReportMetric {
                         width: (parent.width - 30) / 4
-                        title: "60D DRAWDOWN"
+                        title: root.t("60D DRAWDOWN")
                         value: Number((root.analysisResult.features || {}).maxDrawdown60dPct || 0).toFixed(2) + "%"
                         valueColor: root.negativeColor
                     }
                     ReportMetric {
                         width: (parent.width - 30) / 4
-                        title: "TREND REGIME"
+                        title: root.t("TREND REGIME")
                         value: root.stanceLabel((root.analysisResult.features || {}).trendRegime)
                     }
                 }
 
                 Text {
-                    text: "Walk-forward Evidence"
+                    text: root.t("Walk-forward Evidence")
                     color: root.foregroundColor
                     font.family: "SF Pro Display"
                     font.pixelSize: 13
@@ -412,22 +440,22 @@ Item {
                     spacing: 10
                     ReportMetric {
                         width: (parent.width - 30) / 4
-                        title: "HIT RATE"
+                        title: root.t("HIT RATE")
                         value: Number((root.analysisResult.evidence || {}).hitRate || 0) + "%"
                     }
                     ReportMetric {
                         width: (parent.width - 30) / 4
-                        title: "SAMPLES"
+                        title: root.t("SAMPLES")
                         value: Number((root.analysisResult.evidence || {}).sampleCount || 0).toString()
                     }
                     ReportMetric {
                         width: (parent.width - 30) / 4
-                        title: "TEST RETURN"
+                        title: root.t("TEST RETURN")
                         value: StockService.signed((root.analysisResult.evidence || {}).strategyReturnPct, 2) + "%"
                     }
                     ReportMetric {
                         width: (parent.width - 30) / 4
-                        title: "MAX DRAWDOWN"
+                        title: root.t("MAX DRAWDOWN")
                         value: "-" + Math.abs(Number((root.analysisResult.evidence || {}).maxDrawdownPct || 0)).toFixed(2) + "%"
                         valueColor: root.negativeColor
                     }
@@ -438,17 +466,17 @@ Item {
                     spacing: 12
                     ReportList {
                         width: (parent.width - 12) / 2
-                        title: "Catalysts"
+                        title: root.t("Catalysts")
                         entries: root.analysisResult.catalysts || []
                         accent: root.positiveColor
-                        emptyText: "No catalysts identified."
+                        emptyText: root.t("No catalysts identified.")
                     }
                     ReportList {
                         width: (parent.width - 12) / 2
-                        title: "Risks"
+                        title: root.t("Risks")
                         entries: root.analysisResult.risks || []
                         accent: root.negativeColor
-                        emptyText: "No risks identified."
+                        emptyText: root.t("No risks identified.")
                     }
                 }
 
@@ -456,7 +484,7 @@ Item {
                     width: parent.width
                     spacing: 6
                     Text {
-                        text: "Recent News Evidence"
+                        text: root.t("Recent News Evidence")
                         color: root.foregroundColor
                         font.family: "SF Pro Display"
                         font.pixelSize: 13
@@ -488,7 +516,7 @@ Item {
                                     spacing: 1
                                     Text {
                                         width: parent.width
-                                        text: modelData.title || "Untitled"
+                                        text: modelData.title || root.t("Untitled")
                                         color: root.foregroundColor
                                         font.family: "SF Pro Display"
                                         font.pixelSize: 10
@@ -497,7 +525,7 @@ Item {
                                     }
                                     Text {
                                         width: parent.width
-                                        text: (modelData.source || "Unknown source")
+                                        text: (modelData.source || root.t("Unknown source"))
                                             + (root.analysisTime(modelData.publishedAt) !== "" ? " · " + root.analysisTime(modelData.publishedAt) : "")
                                         color: root.secondaryColor
                                         font.family: "SF Pro Display"
@@ -510,7 +538,7 @@ Item {
                     }
                     Text {
                         visible: (root.analysisResult.news || []).length === 0
-                        text: "No recent headlines were available."
+                        text: root.t("No recent headlines were available.")
                         color: root.secondaryColor
                         font.family: "SF Pro Display"
                         font.pixelSize: 10
@@ -519,8 +547,10 @@ Item {
 
                 Text {
                     width: parent.width
-                    text: (root.analysisMessage || "AI scenario only; not investment advice or an order signal.")
-                        + "  Models: " + ((root.analysisResult.models || []).join(" · ") || "Unknown")
+                    text: root.t("%1  Models: %2", [
+                        root.analysisMessage ? root.t(root.analysisMessage) : root.t("AI scenario only; not investment advice or an order signal."),
+                        (root.analysisResult.models || []).join(" · ") || root.t("Unknown")
+                    ])
                     color: root.secondaryColor
                     font.family: "SF Pro Display"
                     font.pixelSize: 9

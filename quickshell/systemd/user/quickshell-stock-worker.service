@@ -1,0 +1,18 @@
+[Unit]
+Description=Quickshell Stock Forecast and Alert Worker
+After=graphical-session.target
+ConditionPathExists=%h/.config/quickshell/scripts/stock-service.py
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 %h/.config/quickshell/scripts/stock-service.py background run
+TimeoutStartSec=50
+Nice=10
+CPUWeight=20
+IOWeight=20
+IOSchedulingClass=idle
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+RestrictSUIDSGID=true
+

@@ -44,14 +44,14 @@ Item {
         TabChoice {
             anchors { left: parent.left; top: parent.top; bottom: parent.bottom }
             width: parent.width / 2
-            label: "Trade"
+            label: root.t("Trade")
             selected: root.selectedTab === "trade"
             onTriggered: root.selectedTab = "trade"
         }
         TabChoice {
             anchors { right: parent.right; top: parent.top; bottom: parent.bottom }
             width: parent.width / 2
-            label: "AI Insight"
+            label: root.t("AI Insight")
             selected: root.selectedTab === "ai"
             onTriggered: root.selectedTab = "ai"
         }
@@ -68,15 +68,16 @@ Item {
             width: parent.width - portfolioButton.width - ordersButton.width
                 - (portfolioButton.visible ? parent.spacing * 2 : 0)
             text: root.selectedTab === "trade" ? (root.dataMode === "kis"
-                ? (root.kisEnvironment === "prod" && !root.productionTradingEnabled ? "KIS Production · Orders locked"
+                ? (root.kisEnvironment === "prod" && !root.productionTradingEnabled ? root.t("KIS Production · Orders locked")
                 : (root.accountState.status === "ok"
-                    ? (root.orderSide === "buy" ? "Buyable " + root.accountState.buyingQuantity + " · "
-                        + StockService.money(root.accountState.buyingPower, "KRW")
-                        : "Sellable " + root.accountState.sellableQuantity + " shares")
+                    ? (root.orderSide === "buy" ? root.t("Buyable %1 · %2", [root.accountState.buyingQuantity,
+                        StockService.money(root.accountState.buyingPower, "KRW")])
+                        : root.t("Sellable %1 shares", [root.accountState.sellableQuantity]))
                     : root.orderStatusText()))
-                : "Buying power  " + StockService.money(root.snapshot.buyingPower, root.snapshot.currency))
-                : StockService.providerLabel(root.aiProvider) + " · " + StockService.profileLabel(root.analysisProfile)
-                  + (root.analysisResult.cached ? " · Cached" : "")
+                : root.t("Buying power %1", [StockService.money(root.snapshot.buyingPower, root.snapshot.currency)]))
+                : root.t(StockService.providerLabel(root.aiProvider)) + " · "
+                  + root.t(StockService.profileLabel(root.analysisProfile))
+                  + (root.analysisResult.cached ? " · " + root.t("Cached") : "")
             color: root.secondaryColor
             font.family: "SF Pro Display"
             font.pixelSize: 11
@@ -95,7 +96,7 @@ Item {
             Behavior on scale { AppleSpring { spring: 18 } }
             Text {
                 anchors.centerIn: parent
-                text: "Portfolio"
+                text: root.t("Portfolio")
                 color: root.foregroundColor
                 font.family: "SF Pro Display"
                 font.pixelSize: 10
@@ -122,7 +123,8 @@ Item {
             Behavior on scale { AppleSpring { spring: 18 } }
             Text {
                 anchors.centerIn: parent
-                text: root.pendingOrderCount > 0 ? "Orders · " + root.pendingOrderCount : "Orders"
+                text: root.pendingOrderCount > 0
+                    ? root.t("Orders · %1", [root.pendingOrderCount]) : root.t("Orders")
                 color: root.foregroundColor
                 font.family: "SF Pro Display"
                 font.pixelSize: 10

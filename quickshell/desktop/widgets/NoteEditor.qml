@@ -4,6 +4,7 @@ import QtQuick.Controls
 // Editor for a sticky note (right-click → Edit): colour, font family and base
 // text size. The font list is the set of fonts actually installed on the
 // system (Qt.fontFamilies()), with a filter box. Per-run sizes set with
+// Ctrl+= / Ctrl+- in the note body are clamped to the same min/maxFont.
 Item {
     id: ed
     property int index: -1
@@ -12,7 +13,7 @@ Item {
     implicitHeight: col.implicitHeight
 
     property string swatch: WidgetsService.palette[0]
-    property string fontFamily: "SF Pro Display"
+    property string fontFamily: "Apple SD Gothic Neo"
     property int fontSize: 15
     property string query: ""
 
@@ -31,7 +32,7 @@ Item {
         if (index < 0) return
         let d = WidgetsService.getData(index)
         swatch = d.swatch || WidgetsService.palette[0]
-        fontFamily = d.fontFamily || "SF Pro Display"
+        fontFamily = d.fontFamily || "Apple SD Gothic Neo"
         fontSize = (d.fontSize !== undefined) ? d.fontSize : 15
     }
     function setSwatch(c) { WidgetsService.setData(index, { swatch: c }); ed.swatch = c }

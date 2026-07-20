@@ -1,15 +1,13 @@
 #!/usr/bin/env python3
-"""Spotify → YouTube downloader backend (no spotdl, no auth).
+"""Spotify → YouTube downloader backend (no spotdl, no user login).
 
-  1. Resolve the Spotify track/album/playlist to its track list from Spotify's
-     public embed page (no login). NOTE: the embed exposes only the FIRST 100
-     tracks — the authenticated Web API that would page further is geo-blocked
-     from some regions (e.g. Korea → 403), so 100 is the practical cap here.
-  2. Find each track on YouTube with `yt-dlp "ytsearch1:artist - title"` and
-     download the best audio.
+  1. Resolve Spotify metadata with the anonymous token exposed by Spotify's
+     public embed player. Playlist pages are fetched until their final offset.
+  2. Search YouTube Music's Songs catalogue for each track, load cookies from
+     the selected browser, and download the best audio-only format.
   3. Tag the file (title / artist / album / cover art) with ffmpeg from the
-     Spotify metadata. Existing files are skipped, so a big list can be run in
-     chunks / re-run to fill gaps.
+     Spotify metadata. Existing files are re-tagged and skipped, so re-running
+     fills playlist gaps without downloading audio twice.
 
 Newline-delimited JSON event protocol; CLI: status / info / download / set-output.
 """
@@ -31,7 +29,25 @@ import urllib.request
 from pathlib import Path
 
 AUDIO_FORMATS = {"mp3", "m4a", "flac", "opus", "wav"}
+BROWSER_CONFIGS = {
+    "chrome": ([".config/google-chrome"], ["google-chrome-stable", "google-chrome"]),
+    "chromium": ([".config/chromium"], ["chromium"]),
+    "firefox": ([".mozilla/firefox"], ["firefox"]),
+    "brave": ([".config/BraveSoftware/Brave-Browser"], ["brave", "brave-browser"]),
+    "edge": ([".config/microsoft-edge"], ["microsoft-edge-stable", "microsoft-edge"]),
+}
 _UA = "Mozilla/5.0"
+_YTMUSIC_SONGS_FILTER = "EgWKAQIIAWoKEAoQAxAEEAkQBQ=="
+_SOURCE_VERSION = "ytmusic-songs-v1"
+_PATHFINDER_URL = "https://api-partner.spotify.com/pathfinder/v1/query"
+_PLAYLIST_QUERY = (
+    "queryPlaylist",
+    "908a5597b4d0af0489a9ad6a2d41bc3b416ff47c0884016d92bbd6822d0eb6d8",
+)
+_TRACK_QUERY = (
+    "queryTrack",
+    "cc31bfe16d74df1e9f6f880a908bb3880674deca34c8b67576ecbf8246e967ba",
+)
 
 
 # ── output helpers ──────────────────────────────────────────────────────────
@@ -67,6 +83,67 @@ def ffmpeg_bin():
     return _user_bin("ffmpeg")
 
 
+def available_browsers(home=None):
+    home = Path(home or Path.home())
+    result = []
+    for browser, (directories, executables) in BROWSER_CONFIGS.items():
+        configured = any((home / directory).exists() for directory in directories)
+        installed = any(shutil.which(executable) for executable in executables)
+        if configured or installed:
+            result.append(browser)
+    return result
+
+
+def browser_from_desktop_entry(value):
+    value = str(value or "").strip().lower()
+    mappings = (
+        ("microsoft-edge", "edge"),
+        ("google-chrome", "chrome"),
+        ("com.google.chrome", "chrome"),
+        ("brave", "brave"),
+        ("chromium", "chromium"),
+        ("firefox", "firefox"),
+    )
+    return next((browser for marker, browser in mappings if marker in value), "")
+
+
+def default_browser(browsers=None):
+    browsers = browsers if browsers is not None else available_browsers()
+    executable = shutil.which("xdg-settings")
+    if executable:
+        try:
+            result = subprocess.run(
+                [executable, "get", "default-web-browser"],
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            browser = browser_from_desktop_entry(result.stdout)
+            if browser in browsers:
+                return browser
+        except (OSError, subprocess.SubprocessError):
+            pass
+    return browsers[0] if browsers else ""
+
+
+def resolved_browser(browser, browsers=None):
+    browsers = browsers if browsers is not None else available_browsers()
+    if browser == "none":
+        return ""
+    if browser == "auto":
+        preferred = os.environ.get("QS_YTDLP_BROWSER", "").strip().lower()
+        return preferred if preferred in browsers else default_browser(browsers)
+    if browser not in BROWSER_CONFIGS:
+        raise ValueError("Unsupported browser cookie source.")
+    return browser
+
+
+def cookie_args(browser, browsers=None):
+    browser = resolved_browser(browser, browsers)
+    return ["--cookies-from-browser", browser] if browser else []
+
+
 def settings_path():
     base = Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local/state"))
     return base / "quickshell/spotify-downloader.json"
@@ -100,6 +177,19 @@ def _http_get(url, timeout=15):
         return response.read().decode("utf-8", "replace")
 
 
+def _http_json(url, payload=None, token="", timeout=20):
+    headers = {"Accept": "application/json", "User-Agent": _UA}
+    body = None
+    if payload is not None:
+        headers["Content-Type"] = "application/json"
+        body = json.dumps(payload, separators=(",", ":")).encode()
+    if token:
+        headers["Authorization"] = "Bearer " + token
+    request = urllib.request.Request(url, data=body, headers=headers)
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        return json.loads(response.read().decode("utf-8", "replace"))
+
+
 def _kind_from_url(url):
     lowered = url.lower()
     for kind in ("playlist", "album", "artist", "track"):
@@ -121,14 +211,34 @@ def _clean(text):
     return (text or "").replace("\xa0", " ").strip()
 
 
+def _image_sources(node):
+    if isinstance(node, list):
+        for value in node:
+            yield from _image_sources(value)
+    elif isinstance(node, dict):
+        if node.get("url"):
+            yield node
+        for key in ("sources", "image", "items"):
+            if key in node:
+                yield from _image_sources(node[key])
+
+
+def _best_image(node):
+    sources = list(_image_sources(node))
+    if not sources:
+        return ""
+    best = max(sources, key=lambda source: (
+        source.get("width") or source.get("maxWidth")
+        or source.get("height") or source.get("maxHeight") or 0
+    ))
+    return str(best.get("url") or "")
+
+
 def _cover_from_entity(entity):
-    for key in ("coverArt", "visualIdentity"):
-        node = entity.get(key) or {}
-        sources = node.get("sources") or node.get("image") or []
-        if sources:
-            best = max(sources, key=lambda s: (s.get("width") or 0))
-            if best.get("url"):
-                return best["url"]
+    for key in ("coverArt", "visualIdentity", "images"):
+        cover = _best_image(entity.get(key))
+        if cover:
+            return cover
     return ""
 
 
@@ -141,9 +251,7 @@ def _oembed_cover(spotify_url):
         return ""
 
 
-def _embed_entity(kind, sid):
-    # The embed page occasionally serves a variant without the expected shape;
-    # a couple of retries makes the preview reliable.
+def _embed_state(kind, sid):
     last = None
     for _ in range(3):
         try:
@@ -152,30 +260,157 @@ def _embed_entity(kind, sid):
             if not match:
                 raise ValueError("embed payload not found")
             data = json.loads(match.group(1))
-            entity = (((data.get("props") or {}).get("pageProps") or {})
-                      .get("state") or {}).get("data", {}).get("entity")
-            if entity:
-                return entity
-            last = ValueError("embed entity missing")
+            state = (((data.get("props") or {}).get("pageProps") or {}).get("state") or {})
+            if (state.get("data") or {}).get("entity"):
+                return state
+            last = ValueError("embed state missing")
         except Exception as error:
             last = error
         time.sleep(0.6)
-    raise last or ValueError("embed entity unavailable")
+    raise last or ValueError("embed state unavailable")
+
+
+def _embed_entity(kind, sid):
+    return (_embed_state(kind, sid).get("data") or {}).get("entity") or {}
+
+
+def _pathfinder(token, operation, query_hash, variables):
+    response = _http_json(_PATHFINDER_URL, {
+        "operationName": operation,
+        "variables": variables,
+        "extensions": {"persistedQuery": {"version": 1, "sha256Hash": query_hash}},
+    }, token=token)
+    errors = response.get("errors") or []
+    if errors:
+        messages = "; ".join(str(error.get("message") or error) for error in errors)
+        raise ValueError(messages or "Spotify metadata request failed")
+    return response.get("data") or {}
+
+
+def _artist_names(node):
+    if isinstance(node, dict):
+        node = node.get("items") or node.get("contributors", {}).get("items") or []
+    names = []
+    for artist in node or []:
+        profile = artist.get("profile") or {}
+        name = _clean(artist.get("name") or profile.get("name"))
+        if name:
+            names.append(name)
+    return names
+
+
+def _pathfinder_track(item):
+    item = item or {}
+    v2 = (item.get("itemV2") or {}).get("data") or {}
+    v3 = (item.get("itemV3") or {}).get("data") or {}
+    data = v2 or v3 or item
+    identity = v3.get("identityTrait") or data.get("identityTrait") or {}
+    title = _clean(data.get("name") or identity.get("name"))
+    artists = _artist_names(data.get("artists") or [])
+    if not artists:
+        artists = _artist_names(identity.get("contributors") or {})
+    album = data.get("albumOfTrack") or data.get("album") or {}
+    uri = str(data.get("uri") or identity.get("uri") or "")
+    if not title:
+        return None
+    kind = "episode" if ":episode:" in uri else "track"
+    sid = uri.rsplit(":", 1)[-1] if ":" in uri else ""
+    return {
+        "title": title,
+        "artists": _clean(", ".join(artists)),
+        "album": _clean(album.get("name")),
+        "cover": _best_image(album.get("coverArt") or data.get("coverArt")),
+        "spotify_url": _open_url(kind, sid) if sid else "",
+    }
+
+
+def _playlist_tracks(sid, token):
+    operation, query_hash = _PLAYLIST_QUERY
+    offset = 0
+    total = None
+    tracks = []
+    playlist = {}
+    seen_offsets = set()
+
+    while total is None or offset < total:
+        if offset in seen_offsets:
+            raise ValueError("Spotify playlist pagination stopped advancing")
+        seen_offsets.add(offset)
+        data = _pathfinder(token, operation, query_hash, {
+            "uri": "spotify:playlist:" + sid,
+            "offset": offset,
+            "limit": 100,
+        })
+        playlist = data.get("playlistV2") or {}
+        if playlist.get("__typename") in ("NotFound", "GenericError"):
+            raise ValueError(playlist.get("message") or "Spotify playlist unavailable")
+        content = playlist.get("content") or {}
+        items = content.get("items") or []
+        total = int(content.get("totalCount") or 0)
+        for item in items:
+            track = _pathfinder_track(item)
+            if track:
+                tracks.append(track)
+
+        paging = content.get("pagingInfo") or {}
+        next_offset = paging.get("nextOffset")
+        if next_offset is None and offset + len(items) < total:
+            next_offset = offset + len(items)
+        if next_offset is None:
+            break
+        next_offset = int(next_offset)
+        if not items or next_offset <= offset:
+            raise ValueError("Spotify playlist pagination returned an incomplete page")
+        offset = next_offset
+
+    return {
+        "kind": "playlist",
+        "title": _clean(playlist.get("name")),
+        "cover": _best_image(playlist.get("images")),
+        "count": len(tracks),
+        "truncated": False,
+    }, tracks
+
+
+def _single_track(sid, token):
+    operation, query_hash = _TRACK_QUERY
+    data = _pathfinder(token, operation, query_hash, {"uri": "spotify:track:" + sid})
+    entity = data.get("trackUnion") or {}
+    track = _pathfinder_track(entity)
+    if not track:
+        raise ValueError(entity.get("message") or "Spotify track unavailable")
+    return track
 
 
 def resolve_tracks(url):
-    """→ (meta, tracks) from the public embed page. meta['truncated'] is set when
-    the embed's 100-track cap was hit. Each track: {title, artists, album, cover,
-    spotify_url}; cover may be '' (fetched lazily per track at download time)."""
+    """→ (meta, tracks), with every playlist page and canonical album metadata."""
     kind = _kind_from_url(url)
     sid = _spotify_id(url)
-    entity = _embed_entity(kind, sid)
+    if not sid:
+        raise ValueError("invalid Spotify URL")
+    state = _embed_state(kind, sid)
+    entity = (state.get("data") or {}).get("entity") or {}
+    session = ((state.get("settings") or {}).get("session") or {})
+    token = str(session.get("accessToken") or "")
     title = _clean(entity.get("title"))
     cover = _cover_from_entity(entity)
 
+    if kind == "playlist":
+        if not token:
+            raise ValueError("Spotify anonymous session token unavailable")
+        meta, tracks = _playlist_tracks(sid, token)
+        meta["title"] = meta["title"] or title
+        meta["cover"] = meta["cover"] or cover
+        return meta, tracks
+
     if kind == "track":
-        # A single-track embed carries the artists in an `artists` list; only the
-        # album/playlist trackList items put the artist in `subtitle`.
+        if token:
+            try:
+                track = _single_track(sid, token)
+                return ({"kind": kind, "title": track["title"], "cover": track["cover"],
+                         "count": 1, "truncated": False}, [track])
+            except Exception:
+                pass
         names = [a.get("name", "") for a in (entity.get("artists") or []) if a.get("name")]
         artists = _clean(", ".join(names)) or _clean(entity.get("subtitle"))
         track = {"title": title, "artists": artists,
@@ -183,7 +418,7 @@ def resolve_tracks(url):
         return {"kind": kind, "title": title, "cover": cover, "count": 1, "truncated": False}, [track]
 
     album_name = title if kind == "album" else ""
-    shared_cover = cover if kind == "album" else ""   # playlists → per-track cover
+    shared_cover = cover if kind == "album" else ""
     tracks = []
     for item in entity.get("trackList", []):
         tid = (item.get("uri") or "").split(":")[-1]
@@ -195,7 +430,7 @@ def resolve_tracks(url):
             "spotify_url": _open_url("track", tid) if tid else "",
         })
     return ({"kind": kind, "title": title, "cover": cover,
-             "count": len(tracks), "truncated": len(tracks) >= 100}, tracks)
+             "count": len(tracks), "truncated": False}, tracks)
 
 
 # ── tagging (ffmpeg) ─────────────────────────────────────────────────────────
@@ -206,6 +441,23 @@ def _safe_name(text):
     return (text[:180] or "track")
 
 
+def _ytmusic_song_search(track):
+    query = " ".join(filter(None, (
+        _clean(track.get("artists")),
+        _clean(track.get("title")),
+        _clean(track.get("album")),
+    )))
+    return "https://music.youtube.com/search?" + urllib.parse.urlencode({
+        "q": query,
+        "sp": _YTMUSIC_SONGS_FILTER,
+    })
+
+
+def _track_output_path(track, fmt, out_dir):
+    label = "{} - {}".format(track.get("artists", ""), track.get("title", "")).strip(" -")
+    return Path(out_dir) / "{}.{}".format(_safe_name(label), fmt)
+
+
 def _opus_picture_tag(image_bytes, mime=b"image/jpeg"):
     """Base64 FLAC picture block for an Opus/Ogg METADATA_BLOCK_PICTURE tag."""
     block = struct.pack(">i", 3)                       # type 3 = front cover
@@ -214,6 +466,47 @@ def _opus_picture_tag(image_bytes, mime=b"image/jpeg"):
     block += struct.pack(">iiii", 0, 0, 0, 0)          # w, h, depth, colours
     block += struct.pack(">i", len(image_bytes)) + image_bytes
     return base64.b64encode(block).decode()
+
+
+def _artwork_mime(image_bytes):
+    if image_bytes.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if image_bytes.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if len(image_bytes) >= 12 and image_bytes[:4] == b"RIFF" and image_bytes[8:12] == b"WEBP":
+        return "image/webp"
+    raise ValueError("unsupported album artwork")
+
+
+def _tag_wav(path, cover_path, track):
+    from mutagen.id3 import APIC, TALB, TIT2, TPE1, TPE2
+    from mutagen.wave import WAVE
+
+    audio = WAVE(path)
+    if audio.tags is None:
+        audio.add_tags()
+    frames = (
+        ("TIT2", TIT2, track.get("title")),
+        ("TPE1", TPE1, track.get("artists")),
+        ("TALB", TALB, track.get("album")),
+        ("TPE2", TPE2, track.get("artists") if track.get("album") else ""),
+    )
+    for frame_id, frame_type, value in frames:
+        if not value:
+            continue
+        audio.tags.delall(frame_id)
+        audio.tags.add(frame_type(encoding=3, text=[str(value)]))
+    if cover_path and os.path.exists(cover_path):
+        image_bytes = Path(cover_path).read_bytes()
+        audio.tags.delall("APIC")
+        audio.tags.add(APIC(
+            encoding=3,
+            mime=_artwork_mime(image_bytes),
+            type=3,
+            desc="Cover",
+            data=image_bytes,
+        ))
+    audio.save(v2_version=3)
 
 
 def _tag_file(ffmpeg, source, cover_path, track, fmt, dest):
@@ -228,7 +521,8 @@ def _tag_file(ffmpeg, source, cover_path, track, fmt, dest):
 
     if fmt == "opus" and have_cover:
         try:
-            tag = _opus_picture_tag(Path(cover_path).read_bytes())
+            image_bytes = Path(cover_path).read_bytes()
+            tag = _opus_picture_tag(image_bytes, _artwork_mime(image_bytes).encode())
             cmd += ["-map", "0:a", "-c:a", "copy", "-map_metadata", "-1",
                     *meta, "-metadata", "METADATA_BLOCK_PICTURE=" + tag, dest]
         except Exception:
@@ -244,6 +538,18 @@ def _tag_file(ffmpeg, source, cover_path, track, fmt, dest):
         cmd += ["-map", "0:a", "-c:a", "copy", "-map_metadata", "-1", *meta, dest]
 
     subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+    if fmt == "wav":
+        _tag_wav(dest, cover_path if have_cover else "", track)
+
+
+def _retag_existing(ffmpeg, path, cover_path, track, fmt, tmp):
+    if fmt == "wav":
+        _tag_wav(path, cover_path, track)
+        return
+    tagged = tmp / ("retag." + fmt)
+    tagged.unlink(missing_ok=True)
+    _tag_file(ffmpeg, str(path), cover_path, track, fmt, str(tagged))
+    os.replace(tagged, path)
 
 
 # ── download ─────────────────────────────────────────────────────────────────
@@ -262,23 +568,35 @@ def _fetch_cover(url, dest):
     try:
         request = urllib.request.Request(url, headers={"User-Agent": _UA})
         with urllib.request.urlopen(request, timeout=15) as response:
-            dest.write_bytes(response.read())
+            image_bytes = response.read()
+        _artwork_mime(image_bytes)
+        dest.write_bytes(image_bytes)
         return dest.stat().st_size > 0
     except Exception:
         return False
 
 
-def _download_one(ytdlp, ffmpeg, track, fmt, bitrate, out_dir, tmp):
+def _download_one(ytdlp, ffmpeg, track, fmt, bitrate, out_dir, tmp, cookies=(),
+                  replace_existing=False):
     """Search + download + tag one track.
     Returns (status, path) with status in {'done', 'skipped', 'failed'}."""
     query = "{} - {}".format(track["artists"], track["title"]).strip(" -")
     if not query:
         return ("failed", None)
 
-    dest = out_dir / "{}.{}".format(_safe_name(query), fmt)
-    # Already in the folder from a previous run → skip. Lets a big list be run in
-    # chunks or re-run to fill gaps without re-downloading what's done.
-    if dest.exists() and dest.stat().st_size > 0:
+    dest = _track_output_path(track, fmt, out_dir)
+    cover_url = track.get("cover") or _oembed_cover(track.get("spotify_url", ""))
+    cover_path = tmp / "cover.img"
+    cover_path.unlink(missing_ok=True)
+    have_cover = _fetch_cover(cover_url, cover_path)
+
+    if dest.exists() and dest.stat().st_size > 0 and not replace_existing:
+        try:
+            _retag_existing(
+                ffmpeg, dest, str(cover_path) if have_cover else "", track, fmt, tmp
+            )
+        except Exception:
+            pass
         return ("skipped", dest)
 
     quality = bitrate if (bitrate and bitrate != "auto") else "0"
@@ -286,10 +604,12 @@ def _download_one(ytdlp, ffmpeg, track, fmt, bitrate, out_dir, tmp):
     for stale in tmp.glob("audio.*"):
         stale.unlink()
     cmd = [
-        ytdlp, "ytsearch1:" + query,
-        "--no-playlist", "--no-warnings", "--no-progress",
+        ytdlp, *cookies,
+        "--playlist-items", "1", "--no-warnings", "--no-progress",
+        "--format", "bestaudio/best",
         "-x", "--audio-format", fmt, "--audio-quality", quality,
         "-o", str(work),
+        _ytmusic_song_search(track),
     ]
     result = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
                             text=True, preexec_fn=_preexec)
@@ -297,12 +617,10 @@ def _download_one(ytdlp, ffmpeg, track, fmt, bitrate, out_dir, tmp):
     if result.returncode != 0 or not produced:
         return ("failed", None)
 
-    cover_url = track.get("cover") or _oembed_cover(track.get("spotify_url", ""))
-    cover_path = tmp / "cover.jpg"
-    have = _fetch_cover(cover_url, cover_path)
-
     try:
-        _tag_file(ffmpeg, str(produced), str(cover_path) if have else "", track, fmt, str(dest))
+        _tag_file(
+            ffmpeg, str(produced), str(cover_path) if have_cover else "", track, fmt, str(dest)
+        )
     except Exception:
         shutil.move(str(produced), str(dest))   # tagging failed → keep the audio
     leftover = tmp / ("audio." + fmt)
@@ -322,10 +640,21 @@ def cmd_download(args):
         emit("error", message="Not a Spotify link.")
         return
     fmt = args.audio_format if args.audio_format in AUDIO_FORMATS else "opus"
+    browsers = available_browsers()
+    try:
+        browser = resolved_browser(args.browser, browsers)
+        cookies = cookie_args(args.browser, browsers)
+    except ValueError as error:
+        emit("error", message=str(error))
+        return
     out_dir = output_directory()
     out_dir.mkdir(parents=True, exist_ok=True)
+    download_settings = load_settings()
+    source_files = download_settings.get("sourceFiles") or {}
+    if not isinstance(source_files, dict):
+        source_files = {}
 
-    emit("starting", outputDir=str(out_dir),
+    emit("starting", outputDir=str(out_dir), cookieSource=browser,
          playlist=_kind_from_url(url) in ("album", "playlist"))
     emit("processing", message="Reading Spotify…")
 
@@ -347,15 +676,26 @@ def cmd_download(args):
         tmp = Path(tmpdir)
         for index, track in enumerate(tracks, start=1):
             last_title = "{} - {}".format(track["artists"], track["title"]).strip(" -")
+            destination = _track_output_path(track, fmt, out_dir)
+            replace_existing = (
+                destination.exists()
+                and source_files.get(str(destination)) != _SOURCE_VERSION
+            )
             emit("item", title=last_title, index=index, count=total)
             emit("progress", progress=(index - 1) / total * 100.0,
                  index=index, count=total, title=last_title)
             try:
-                status, path = _download_one(ytdlp, ffmpeg, track, fmt, args.bitrate, out_dir, tmp)
+                status, path = _download_one(
+                    ytdlp, ffmpeg, track, fmt, args.bitrate, out_dir, tmp, cookies,
+                    replace_existing
+                )
             except Exception:
                 status, path = "failed", None
             if status == "done":
                 done += 1
+                source_files[str(path)] = _SOURCE_VERSION
+                download_settings["sourceFiles"] = source_files
+                save_settings(download_settings)
                 emit("itemCompleted", completed=done + skipped, path=str(path))
             elif status == "skipped":
                 skipped += 1
@@ -379,7 +719,9 @@ def cmd_download(args):
 
 def cmd_status(_args):
     ready = ytdlp_bin() is not None and ffmpeg_bin() is not None
-    reply(ok=ready, outputDir=str(output_directory()))
+    browsers = available_browsers()
+    reply(ok=ready, outputDir=str(output_directory()), browsers=browsers,
+          autoBrowser=resolved_browser("auto", browsers))
 
 
 def cmd_set_output(args):
@@ -442,6 +784,7 @@ def main():
     download.add_argument("--audio-format", default="opus", dest="audio_format",
                           choices=tuple(sorted(AUDIO_FORMATS)))
     download.add_argument("--bitrate", default="auto")
+    download.add_argument("--browser", default="auto")
 
     set_output = sub.add_parser("set-output")
     set_output.add_argument("--path", required=True)

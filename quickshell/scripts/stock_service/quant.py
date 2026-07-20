@@ -1,4 +1,13 @@
 from .trading import *
+from zoneinfo import ZoneInfo
+
+
+KRX_TIMEZONE = ZoneInfo("Asia/Seoul")
+MARKET_TIMEZONES = {
+    "KRX": KRX_TIMEZONE,
+    "NASDAQ": ZoneInfo("America/New_York"),
+    "NYSE": ZoneInfo("America/New_York"),
+}
 
 def demo_snapshot(symbol, market, period):
     symbol = symbol.strip().upper() or "005930"
@@ -62,7 +71,8 @@ def demo_history_points(symbol, market, count=260):
         ),
     )
     sessions = []
-    day = datetime.now().date()
+    timezone = MARKET_TIMEZONES.get(market, KRX_TIMEZONE)
+    day = datetime.now(timezone).date()
     while len(sessions) < count:
         if day.weekday() < 5:
             sessions.append(day)
@@ -77,7 +87,7 @@ def demo_history_points(symbol, market, count=260):
     for index, session in enumerate(sessions):
         cycle = math.sin(index / 18.0) * daily_volatility * 0.12
         value *= max(0.72, 1 + daily_drift + cycle + rng.gauss(0, daily_volatility))
-        stamp = int(datetime.combine(session, datetime.min.time()).timestamp())
+        stamp = int(datetime.combine(session, datetime.min.time(), tzinfo=timezone).timestamp())
         raw.append({"t": stamp, "v": value})
     scale = base / raw[-1]["v"]
     return [{"t": point["t"], "v": round(point["v"] * scale, 2)} for point in raw]
@@ -86,15 +96,31 @@ def demo_history_points(symbol, market, count=260):
 def kis_history_points(environment, symbol, count=260):
     if not symbol.isdigit() or len(symbol) != 6:
         raise StockServiceError("KRX symbols must contain six digits")
-    now = datetime.now()
+    now = datetime.now(KRX_TIMEZONE)
     cache_ttl = 15 * 60 if now.weekday() < 5 and int(now.strftime("%H%M")) < 1540 else 4 * 60 * 60
     cache_path = os.path.join(state_directory(), f"history-{environment}-{symbol}.json")
     try:
-        if time.time() - os.path.getmtime(cache_path) < cache_ttl:
+        cache_modified_at = os.path.getmtime(cache_path)
+        if time.time() - cache_modified_at < cache_ttl:
             with open(cache_path, encoding="utf-8") as handle:
                 cached = json.load(handle)
             cached_points = cached.get("points") if isinstance(cached, dict) else None
-            if isinstance(cached_points, list) and len(cached_points) >= min(160, count):
+            cached_at = numeric(cached.get("updatedAt"), cache_modified_at) if isinstance(cached, dict) else cache_modified_at
+            close_ready_at = now.replace(hour=15, minute=40, second=0, microsecond=0).timestamp()
+            needs_completed_close_refresh = (
+                now.weekday() < 5
+                and now.timestamp() >= close_ready_at
+                and cached_at < close_ready_at
+                and (
+                    not cached_points
+                    or datetime.fromtimestamp(int(cached_points[-1].get("t", 0)), KRX_TIMEZONE).date() < now.date()
+                )
+            )
+            if (
+                not needs_completed_close_refresh
+                and isinstance(cached_points, list)
+                and len(cached_points) >= min(160, count)
+            ):
                 return cached_points[-count:]
     except (OSError, ValueError, TypeError, json.JSONDecodeError):
         pass
@@ -126,7 +152,7 @@ def kis_history_points(environment, symbol, count=260):
                 points[date_text] = value
         if len(points) >= count or not dates:
             break
-        next_end = datetime.strptime(min(dates), "%Y%m%d") - timedelta(days=1)
+        next_end = datetime.strptime(min(dates), "%Y%m%d").replace(tzinfo=KRX_TIMEZONE) - timedelta(days=1)
         if next_end >= end:
             break
         end = next_end
@@ -134,7 +160,7 @@ def kis_history_points(environment, symbol, count=260):
     ordered = sorted(points.items())[-count:]
     result = [
         {
-            "t": int(datetime.strptime(date_text, "%Y%m%d").timestamp()),
+            "t": int(datetime.strptime(date_text, "%Y%m%d").replace(tzinfo=KRX_TIMEZONE).timestamp()),
             "v": value,
         }
         for date_text, value in ordered

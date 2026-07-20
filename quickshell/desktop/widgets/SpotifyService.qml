@@ -4,8 +4,8 @@ import Quickshell.Io
 import QtQuick
 
 // Spotify playlist/track downloader. The backend (scripts/spotify-download.py)
-// reads the track list from Spotify's public embed page (first 100 tracks) and
-// downloads the matching audio with yt-dlp + ffmpeg — no spotdl, no login.
+// reads Spotify metadata through the public embed session, follows every
+// playlist page, and downloads the matching audio with yt-dlp + ffmpeg.
 // Mirrors YoutubeService's event protocol; audio-only.
 Singleton {
     id: root
@@ -31,6 +31,8 @@ Singleton {
     ]
 
     property bool available: false
+    property var browsers: []
+    property string autoBrowser: ""
     property string outputDir: ""
     property bool inspecting: false
     property string inspectedInput: ""
@@ -50,6 +52,28 @@ Singleton {
     property var mediaInfo: ({})
     property string error: ""
     property bool _terminal: false
+
+    function browserOptions() {
+        let result = [{ id: "auto", label: "Auto · " + (root.browserLabel(root.autoBrowser) || "browser cookies") },
+                      { id: "none", label: "No cookies" }]
+        for (let i = 0; i < root.browsers.length; i++) {
+            let id = root.browsers[i]
+            result.push({ id: id, label: root.browserLabel(id) || id })
+        }
+        return result
+    }
+
+    function browserLabel(id) {
+        let labels = { chrome: "Google Chrome", chromium: "Chromium", firefox: "Firefox",
+                       brave: "Brave", edge: "Microsoft Edge" }
+        return labels[id] || id || ""
+    }
+
+    function cookieStatus(browser) {
+        if (browser === "none") return "No browser cookies"
+        let source = browser === "auto" ? root.autoBrowser : browser
+        return source ? "Cookies from " + root.browserLabel(source) : "No browser cookies found"
+    }
 
     function formatUploadDate(value) {
         value = String(value || "")
@@ -84,7 +108,7 @@ Singleton {
         inspectProcess.running = true
     }
 
-    function start(input, audioFormat, bitrate) {
+    function start(input, audioFormat, bitrate, browser) {
         input = (input || "").trim()
         if (!root.available || root.busy || !input) return
         root.busy = true
@@ -103,7 +127,8 @@ Singleton {
         root._terminal = false
         downloadProcess.command = ["python3", root.helper, "download", "--input", input,
                                    "--audio-format", audioFormat || "mp3",
-                                   "--bitrate", bitrate || "auto"]
+                                   "--bitrate", bitrate || "auto",
+                                   "--browser", browser || "auto"]
         downloadProcess.running = true
     }
 
@@ -142,6 +167,8 @@ Singleton {
         try {
             let value = JSON.parse((text || "").trim())
             root.available = value.ok === true
+            root.browsers = value.browsers || []
+            root.autoBrowser = value.autoBrowser || ""
             root.outputDir = value.outputDir || ""
         } catch (e) {
             root.available = false

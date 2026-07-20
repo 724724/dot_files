@@ -9,6 +9,7 @@ Item {
     id: root
     property var frame
     readonly property var config: frame ? frame.dataObj : ({})
+    readonly property string language: config.language === "en" ? "en" : "ko"
     readonly property string symbol: config.symbol || "005930"
     readonly property string market: config.market || "KRX"
     property string chartRange: config.range || "1D"
@@ -22,6 +23,8 @@ Item {
         { symbol: "035420", market: "KRX" }
     ]
     readonly property var priceAlerts: Array.isArray(config.priceAlerts) ? config.priceAlerts.slice(0, 16) : []
+    readonly property string alertSourceId: (WidgetsService.activeBoardKey || "board")
+        + ":" + (frame ? frame.wid : "stock")
     readonly property bool productionTradingEnabled: !!config.productionTradingEnabled && !!credentialState.productionTradingEnabled
     readonly property bool active: frame && frame.winRef ? frame.winRef.show : true
     readonly property bool dark: ThemeService.isDark
@@ -81,6 +84,8 @@ Item {
     property var watchSearchResults: []
     property string watchSearchError: ""
     property bool watchSearchQueued: false
+    property string pendingAlertEvaluation: ""
+    property bool alertEvaluationQueued: false
     property bool alertsVisible: false
     property string alertDraftSymbol: symbol
     property string alertDraftMarket: market
@@ -164,6 +169,8 @@ Item {
     readonly property int enabledAlertCount: priceAlerts.filter(alert => alert.enabled !== false).length
     readonly property bool alertPollingReady: dataMode === "demo" || kisConfigured
 
+    function t(source, values) { return StockStrings.text(language, source, values) }
+
     onSymbolChanged: { resetAnalysis(); resetBacktest(); resetComparison(); resetAiValidation(); closeForecasts(); scheduleFetch(); scheduleRealtime(); scheduleAccount(); ordersVisible = false; portfolioVisible = false }
     onMarketChanged: { resetAnalysis(); resetBacktest(); resetComparison(); resetAiValidation(); closeForecasts(); scheduleFetch(); scheduleRealtime() }
     onDataModeChanged: {
@@ -208,6 +215,7 @@ Item {
     onOrderTypeChanged: scheduleAccount()
     onAiProviderChanged: resetAnalysis()
     onAnalysisProfileChanged: resetAnalysis()
+    onLanguageChanged: resetAnalysis()
     onSelectedTabChanged: if (selectedTab !== "ai") { analysisReportVisible = false; closeForecasts() }
     onChartRangeChanged: {
         resetAnalysis()
@@ -335,10 +343,10 @@ Item {
     }
 
     function activityStatusLabel(value) {
-        if (value === "accepted") return "Accepted"
-        if (value === "failed") return "Failed"
-        if (value === "uncertain") return "Verify"
-        return "Submitting"
+        if (value === "accepted") return t("Accepted")
+        if (value === "failed") return t("Failed")
+        if (value === "uncertain") return t("Verify")
+        return t("Submitting")
     }
 
     function activityStatusColor(value) {
@@ -349,17 +357,17 @@ Item {
     }
 
     function activityTitle(event) {
-        if (event.action === "cancel") return "Cancel order #" + (event.originalOrderNumber || "Unknown")
-        let side = event.side === "sell" ? "Sell" : "Buy"
-        return side + " " + Number(event.quantity || 0) + " " + (event.symbol || "Unknown")
+        if (event.action === "cancel") return t("Cancel order #%1", [event.originalOrderNumber || t("Unknown")])
+        let side = t(event.side === "sell" ? "Sell" : "Buy")
+        return t("%1 %2 shares of %3", [side, Number(event.quantity || 0), event.symbol || t("Unknown")])
     }
 
     function activityDetail(event) {
-        if (event.message) return event.message
-        if (event.orderNumber) return "Broker order #" + event.orderNumber
+        if (event.message) return t(event.message)
+        if (event.orderNumber) return t("Broker order #%1", [event.orderNumber])
         if (event.action === "order" && Number(event.estimatedNotional || 0) > 0)
-            return StockService.money(event.estimatedNotional, "KRW") + " estimated"
-        return event.status === "uncertain" ? "Final broker state is unknown; verify with KIS." : "Local audit event"
+            return t("Estimated %1", [StockService.money(event.estimatedNotional, "KRW")])
+        return t(event.status === "uncertain" ? "Final broker state is unknown; verify with KIS." : "Local audit event")
     }
 
     function openPortfolio() {
@@ -554,7 +562,8 @@ Item {
             target: target,
             enabled: true,
             armed: !alreadyCrossed,
-            lastTriggeredAt: 0
+            lastTriggeredAt: 0,
+            stateRevision: Date.now()
         })
         savePriceAlerts(next, watched)
         alertEditorError = ""
@@ -563,9 +572,15 @@ Item {
     }
 
     function togglePriceAlert(id) {
-        let next = priceAlerts.map(alert => alert.id === id
-            ? Object.assign({}, alert, { enabled: alert.enabled === false, armed: alert.armed !== false })
-            : alert)
+        let next = priceAlerts.map(alert => {
+            if (alert.id !== id) return alert
+            let enabled = alert.enabled === false
+            return Object.assign({}, alert, {
+                enabled: enabled,
+                armed: enabled ? true : alert.armed !== false,
+                stateRevision: Date.now()
+            })
+        })
         savePriceAlerts(next)
         if (next.some(alert => alert.id === id && alert.enabled !== false)) Qt.callLater(root.refreshWatchlist)
     }
@@ -575,7 +590,7 @@ Item {
     }
 
     function alertDirectionLabel(direction) {
-        return direction === "below" ? "Falls below" : "Rises above"
+        return t(direction === "below" ? "Falls below" : "Rises above")
     }
 
     function alertCurrency(alert) {
@@ -584,38 +599,34 @@ Item {
 
     function evaluatePriceAlerts(items) {
         if (priceAlerts.length === 0 || items.length === 0) return
-        let quotes = ({})
-        for (let i = 0; i < items.length; i++) {
-            let quote = items[i]
-            if (quote.status !== "error") quotes[quote.market + ":" + quote.symbol] = quote
+        pendingAlertEvaluation = JSON.stringify({
+            sourceId: alertSourceId,
+            mode: dataMode,
+            environment: kisEnvironment,
+            alerts: priceAlerts,
+            quotes: items
+        })
+        if (backend.alertEvaluation.running) {
+            alertEvaluationQueued = true
+            return
         }
+        backend.alertEvaluation.command = ["python3", StockService.stockScript, "alerts", "evaluate"]
+        backend.alertEvaluation.running = true
+    }
+
+    function applyAlertRuntimeStates(states) {
+        if (!Array.isArray(states) || states.length === 0) return
+        let byId = ({})
+        for (let i = 0; i < states.length; i++) byId[states[i].id] = states[i]
         let changed = false
         let next = priceAlerts.map(alert => {
-            if (alert.enabled === false) return alert
-            let quote = quotes[alert.market + ":" + alert.symbol]
-            let price = quote ? Number(quote.price) : 0
-            let target = Number(alert.target)
-            if (!isFinite(price) || price <= 0 || !isFinite(target) || target <= 0) return alert
-            let armed = alert.armed !== false
-            let crossed = alert.direction === "below" ? price <= target : price >= target
-            let hysteresis = Math.max(target * 0.002, alert.market === "KRX" ? 1 : 0.01)
-            let rearmed = alert.direction === "below" ? price >= target + hysteresis : price <= target - hysteresis
-            if (armed && crossed) {
-                changed = true
-                let currency = quote.currency || alertCurrency(alert)
-                Quickshell.execDetached([
-                    "notify-send", "-a", "Stocks", "-t", "10000",
-                    (quote.name || alert.symbol) + " price alert",
-                    alertDirectionLabel(alert.direction) + " " + StockService.money(target, currency)
-                        + " · Now " + StockService.money(price, currency)
-                ])
-                return Object.assign({}, alert, { armed: false, lastTriggeredAt: Date.now() })
-            }
-            if (!armed && rearmed) {
-                changed = true
-                return Object.assign({}, alert, { armed: true })
-            }
-            return alert
+            let state = byId[alert.id]
+            if (!state) return alert
+            let armed = state.armed !== false
+            let triggeredAt = Number(state.lastTriggeredAt || 0)
+            if (armed === (alert.armed !== false) && triggeredAt === Number(alert.lastTriggeredAt || 0)) return alert
+            changed = true
+            return Object.assign({}, alert, { armed: armed, lastTriggeredAt: triggeredAt })
         })
         if (changed) savePriceAlerts(next)
     }
@@ -641,12 +652,12 @@ Item {
     }
 
     function orderStateLabel(state) {
-        if (state === "filled") return "Filled"
-        if (state === "partial") return "Partially filled"
-        if (state === "pending") return "Pending"
-        if (state === "canceled") return "Canceled"
-        if (state === "rejected") return "Rejected"
-        return "Submitted"
+        if (state === "filled") return t("Filled")
+        if (state === "partial") return t("Partially filled")
+        if (state === "pending") return t("Pending")
+        if (state === "canceled") return t("Canceled")
+        if (state === "rejected") return t("Rejected")
+        return t("Submitted")
     }
 
     function fetchSnapshot() {
@@ -741,7 +752,7 @@ Item {
         if (!aiConfigured || backend.analysis.running) return
         analysisError = ""
         analysisMessage = ""
-        let payload = Object.assign({}, snapshot, { chartRange: chartRange })
+        let payload = Object.assign({}, snapshot, { chartRange: chartRange, language: language })
         let refreshMode = analysisResult.status === "ok" ? "force" : "cache"
         pendingAnalysis = JSON.stringify(payload)
         backend.analysis.command = ["python3", StockService.stockScript, "analyze", aiProvider,
@@ -783,6 +794,8 @@ Item {
             pendingForecastInput = JSON.stringify({
                 symbol: symbol,
                 market: market,
+                mode: dataMode,
+                environment: kisEnvironment,
                 price: Number(snapshot.price),
                 updatedAt: Number(snapshot.updatedAt || 0)
             })
@@ -913,7 +926,7 @@ Item {
     }
 
     function comparisonRiskLabel(risk) {
-        return risk === "low" ? "Low overfit risk" : (risk === "high" ? "High overfit risk" : "Moderate risk")
+        return t(risk === "low" ? "Low overfit risk" : (risk === "high" ? "High overfit risk" : "Moderate risk"))
     }
 
     function validationStatusColor(status) {
@@ -936,8 +949,8 @@ Item {
     }
 
     function forecastStatusLabel(item) {
-        if (item.status !== "resolved") return "Open"
-        return item.correct === true ? "Correct" : "Miss"
+        if (item.status !== "resolved") return t("Open")
+        return t(item.correct === true ? "Correct" : "Miss")
     }
 
     function forecastStatusColor(item) {
@@ -949,15 +962,22 @@ Item {
         return Number(item.status === "resolved" ? item.returnPct : item.currentReturnPct || 0)
     }
 
+    function forecastTargetLabel(item) {
+        let value = Number(item.targetSessionAt || item.targetAt || 0)
+        if (!value) return ""
+        let date = Qt.formatDateTime(new Date(value * 1000), "yyyy.MM.dd")
+        return t(item.status === "resolved" ? "%1 close" : "%1 est.", [date])
+    }
+
     function analysisTime(value) {
         if (!Number(value)) return ""
         return Qt.formatDateTime(new Date(Number(value) * 1000), "yyyy.MM.dd  hh:mm")
     }
 
     function stanceLabel(value) {
-        if (value === "bullish") return "Bullish"
-        if (value === "bearish") return "Bearish"
-        return value === "neutral" ? "Neutral" : "Awaiting"
+        if (value === "bullish") return t("Bullish")
+        if (value === "bearish") return t("Bearish")
+        return t(value === "neutral" ? "Neutral" : "Awaiting")
     }
 
     function chooseRange(value) {
@@ -966,31 +986,31 @@ Item {
     }
 
     function orderStatusText() {
-        if (dataMode === "demo") return "Local preview only"
-        if (kisEnvironment === "prod" && !productionTradingEnabled) return "Production orders are locked"
-        if (!kisConfigured) return "Save KIS " + (kisEnvironment === "prod" ? "production" : "paper") + " API credentials in Edit"
-        if (!kisAccountConfigured) return "Save the " + (kisEnvironment === "prod" ? "production" : "paper") + " account number in Edit"
-        if (accountBusy) return "Checking account…"
-        if (accountError !== "") return accountError
-        if (accountState.status !== "ok") return "Account data required"
-        if (orderSide === "buy" && quantity > Number(accountState.buyingQuantity || 0)) return "Exceeds available buy quantity"
-        if (orderSide === "sell" && quantity > Number(accountState.sellableQuantity || 0)) return "Exceeds sellable holdings"
-        return kisEnvironment === "prod" ? "KIS production order · LIVE confirmation required" : "KIS paper order"
+        if (dataMode === "demo") return t("Local preview only")
+        if (kisEnvironment === "prod" && !productionTradingEnabled) return t("Production orders are locked")
+        if (!kisConfigured) return t("Save KIS %1 API credentials in Edit", [t(kisEnvironment === "prod" ? "Production" : "Paper")])
+        if (!kisAccountConfigured) return t("Save the %1 account number in Edit", [t(kisEnvironment === "prod" ? "Production" : "Paper")])
+        if (accountBusy) return t("Checking account…")
+        if (accountError !== "") return t(accountError)
+        if (accountState.status !== "ok") return t("Account data required")
+        if (orderSide === "buy" && quantity > Number(accountState.buyingQuantity || 0)) return t("Exceeds available buy quantity")
+        if (orderSide === "sell" && quantity > Number(accountState.sellableQuantity || 0)) return t("Exceeds sellable holdings")
+        return t(kisEnvironment === "prod" ? "KIS production order · LIVE confirmation required" : "KIS paper order")
     }
 
     function preflightStatusText() {
-        if (orderError !== "") return orderError
-        if (backend.preflight.running) return "Checking account and risk policy…"
-        if (preflightError !== "") return preflightError
-        if (!preflightReady) return "Waiting for server checks…"
-        if (demoOrderReady) return "Local preview only · no broker order will be sent"
-        if (kisEnvironment === "paper") return "KIS paper account checks passed · rechecked at submit"
+        if (orderError !== "") return t(orderError)
+        if (backend.preflight.running) return t("Checking account and risk policy…")
+        if (preflightError !== "") return t(preflightError)
+        if (!preflightReady) return t("Waiting for server checks…")
+        if (demoOrderReady) return t("Local preview only · no broker order will be sent")
+        if (kisEnvironment === "paper") return t("KIS paper account checks passed · rechecked at submit")
         let risk = preflightState.risk || {}
         let policy = risk.policy || {}
         if (reviewOrder.side === "buy" && Number(policy.maxBuyOrdersPerDay || 0) > 0)
-            return "Risk Guard passed · daily buys " + (Number(risk.dailyBuyOrders || 0) + 1) + "/"
-                + policy.maxBuyOrdersPerDay + " · rechecked at submit"
-        return "Risk Guard passed · all limits are rechecked at submit"
+            return t("Risk Guard passed · daily buys %1/%2 · rechecked at submit",
+                [Number(risk.dailyBuyOrders || 0) + 1, policy.maxBuyOrdersPerDay])
+        return t("Risk Guard passed · all limits are rechecked at submit")
     }
 
     function openOrderReview() {
@@ -1056,8 +1076,8 @@ Item {
     function submitOrder() {
         if (!reviewVisible || !reviewOrder.symbol || !preflightReady) return
         if (demoOrderReady) {
-            orderMessage = (reviewOrder.side === "buy" ? "Buy" : "Sell") + " " + reviewOrder.quantity
-                + " " + reviewOrder.symbol + " · Local preview complete"
+            orderMessage = t("%1 %2 shares of %3 · Local preview complete",
+                [t(reviewOrder.side === "buy" ? "Buy" : "Sell"), reviewOrder.quantity, reviewOrder.symbol])
             orderError = ""
             closeOrderReview()
             return

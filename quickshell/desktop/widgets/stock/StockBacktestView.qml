@@ -27,21 +27,21 @@ Item {
                 QuantChoice {
                     width: parent.width / 3
                     height: parent.height
-                    label: "Trend"
+                    label: root.t("Trend")
                     selected: root.backtestStrategy === "trend"
                     onChosen: { root.backtestStrategy = "trend"; root.resetBacktest() }
                 }
                 QuantChoice {
                     width: parent.width / 3
                     height: parent.height
-                    label: "Momentum"
+                    label: root.t("Momentum")
                     selected: root.backtestStrategy === "momentum"
                     onChosen: { root.backtestStrategy = "momentum"; root.resetBacktest() }
                 }
                 QuantChoice {
                     width: parent.width / 3
                     height: parent.height
-                    label: "RSI"
+                    label: root.t("RSI")
                     selected: root.backtestStrategy === "mean_reversion"
                     onChosen: { root.backtestStrategy = "mean_reversion"; root.resetBacktest() }
                 }
@@ -58,21 +58,21 @@ Item {
                 QuantChoice {
                     width: parent.width / 3
                     height: parent.height
-                    label: "Ideal"
+                    label: root.t("Ideal")
                     selected: root.backtestCostProfile === "ideal"
                     onChosen: { root.backtestCostProfile = "ideal"; root.resetBacktest(); root.resetComparison() }
                 }
                 QuantChoice {
                     width: parent.width / 3
                     height: parent.height
-                    label: "Base"
+                    label: root.t("Base")
                     selected: root.backtestCostProfile === "base"
                     onChosen: { root.backtestCostProfile = "base"; root.resetBacktest(); root.resetComparison() }
                 }
                 QuantChoice {
                     width: parent.width / 3
                     height: parent.height
-                    label: "Stress"
+                    label: root.t("Stress")
                     selected: root.backtestCostProfile === "stress"
                     onChosen: { root.backtestCostProfile = "stress"; root.resetBacktest(); root.resetComparison() }
                 }
@@ -90,7 +90,7 @@ Item {
             Behavior on scale { AppleSpring { spring: 22 } }
             Text {
                 anchors.centerIn: parent
-                text: root.backtestBusy ? "Running…" : "Run Backtest"
+                text: root.backtestBusy ? root.t("Running…") : root.t("Run Backtest")
                 color: "white"
                 font.family: "SF Pro Display"
                 font.pixelSize: 10
@@ -112,15 +112,19 @@ Item {
         anchors { left: parent.left; right: parent.right; top: backtestControls.bottom }
         anchors.topMargin: 6
         height: 15
-        text: root.backtestError !== "" ? root.backtestError
-            : (root.backtestBusy ? "Loading daily closes and simulating next-session returns…"
+        text: root.backtestError !== "" ? root.t(root.backtestError)
+            : (root.backtestBusy ? root.t("Loading daily closes and simulating next-session returns…")
             : (root.backtestResult.status === "ok"
-            ? root.backtestResult.strategyLabel + " · " + root.backtestDate(root.backtestResult.from) + "—"
-              + root.backtestDate(root.backtestResult.to) + " · " + root.backtestResult.sampleCount + " sessions · "
-              + Number((root.backtestResult.costs || {}).commissionBps || 0).toFixed(1) + "/"
-              + Number((root.backtestResult.costs || {}).slippageBps || 0).toFixed(0) + "/"
-              + Number((root.backtestResult.costs || {}).sellTaxBps || 0).toFixed(0) + " bps commission/slippage/tax"
-            : "Choose a strategy and execution profile. Base includes commission, slippage, and sell tax."))
+            ? root.t("%1 · %2—%3 · %4 sessions · %5/%6/%7 bps commission/slippage/tax", [
+                root.t(root.backtestResult.strategyLabel),
+                root.backtestDate(root.backtestResult.from),
+                root.backtestDate(root.backtestResult.to),
+                root.backtestResult.sampleCount,
+                Number((root.backtestResult.costs || {}).commissionBps || 0).toFixed(1),
+                Number((root.backtestResult.costs || {}).slippageBps || 0).toFixed(0),
+                Number((root.backtestResult.costs || {}).sellTaxBps || 0).toFixed(0)
+            ])
+            : root.t("Choose a strategy and execution profile. Base includes commission, slippage, and sell tax.")))
         color: root.backtestError !== "" ? root.negativeColor : root.secondaryColor
         font.family: "SF Pro Display"
         font.pixelSize: 9
@@ -135,24 +139,24 @@ Item {
         spacing: 8
         ReportMetric {
             width: (parent.width - 24) / 4
-            title: "STRATEGY"
+            title: root.t("STRATEGY")
             value: root.backtestResult.status === "ok" ? StockService.signed(root.backtestResult.strategyReturnPct || 0, 2) + "%" : "—"
             valueColor: Number(root.backtestResult.strategyReturnPct || 0) >= 0 ? root.positiveColor : root.negativeColor
         }
         ReportMetric {
             width: (parent.width - 24) / 4
-            title: "BUY & HOLD"
+            title: root.t("BUY & HOLD")
             value: root.backtestResult.status === "ok" ? StockService.signed(root.backtestResult.benchmarkReturnPct || 0, 2) + "%" : "—"
         }
         ReportMetric {
             width: (parent.width - 24) / 4
-            title: "EXCESS"
+            title: root.t("EXCESS")
             value: root.backtestResult.status === "ok" ? StockService.signed(root.backtestResult.excessReturnPct || 0, 2) + "%" : "—"
             valueColor: Number(root.backtestResult.excessReturnPct || 0) >= 0 ? root.positiveColor : root.negativeColor
         }
         ReportMetric {
             width: (parent.width - 24) / 4
-            title: "MAX DRAWDOWN"
+            title: root.t("MAX DRAWDOWN")
             value: root.backtestResult.status === "ok" ? Number(root.backtestResult.maxDrawdownPct || 0).toFixed(2) + "%" : "—"
             valueColor: Number(root.backtestResult.maxDrawdownPct || 0) < 0 ? root.negativeColor : root.secondaryColor
         }
@@ -166,26 +170,26 @@ Item {
         spacing: 8
         ReportMetric {
             width: (parent.width - 24) / 4
-            title: "WF OOS RETURN"
+            title: root.t("WF OOS RETURN")
             value: root.backtestResult.status === "ok" ? StockService.signed((root.backtestResult.walkForward || {}).oosReturnPct || 0, 2) + "%" : "—"
             valueColor: Number((root.backtestResult.walkForward || {}).oosReturnPct || 0) >= 0 ? root.positiveColor : root.negativeColor
         }
         ReportMetric {
             width: (parent.width - 24) / 4
-            title: "WF OOS EXCESS"
+            title: root.t("WF OOS EXCESS")
             value: root.backtestResult.status === "ok" ? StockService.signed((root.backtestResult.walkForward || {}).excessReturnPct || 0, 2) + "%" : "—"
             valueColor: Number((root.backtestResult.walkForward || {}).excessReturnPct || 0) >= 0 ? root.positiveColor : root.negativeColor
         }
         ReportMetric {
             width: (parent.width - 24) / 4
-            title: "FOLD WINS"
+            title: root.t("FOLD WINS")
             value: root.backtestResult.status === "ok" ? Number((root.backtestResult.walkForward || {}).outperformedFolds || 0) + "/"
                 + Number((root.backtestResult.walkForward || {}).foldCount || 0) : "—"
             valueColor: root.walkForwardColor()
         }
         ReportMetric {
             width: (parent.width - 24) / 4
-            title: "WF SHARPE"
+            title: root.t("WF SHARPE")
             value: root.backtestResult.status === "ok" ? Number((root.backtestResult.walkForward || {}).sharpe || 0).toFixed(2) : "—"
         }
     }
@@ -210,12 +214,12 @@ Item {
             Row {
                 spacing: 5
                 Rectangle { anchors.verticalCenter: parent.verticalCenter; width: 12; height: 2; radius: 1; color: "#0a84ff" }
-                Text { text: "Strategy"; color: root.secondaryColor; font.family: "SF Pro Display"; font.pixelSize: 8 }
+                Text { text: root.t("Strategy"); color: root.secondaryColor; font.family: "SF Pro Display"; font.pixelSize: 8 }
             }
             Row {
                 spacing: 5
                 Rectangle { anchors.verticalCenter: parent.verticalCenter; width: 12; height: 2; radius: 1; color: root.secondaryColor }
-                Text { text: "Buy & Hold"; color: root.secondaryColor; font.family: "SF Pro Display"; font.pixelSize: 8 }
+                Text { text: root.t("Buy & Hold"); color: root.secondaryColor; font.family: "SF Pro Display"; font.pixelSize: 8 }
             }
         }
 
@@ -223,8 +227,9 @@ Item {
             anchors { right: parent.right; top: parent.top }
             anchors.rightMargin: 13
             anchors.topMargin: 8
-            text: root.backtestResult.status === "ok" ? "Walk-forward · "
-                + ((root.backtestResult.walkForward || {}).statusLabel || "") : ""
+            text: root.backtestResult.status === "ok" ? root.t("Walk-forward · %1", [
+                root.t((root.backtestResult.walkForward || {}).statusLabel || "")
+            ]) : ""
             color: root.walkForwardColor()
             font.family: "SF Pro Display"
             font.pixelSize: 9
@@ -285,7 +290,8 @@ Item {
         Text {
             anchors.centerIn: parent
             visible: !root.backtestBusy && root.backtestResult.status !== "ok"
-            text: root.backtestError !== "" ? "Could not complete the simulation." : "Run a strategy to compare normalized equity curves."
+            text: root.backtestError !== "" ? root.t("Could not complete the simulation.")
+                : root.t("Run a strategy to compare normalized equity curves.")
             color: root.secondaryColor
             font.family: "SF Pro Display"
             font.pixelSize: 10
@@ -297,8 +303,12 @@ Item {
         anchors { left: parent.left; right: parent.right; bottom: parent.bottom }
         height: 30
         text: root.backtestResult.status === "ok"
-            ? (root.backtestResult.walkForward || {}).methodology + " " + root.backtestResult.methodology + " " + root.backtestResult.disclaimer
-            : "Walk-forward uses prior sessions for selection and freezes parameters out-of-sample. It never triggers an order."
+            ? root.t("%1 %2 %3", [
+                root.t((root.backtestResult.walkForward || {}).methodology || ""),
+                root.t(root.backtestResult.methodology || ""),
+                root.t(root.backtestResult.disclaimer || "")
+            ])
+            : root.t("Walk-forward uses prior sessions for selection and freezes parameters out-of-sample. It never triggers an order.")
         color: root.secondaryColor
         font.family: "SF Pro Display"
         font.pixelSize: 8

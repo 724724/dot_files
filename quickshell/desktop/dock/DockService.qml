@@ -51,6 +51,22 @@ Singleton {
     // down and recreating every running-app icon twice a second.
     property string _sig: ""
 
+    function _canonicalClass(cls) {
+        let lc = (cls || "").toLowerCase()
+        if (lc === "steam_proton" || lc === "explorer.exe") return "net.lutris.ableton-2"
+        return lc
+    }
+
+    function _canonicalizeByClass(source) {
+        let result = ({})
+        let classes = Object.keys(source || {})
+        for (let i = 0; i < classes.length; i++) {
+            let key = root._canonicalClass(classes[i])
+            result[key] = (result[key] || []).concat(source[classes[i]] || [])
+        }
+        return result
+    }
+
     Process {
         id: pollProc
         command: [Quickshell.shellDir + "/dock/poll-clients.sh"]
@@ -62,11 +78,11 @@ Singleton {
                     let data = JSON.parse(raw)
                     root._sig = raw
                     let excl = root.excludedClasses
-                    let byClass = data.byClass || {}
+                    let byClass = root._canonicalizeByClass(data.byClass || {})
                     root.clientsByClass = byClass
                     root.activeWs = (typeof data.activeWs === "number") ? data.activeWs : -1
                     root.fullscreenMonitors = Array.isArray(data.fullscreenMonitors) ? data.fullscreenMonitors : []
-                    root.focusedClass = (data.focused || "").toLowerCase()
+                    root.focusedClass = root._canonicalClass(data.focused)
                     let classes = Object.keys(byClass).filter(c => c && !excl.includes(c))
                     if (JSON.stringify(classes) !== JSON.stringify(root.runningClasses))
                         root.runningClasses = classes
@@ -110,8 +126,8 @@ Singleton {
     readonly property var pinnedClasses: pinnedApps.map(a => (a.wmClass || "").toLowerCase())
 
     // Class → friendly name + icon (also used to guess a launch command below).
-    readonly property string kakaoIcon:
-        Quickshell.iconPath("KakaoTalk", true) !== "" ? "KakaoTalk" : "DDB7_KakaoTalk.0"
+    readonly property string kakaoIcon: "file://" + Quickshell.env("HOME")
+        + "/.local/share/icons/hicolor/256x256/apps/DDB7_KakaoTalk.0.png"
 
     // Seed list, used only the first time (no store file yet). After that the
     // pinned set is user-managed and persisted to disk.
@@ -131,12 +147,40 @@ Singleton {
     function _loadPins() {
         let raw = pinStore.text()
         if (raw) {
-            try { let p = JSON.parse(raw); if (Array.isArray(p)) { root.pinnedApps = p; return } } catch (e) {}
+            try {
+                let p = JSON.parse(raw)
+                if (Array.isArray(p)) {
+                    let normalized = p.map(app => root._normalizePin(app))
+                    root.pinnedApps = normalized
+                    if (JSON.stringify(normalized) !== JSON.stringify(p)) root._persist()
+                    return
+                }
+            } catch (e) {}
         }
         root.pinnedApps = root.defaultPins   // first run: seed + persist the defaults
         pinStore.setText(JSON.stringify(root.pinnedApps))
     }
     function _persist() { pinStore.setText(JSON.stringify(root.pinnedApps)) }
+
+    function _normalizePin(app) {
+        let normalized = {
+            name: app.name,
+            wmClass: app.wmClass,
+            iconName: app.iconName,
+            execCmd: app.execCmd
+        }
+        let cls = (normalized.wmClass || "").toLowerCase()
+        if (cls === "kakaotalk.exe") normalized.iconName = root.kakaoIcon
+        if (cls === "serato dj pro.exe")
+            normalized.execCmd = [Quickshell.env("HOME") + "/.local/bin/serato-dj-pro"]
+        if (cls === "net.lutris.ableton-2" || cls === "steam_proton" || cls === "explorer.exe") {
+            normalized.name = "Ableton"
+            normalized.wmClass = "net.lutris.ableton-2"
+            normalized.iconName = "lutris_ableton"
+            normalized.execCmd = ["gtk-launch", "net.lutris.ableton-2"]
+        }
+        return normalized
+    }
 
     function isPinned(cls) { return pinnedClasses.includes((cls || "").toLowerCase()) }
 
@@ -172,7 +216,8 @@ Singleton {
     // class remapping — DockWindow's live-app row reuses this too.
     function _remapClass(cls) {
         let lc = cls.toLowerCase()
-        if (lc === "explorer.exe") return { name: "Ableton", iconName: "ableton", base: cls, exact: true }
+        if (lc === "net.lutris.ableton-2" || lc === "steam_proton" || lc === "explorer.exe")
+            return { name: "Ableton", iconName: "lutris_ableton", base: "net.lutris.ableton-2", exact: true }
         if (lc === "kakaotalk.exe") return { name: "KakaoTalk", iconName: root.kakaoIcon, base: cls, exact: true }
         let m = cls.match(/^(.+?)_\d+_\d+$/)
         let base = m ? m[1] : cls
@@ -186,6 +231,8 @@ Singleton {
     // Resolve a runnable launch command for an app we only know by window class,
     // reusing the dock's class→desktop-entry heuristic.
     function _guessExec(wmClass) {
+        if ((wmClass || "").toLowerCase() === "serato dj pro.exe")
+            return [Quickshell.env("HOME") + "/.local/bin/serato-dj-pro"]
         let m = root._remapClass(wmClass || "")
         let de = DesktopEntries.heuristicLookup(m.base)
         if (de && de.id) return ["gtk-launch", de.id]

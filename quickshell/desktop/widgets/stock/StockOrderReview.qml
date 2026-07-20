@@ -30,8 +30,9 @@ Rectangle {
         anchors.margins: 18
         spacing: 6
         Text {
-            text: root.demoOrderReady ? "Review Local Preview"
-                : (root.kisEnvironment === "prod" ? "Review Production Order" : "Review KIS Paper Order")
+            text: root.demoOrderReady ? root.t("Review Local Preview")
+                : (root.kisEnvironment === "prod" ? root.t("Review Production Order")
+                    : root.t("Review KIS Paper Order"))
             color: root.foregroundColor
             font.family: "SF Pro Display"
             font.pixelSize: 16
@@ -39,10 +40,15 @@ Rectangle {
             font.letterSpacing: -0.2
         }
         Text {
-            text: (root.reviewOrder.side === "buy" ? "Buy " : "Sell ") + Number(root.reviewOrder.quantity || 0)
-                  + " " + (root.reviewOrder.symbol || root.symbol) + " at "
-                  + (root.reviewOrder.orderType === "market" ? "market"
-                  : StockService.money(root.reviewOrder.price, root.reviewOrder.currency || root.snapshot.currency))
+            text: root.reviewOrder.side === "buy"
+                ? root.t("Buy %1 %2 at %3", [Number(root.reviewOrder.quantity || 0),
+                    root.reviewOrder.symbol || root.symbol,
+                    root.reviewOrder.orderType === "market" ? root.t("market price")
+                        : StockService.money(root.reviewOrder.price, root.reviewOrder.currency || root.snapshot.currency)])
+                : root.t("Sell %1 %2 at %3", [Number(root.reviewOrder.quantity || 0),
+                    root.reviewOrder.symbol || root.symbol,
+                    root.reviewOrder.orderType === "market" ? root.t("market price")
+                        : StockService.money(root.reviewOrder.price, root.reviewOrder.currency || root.snapshot.currency)])
             color: root.secondaryColor
             font.family: "SF Pro Display"
             font.pixelSize: 12
@@ -63,18 +69,18 @@ Rectangle {
             spacing: 8
             PreflightMetric {
                 width: (parent.width - 16) / 3
-                title: "ESTIMATED"
+                title: root.t("ESTIMATED")
                 value: StockService.money((root.preflightState.risk || {}).estimatedNotional
                     || root.reviewOrder.estimatedTotal, root.reviewOrder.currency || root.snapshot.currency)
             }
             PreflightMetric {
                 width: (parent.width - 16) / 3
-                title: "AVAILABLE"
-                value: Number(root.preflightState.availableQuantity || 0) + " shares"
+                title: root.t("AVAILABLE")
+                value: root.t("%1 shares", [Number(root.preflightState.availableQuantity || 0)])
             }
             PreflightMetric {
                 width: (parent.width - 16) / 3
-                title: "POSITION AFTER"
+                title: root.t("POSITION AFTER")
                 value: Number((root.preflightState.risk || {}).projectedPositionPercent || 0).toFixed(2) + "%"
             }
         }
@@ -108,7 +114,7 @@ Rectangle {
         anchors.margins: 16
         spacing: 8
         SheetButton {
-            label: "Cancel"
+            label: root.t("Cancel")
             filled: false
             enabled: !root.orderRunning
             onTriggered: {
@@ -116,8 +122,8 @@ Rectangle {
             }
         }
         SheetButton {
-            label: root.orderRunning ? "Submitting…" : (root.demoOrderReady ? "Confirm Preview"
-                : (root.kisEnvironment === "prod" ? "Place Live Order" : "Confirm Paper"))
+            label: root.orderRunning ? root.t("Submitting…") : (root.demoOrderReady ? root.t("Confirm Preview")
+                : (root.kisEnvironment === "prod" ? root.t("Place Live Order") : root.t("Confirm Paper")))
             filled: true
             destructive: root.kisEnvironment === "prod" && !root.demoOrderReady
             enabled: !root.orderRunning && root.preflightReady

@@ -54,7 +54,7 @@ Item {
             spacing: 1
             Text {
                 width: parent.width
-                text: "Qualified confidence floor"
+                text: root.t("Qualified confidence floor")
                 color: root.foregroundColor
                 font.family: "SF Pro Display"
                 font.pixelSize: 10
@@ -62,7 +62,7 @@ Item {
             }
             Text {
                 width: parent.width
-                text: "Lower-confidence predictions remain journaled but are excluded from qualified metrics."
+                text: root.t("Lower-confidence predictions remain journaled but are excluded from qualified metrics.")
                 color: root.secondaryColor
                 font.family: "SF Pro Display"
                 font.pixelSize: 8
@@ -76,12 +76,13 @@ Item {
         anchors { left: parent.left; right: parent.right; top: aiValidationControls.bottom }
         anchors.topMargin: 6
         height: 15
-        text: root.aiValidationError !== "" ? root.aiValidationError
-            : (root.aiValidationBusy ? "Recalculating calibration and qualified metrics…"
+        text: root.aiValidationError !== "" ? root.t(root.aiValidationError)
+            : (root.aiValidationBusy ? root.t("Recalculating calibration and qualified metrics…")
             : (root.aiValidationResult.status === "ok"
-            ? Number(root.aiValidationResult.resolvedForecasts || 0) + " resolved forecasts · "
-              + Number((root.aiValidationResult.summary || {}).samples || 0) + " model predictions"
-            : "Resolved forecasts are required before calibration becomes measurable."))
+            ? root.t("%1 resolved forecasts · %2 model predictions", [
+                Number(root.aiValidationResult.resolvedForecasts || 0),
+                Number((root.aiValidationResult.summary || {}).samples || 0)])
+            : root.t("Resolved forecasts are required before calibration becomes measurable.")))
         color: root.aiValidationError !== "" ? root.negativeColor : root.secondaryColor
         font.family: "SF Pro Display"
         font.pixelSize: 9
@@ -96,24 +97,25 @@ Item {
         spacing: 8
         ReportMetric {
             width: (parent.width - 24) / 4
-            title: "QUALIFIED HIT RATE"
+            title: root.t("QUALIFIED HIT RATE")
             value: root.aiValidationResult.status === "ok" ? Number((root.aiValidationResult.summary || {}).qualifiedHitRate || 0).toFixed(1) + "%" : "—"
             valueColor: Number((root.aiValidationResult.summary || {}).qualified || 0) >= 5 ? root.positiveColor : root.secondaryColor
         }
         ReportMetric {
             width: (parent.width - 24) / 4
-            title: "QUALIFIED BRIER"
+            title: root.t("QUALIFIED BRIER")
             value: root.aiValidationResult.status === "ok" ? Number((root.aiValidationResult.summary || {}).qualifiedBrierScore || 0).toFixed(3) : "—"
         }
         ReportMetric {
             width: (parent.width - 24) / 4
-            title: "CALIBRATION ECE"
-            value: root.aiValidationResult.status === "ok" ? Number((root.aiValidationResult.summary || {}).expectedCalibrationError || 0).toFixed(1) + "pp" : "—"
+            title: root.t("CALIBRATION ECE")
+            value: root.aiValidationResult.status === "ok"
+                ? root.t("%1pp", [Number((root.aiValidationResult.summary || {}).expectedCalibrationError || 0).toFixed(1)]) : "—"
             valueColor: Number((root.aiValidationResult.summary || {}).expectedCalibrationError || 0) <= 10 ? root.positiveColor : "#ff9f0a"
         }
         ReportMetric {
             width: (parent.width - 24) / 4
-            title: "QUALIFIED / EXCLUDED"
+            title: root.t("QUALIFIED / EXCLUDED")
             value: root.aiValidationResult.status === "ok" ? Number((root.aiValidationResult.summary || {}).qualified || 0) + " / "
                 + Number((root.aiValidationResult.summary || {}).excluded || 0) : "—"
         }
@@ -127,13 +129,13 @@ Item {
         spacing: 8
         SignalValidationCard {
             width: (parent.width - 8) / 2
-            title: "Chart direction agreement"
+            title: root.t("Chart direction agreement")
             accent: "#0a84ff"
             metrics: (root.aiValidationResult.signals || {}).chart || ({})
         }
         SignalValidationCard {
             width: (parent.width - 8) / 2
-            title: "News direction agreement"
+            title: root.t("News direction agreement")
             accent: "#bf5af2"
             metrics: (root.aiValidationResult.signals || {}).news || ({})
         }
@@ -144,7 +146,7 @@ Item {
         anchors { left: parent.left; right: parent.right; top: aiSignalSummary.bottom }
         anchors.topMargin: 9
         height: 13
-        text: "MODEL PERFORMANCE · RESOLVED PREDICTIONS"
+        text: root.t("MODEL PERFORMANCE · RESOLVED PREDICTIONS")
         color: root.secondaryColor
         font.family: "SF Pro Display"
         font.pixelSize: 8
@@ -232,7 +234,8 @@ Item {
                 }
                 Text {
                     width: parent.width
-                    text: String(modelData.provider || "").toUpperCase() + " · " + modelData.profile + " · " + modelData.dataStatus
+                    text: root.t(StockService.providerLabel(modelData.provider)).toUpperCase() + " · "
+                        + root.t(StockService.profileLabel(modelData.profile)) + " · " + root.t(modelData.dataStatus)
                     color: root.validationStatusColor(modelData.dataStatus)
                     font.family: "SF Pro Display"
                     font.pixelSize: 8
@@ -246,25 +249,25 @@ Item {
                 ComparisonValue {
                     anchors.verticalCenter: parent.verticalCenter
                     width: parent.width / 4
-                    title: "QUAL HIT"
+                    title: root.t("QUAL HIT")
                     value: Number(modelData.qualifiedHitRate || 0).toFixed(1) + "%"
                 }
                 ComparisonValue {
                     anchors.verticalCenter: parent.verticalCenter
                     width: parent.width / 4
-                    title: "BRIER"
+                    title: root.t("BRIER")
                     value: Number(modelData.qualifiedBrierScore || 0).toFixed(3)
                 }
                 ComparisonValue {
                     anchors.verticalCenter: parent.verticalCenter
                     width: parent.width / 4
-                    title: "CAL GAP"
-                    value: Number(modelData.calibrationGap || 0).toFixed(1) + "pp"
+                    title: root.t("CAL GAP")
+                    value: root.t("%1pp", [Number(modelData.calibrationGap || 0).toFixed(1)])
                 }
                 ComparisonValue {
                     anchors.verticalCenter: parent.verticalCenter
                     width: parent.width / 4
-                    title: "N / EXCL"
+                    title: root.t("N / EXCL")
                     value: modelData.qualified + " / " + modelData.excluded
                 }
             }
@@ -290,7 +293,7 @@ Item {
                     }
                     Text {
                         anchors.horizontalCenter: parent.horizontalCenter
-                        text: "QUALITY"
+                        text: root.t("QUALITY")
                         color: root.secondaryColor
                         font.family: "SF Pro Display"
                         font.pixelSize: 6
@@ -301,7 +304,7 @@ Item {
         Text {
             anchors.centerIn: parent
             visible: aiModelList.count === 0
-            text: root.aiValidationBusy ? "Loading model history…" : "No resolved model predictions yet."
+            text: root.aiValidationBusy ? root.t("Loading model history…") : root.t("No resolved model predictions yet.")
             color: root.secondaryColor
             font.family: "SF Pro Display"
             font.pixelSize: 10
@@ -316,18 +319,21 @@ Item {
         spacing: 8
         ReportMetric {
             width: (parent.width - 16) / 3
-            title: "CONFIDENCE 0–49"
-            value: Number(root.calibrationBucket(0).accuracy || 0).toFixed(1) + "% actual · n" + Number(root.calibrationBucket(0).samples || 0)
+            title: root.t("CONFIDENCE 0–49")
+            value: root.t("%1% actual · n%2", [Number(root.calibrationBucket(0).accuracy || 0).toFixed(1),
+                Number(root.calibrationBucket(0).samples || 0)])
         }
         ReportMetric {
             width: (parent.width - 16) / 3
-            title: "CONFIDENCE 50–69"
-            value: Number(root.calibrationBucket(1).accuracy || 0).toFixed(1) + "% actual · n" + Number(root.calibrationBucket(1).samples || 0)
+            title: root.t("CONFIDENCE 50–69")
+            value: root.t("%1% actual · n%2", [Number(root.calibrationBucket(1).accuracy || 0).toFixed(1),
+                Number(root.calibrationBucket(1).samples || 0)])
         }
         ReportMetric {
             width: (parent.width - 16) / 3
-            title: "CONFIDENCE 70–100"
-            value: Number(root.calibrationBucket(2).accuracy || 0).toFixed(1) + "% actual · n" + Number(root.calibrationBucket(2).samples || 0)
+            title: root.t("CONFIDENCE 70–100")
+            value: root.t("%1% actual · n%2", [Number(root.calibrationBucket(2).accuracy || 0).toFixed(1),
+                Number(root.calibrationBucket(2).samples || 0)])
         }
     }
 
@@ -336,8 +342,8 @@ Item {
         anchors { left: parent.left; right: parent.right; bottom: parent.bottom }
         height: 30
         text: root.aiValidationResult.status === "ok"
-            ? root.aiValidationResult.methodology + " " + root.aiValidationResult.disclaimer
-            : "Signal agreement is descriptive, not causal attribution, and never authorizes an order."
+            ? root.t(root.aiValidationResult.methodology) + " " + root.t(root.aiValidationResult.disclaimer)
+            : root.t("Signal agreement is descriptive, not causal attribution, and never authorizes an order.")
         color: root.secondaryColor
         font.family: "SF Pro Display"
         font.pixelSize: 8
@@ -411,18 +417,18 @@ Item {
             height: 30
             ComparisonValue {
                 width: parent.width / 3
-                title: "QUAL HIT"
+                title: root.t("QUAL HIT")
                 value: Number(parent.parent.metrics.hitRate || 0).toFixed(1) + "%"
                 valueColor: root.validationStatusColor(parent.parent.metrics.dataStatus)
             }
             ComparisonValue {
                 width: parent.width / 3
-                title: "QUAL COVER"
+                title: root.t("QUAL COVER")
                 value: Number(parent.parent.metrics.qualifiedCoverage || 0).toFixed(1) + "%"
             }
             ComparisonValue {
                 width: parent.width / 3
-                title: "AVG CONF"
+                title: root.t("AVG CONF")
                 value: Number(parent.parent.metrics.averageConfidence || 0).toFixed(1) + "%"
             }
         }

@@ -392,7 +392,7 @@ PanelWindow {
             else if (wins.length === 1)
                 win._runHypr([ win._focusWin(wins[0].address) ])
         } else if (id === "newwin") {
-            if (win.menuExec.length > 0) { menuLaunchProc.command = win.menuExec; menuLaunchProc.running = true }
+            if (win.menuExec.length > 0) Quickshell.execDetached(win.menuExec)
         } else if (id === "hide") {
             let hidden = wins.filter(w => (w.ws || "") === "special:minimized")
             if (hidden.length > 0) {
@@ -657,7 +657,9 @@ PanelWindow {
                         Image {
                             anchors.verticalCenter: parent.verticalCenter
                             width: 44; height: 44
-                            source: "image://icon/" + win.previewIconName
+                            source: win.previewIconName.includes("://") ? win.previewIconName
+                                : win.previewIconName.startsWith("/") ? "file://" + win.previewIconName
+                                : "image://icon/" + win.previewIconName
                             smooth: true; mipmap: true
                             sourceSize.width: 44; sourceSize.height: 44
                         }
@@ -746,7 +748,6 @@ PanelWindow {
     // ── Right-click context menu ─────────────────────────────────────────────
 
     Process { id: menuActionProc; command: ["true"] }
-    Process { id: menuLaunchProc; command: ["true"] }
     // Brief grace period so the pointer can travel from the "Move to Workspace"
     // row onto the flyout without the submenu collapsing in the gap.
     Timer { id: submenuCloseTimer; interval: 140; onTriggered: win.submenuOpen = false }

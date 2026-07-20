@@ -1,8 +1,29 @@
 from .ai_models import *
 from .ai_usage import ai_usage_summary, ai_usage_totals, append_ai_usage
+from zoneinfo import ZoneInfo
+
+
+FORECAST_HORIZON_SESSIONS = 5
+FORECAST_HISTORY_SESSIONS = 520
+MARKET_SESSION_CLOSES = {
+    "KRX": ("Asia/Seoul", 15, 30),
+    "NASDAQ": ("America/New_York", 16, 0),
+    "NYSE": ("America/New_York", 16, 0),
+}
 
 def forecast_journal_path():
     return os.path.join(state_directory(), "forecasts.json")
+
+
+@contextmanager
+def forecast_journal_lock():
+    descriptor = os.open(forecast_journal_path() + ".lock", os.O_RDWR | os.O_CREAT, 0o600)
+    try:
+        fcntl.flock(descriptor, fcntl.LOCK_EX)
+        yield
+    finally:
+        fcntl.flock(descriptor, fcntl.LOCK_UN)
+        os.close(descriptor)
 
 
 def load_forecasts():
@@ -33,6 +54,105 @@ def add_trading_days(timestamp, count):
     return int(value.timestamp())
 
 
+def forecast_timestamp(value, fallback=0):
+    timestamp = int(numeric(value, fallback))
+    if timestamp > 100000000000:
+        timestamp //= 1000
+    return timestamp if timestamp > 0 else int(fallback)
+
+
+def forecast_source(item, quote):
+    mode = str(item.get("dataMode") or quote.get("mode") or quote.get("dataMode") or "demo").lower()
+    environment = str(item.get("environment") or quote.get("environment") or "paper").lower()
+    if mode not in ("demo", "kis"):
+        mode = "demo"
+    if environment not in ("paper", "prod"):
+        environment = "paper"
+    return mode, environment
+
+
+def forecast_horizon(item):
+    try:
+        return max(1, min(30, int(item.get("horizonSessions", FORECAST_HORIZON_SESSIONS))))
+    except (TypeError, ValueError):
+        return FORECAST_HORIZON_SESSIONS
+
+
+def session_close_timestamp(timestamp, market):
+    timezone_name, hour, minute = MARKET_SESSION_CLOSES.get(
+        str(market).upper(),
+        ("Asia/Seoul", 16, 0),
+    )
+    timezone = ZoneInfo(timezone_name)
+    session_date = datetime.fromtimestamp(int(timestamp), timezone).date()
+    return int(datetime(
+        session_date.year,
+        session_date.month,
+        session_date.day,
+        hour,
+        minute,
+        tzinfo=timezone,
+    ).timestamp())
+
+
+def forecast_history_points(mode, environment, symbol, market):
+    if mode == "kis":
+        if market != "KRX":
+            raise StockServiceError("KIS forecast evaluation currently supports KRX symbols only")
+        points = kis_history_points(environment, symbol, FORECAST_HISTORY_SESSIONS)
+        source = "kis_adjusted_completed_daily_close"
+    else:
+        points = demo_history_points(symbol, market, FORECAST_HISTORY_SESSIONS)
+        source = "demo_synthetic_completed_daily_close"
+    return normalized_history_points(points), source
+
+
+def forecast_target_close(item, points, now):
+    market = str(item.get("market", "KRX")).upper()
+    entry_observed_at = forecast_timestamp(item.get("entryObservedAt"), item.get("generatedAt", 0))
+    horizon = forecast_horizon(item)
+    completed = []
+    for point in points:
+        close_at = session_close_timestamp(point.get("t", 0), market)
+        price = numeric(point.get("v"))
+        if entry_observed_at < close_at <= now and price > 0:
+            completed.append({"t": close_at, "v": price})
+    completed.sort(key=lambda point: point["t"])
+    return (completed[horizon - 1] if len(completed) >= horizon else None), min(len(completed), horizon)
+
+
+def apply_forecast_history(item, points, source, now):
+    target, completed_sessions = forecast_target_close(item, points, now)
+    item["completedHorizonSessions"] = completed_sessions
+    item["evaluationStatus"] = "awaiting_sessions"
+    item.pop("evaluationMessage", None)
+    if target is None:
+        return False
+    entry_price = numeric(item.get("entryPrice"))
+    if entry_price <= 0:
+        return False
+    target_at = int(target["t"])
+    target_price = numeric(target["v"])
+    return_pct = round((target_price / entry_price - 1) * 100, 2)
+    outcome = outcome_for_return(return_pct)
+    item.update({
+        "status": "resolved",
+        "resolvedAt": now,
+        "estimatedTargetAt": int(item.get("estimatedTargetAt") or item.get("targetAt") or 0),
+        "targetAt": target_at,
+        "targetSessionAt": target_at,
+        "targetPrice": target_price,
+        "lastPrice": target_price,
+        "currentReturnPct": return_pct,
+        "returnPct": return_pct,
+        "outcome": outcome,
+        "correct": outcome == expected_outcome(item.get("stance")),
+        "evaluationStatus": "resolved",
+        "evaluationSource": source,
+    })
+    return True
+
+
 def outcome_for_return(return_pct):
     if return_pct > 1:
         return "up"
@@ -56,10 +176,14 @@ def record_forecast(result, snapshot):
         ",".join(result.get("models") or []),
     ])
     forecast_id = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:20]
-    items = load_forecasts()
-    for item in items:
-        if item.get("id") == forecast_id:
-            return {"id": forecast_id, "status": item.get("status", "open"), "targetAt": item.get("targetAt")}
+    entry_observed_at = forecast_timestamp(snapshot.get("updatedAt"), generated_at)
+    data_mode = str(snapshot.get("mode", "demo")).strip().lower()
+    environment = str(snapshot.get("environment", "paper")).strip().lower()
+    if data_mode not in ("demo", "kis"):
+        data_mode = "demo"
+    if environment not in ("paper", "prod"):
+        environment = "paper"
+    estimated_target_at = add_trading_days(entry_observed_at, FORECAST_HORIZON_SESSIONS)
     item = {
         "id": forecast_id,
         "symbol": symbol,
@@ -97,11 +221,26 @@ def record_forecast(result, snapshot):
         "lastPrice": entry_price,
         "currentReturnPct": 0,
         "generatedAt": generated_at,
-        "targetAt": add_trading_days(generated_at, 5),
+        "entryObservedAt": entry_observed_at,
+        "dataMode": data_mode,
+        "environment": environment,
+        "horizonSessions": FORECAST_HORIZON_SESSIONS,
+        "estimatedTargetAt": estimated_target_at,
+        "targetAt": estimated_target_at,
+        "evaluationStatus": "awaiting_sessions",
         "status": "open",
     }
-    items.insert(0, item)
-    save_forecasts(items)
+    with forecast_journal_lock():
+        items = load_forecasts()
+        for existing in items:
+            if existing.get("id") == forecast_id:
+                return {
+                    "id": forecast_id,
+                    "status": existing.get("status", "open"),
+                    "targetAt": existing.get("targetAt"),
+                }
+        items.insert(0, item)
+        save_forecasts(items)
     return {"id": forecast_id, "status": "open", "targetAt": item["targetAt"]}
 
 
@@ -508,40 +647,107 @@ def evaluate_forecasts(quote):
     if not symbol or price <= 0:
         raise StockServiceError("Forecast evaluation requires a valid quote")
     now = int(time.time())
-    items = load_forecasts()
-    changed = False
-    for item in items:
-        if item.get("symbol") != symbol or item.get("market") != market or item.get("status") != "open":
-            continue
-        entry_price = numeric(item.get("entryPrice"))
-        if entry_price <= 0:
-            continue
-        return_pct = round((price / entry_price - 1) * 100, 2)
-        item["lastPrice"] = price
-        item["lastObservedAt"] = now
-        item["currentReturnPct"] = return_pct
-        changed = True
-        if now >= int(item.get("targetAt", 0)):
-            outcome = outcome_for_return(return_pct)
-            expected = {"bullish": "up", "bearish": "down", "neutral": "flat"}.get(item.get("stance"), "flat")
+    quote_observed_at = forecast_timestamp(quote.get("updatedAt"), now)
+    history_cache = {}
+    with forecast_journal_lock():
+        items = load_forecasts()
+        changed = False
+        for item in items:
+            if item.get("symbol") != symbol or item.get("market") != market or item.get("status") != "open":
+                continue
+            entry_price = numeric(item.get("entryPrice"))
+            if entry_price <= 0:
+                continue
+            current_return = round((price / entry_price - 1) * 100, 2)
             item.update({
-                "status": "resolved",
-                "resolvedAt": now,
-                "returnPct": return_pct,
-                "outcome": outcome,
-                "correct": outcome == expected,
+                "lastPrice": price,
+                "latestPrice": price,
+                "lastObservedAt": quote_observed_at,
+                "currentReturnPct": current_return,
+                "entryObservedAt": forecast_timestamp(item.get("entryObservedAt"), item.get("generatedAt", 0)),
+                "horizonSessions": forecast_horizon(item),
             })
-    if changed:
-        save_forecasts(items)
+            mode, environment = forecast_source(item, quote)
+            item["dataMode"] = mode
+            item["environment"] = environment
+            cache_key = (mode, environment, symbol, market)
+            if cache_key not in history_cache:
+                try:
+                    points, source = forecast_history_points(mode, environment, symbol, market)
+                    history_cache[cache_key] = (points, source, None)
+                except (OSError, TypeError, ValueError, StockServiceError) as error:
+                    history_cache[cache_key] = ([], "", str(error))
+            points, source, history_error = history_cache[cache_key]
+            if history_error:
+                item["evaluationStatus"] = "history_unavailable"
+                item["evaluationMessage"] = history_error[:240]
+                changed = True
+                continue
+            apply_forecast_history(item, points, source, now)
+            changed = True
+        if changed:
+            save_forecasts(items)
     return forecast_history(symbol)
 
 
+def evaluate_all_forecasts():
+    now = int(time.time())
+    history_cache = {}
+    checked = 0
+    resolved = 0
+    unavailable = 0
+    with forecast_journal_lock():
+        items = load_forecasts()
+        changed = False
+        for item in items:
+            if item.get("status") != "open":
+                continue
+            symbol = str(item.get("symbol", "")).strip().upper()
+            market = str(item.get("market", "KRX")).strip().upper()
+            if not symbol or numeric(item.get("entryPrice")) <= 0:
+                continue
+            checked += 1
+            item["entryObservedAt"] = forecast_timestamp(item.get("entryObservedAt"), item.get("generatedAt", 0))
+            item["horizonSessions"] = forecast_horizon(item)
+            mode, environment = forecast_source(item, {})
+            item["dataMode"] = mode
+            item["environment"] = environment
+            cache_key = (mode, environment, symbol, market)
+            if cache_key not in history_cache:
+                try:
+                    points, source = forecast_history_points(mode, environment, symbol, market)
+                    history_cache[cache_key] = (points, source, None)
+                except (OSError, TypeError, ValueError, StockServiceError) as error:
+                    history_cache[cache_key] = ([], "", str(error))
+            points, source, history_error = history_cache[cache_key]
+            if history_error:
+                item["evaluationStatus"] = "history_unavailable"
+                item["evaluationMessage"] = history_error[:240]
+                unavailable += 1
+                changed = True
+                continue
+            if apply_forecast_history(item, points, source, now):
+                resolved += 1
+            changed = True
+        if changed:
+            save_forecasts(items)
+    return {
+        "status": "ok" if unavailable == 0 else "partial",
+        "checked": checked,
+        "resolved": resolved,
+        "awaiting": max(0, checked - resolved - unavailable),
+        "unavailable": unavailable,
+        "updatedAt": now,
+    }
+
+
 def delete_forecast(forecast_id):
-    items = load_forecasts()
-    target = next((item for item in items if item.get("id") == forecast_id), None)
-    if not target:
-        raise StockServiceError("Forecast record was not found")
-    save_forecasts([item for item in items if item.get("id") != forecast_id])
+    with forecast_journal_lock():
+        items = load_forecasts()
+        target = next((item for item in items if item.get("id") == forecast_id), None)
+        if not target:
+            raise StockServiceError("Forecast record was not found")
+        save_forecasts([item for item in items if item.get("id") != forecast_id])
     return forecast_history(target.get("symbol", ""))
 
 
@@ -607,6 +813,7 @@ def analyze(provider, profile, snapshot, force=False):
         news,
         analysis_context,
         news_context,
+        snapshot.get("language", "ko"),
     )
     results = []
     models = []
@@ -717,7 +924,11 @@ def analyze(provider, profile, snapshot, force=False):
                 else "Excluded from qualified scorecards until confidence improves"
             ),
         },
-        "disclaimer": "AI 시나리오이며 투자 조언이나 주문 신호가 아닙니다.",
+        "disclaimer": (
+            "AI scenario only. It is not investment advice or an order signal."
+            if snapshot.get("language") == "en"
+            else "AI 시나리오이며 투자 조언이나 주문 신호가 아닙니다."
+        ),
     })
     try:
         merged["forecast"] = record_forecast(merged, snapshot)

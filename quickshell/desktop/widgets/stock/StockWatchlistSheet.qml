@@ -43,7 +43,7 @@ Item {
             anchors { left: parent.left; top: parent.top }
             anchors.leftMargin: 18
             anchors.topMargin: 17
-            text: "Watchlist"
+            text: root.t("Watchlist")
             color: root.foregroundColor
             font.family: "SF Pro Display"
             font.pixelSize: 19
@@ -56,10 +56,12 @@ Item {
             anchors.topMargin: 3
             width: parent.width - 36
             text: root.watchSearchText.trim() !== ""
-                ? (watchSearchProcess.running ? "Searching…"
-                    : (root.watchSearchError !== "" ? root.watchSearchError : root.watchSearchResults.length + " results"))
-                : (root.watchlistError !== "" ? root.watchlistError
-                    : (watchlistProcess.running ? "Updating quotes…" : root.watchlist.length + " of 8 symbols"))
+                ? (watchSearchProcess.running ? root.t("Searching…")
+                    : (root.watchSearchError !== "" ? root.t(root.watchSearchError)
+                    : root.t("%1 results", [root.watchSearchResults.length])))
+                : (root.watchlistError !== "" ? root.t(root.watchlistError)
+                    : (watchlistProcess.running ? root.t("Updating quotes…")
+                    : root.t("%1 of 8 symbols", [root.watchlist.length])))
             color: root.watchSearchText.trim() !== "" && root.watchSearchError !== "" ? root.negativeColor
                 : (root.watchlistError !== "" ? root.negativeColor : root.secondaryColor)
             font.family: "SF Pro Display"
@@ -79,7 +81,7 @@ Item {
             Behavior on scale { AppleSpring { spring: 22 } }
             Text {
                 anchors.centerIn: parent
-                text: "Alerts " + root.enabledAlertCount
+                text: root.t("Alerts %1", [root.enabledAlertCount])
                 color: root.enabledAlertCount > 0 ? "#0a84ff" : root.secondaryColor
                 font.family: "SF Pro Display"
                 font.pixelSize: 10
@@ -145,7 +147,7 @@ Item {
                 anchors.leftMargin: 30
                 anchors.rightMargin: 4
                 text: root.watchSearchText
-                placeholderText: root.dataMode === "kis" ? "Search Korean stocks" : "Search name or symbol"
+                placeholderText: root.dataMode === "kis" ? root.t("Search Korean stocks") : root.t("Search name or symbol")
                 placeholderTextColor: root.secondaryColor
                 color: root.foregroundColor
                 selectionColor: "#0a84ff"
@@ -258,7 +260,7 @@ Item {
                     color: parent.added ? root.separatorColor : Qt.rgba(0.04, 0.52, 1, 0.18)
                     Text {
                         anchors.centerIn: parent
-                        text: parent.parent.added ? "Added" : "Add"
+                        text: parent.parent.added ? root.t("Added") : root.t("Add")
                         color: parent.parent.added ? root.secondaryColor : "#0a84ff"
                         font.family: "SF Pro Display"
                         font.pixelSize: 9
@@ -278,8 +280,8 @@ Item {
                 anchors.centerIn: parent
                 visible: searchResultsView.count === 0
                 width: parent.width - 28
-                text: watchSearchProcess.running ? "Searching symbols…"
-                    : (root.watchSearchError !== "" ? root.watchSearchError : "No matching symbols.")
+                text: watchSearchProcess.running ? root.t("Searching symbols…")
+                    : (root.watchSearchError !== "" ? root.t(root.watchSearchError) : root.t("No matching symbols."))
                 color: root.watchSearchError !== "" ? root.negativeColor : root.secondaryColor
                 font.family: "SF Pro Display"
                 font.pixelSize: 11
@@ -391,7 +393,7 @@ Item {
                     Text {
                         width: parent.width
                         anchors.right: parent.right
-                        text: modelData.status === "error" ? "Unavailable"
+                        text: modelData.status === "error" ? root.t("Unavailable")
                             : StockService.money(modelData.price, modelData.currency)
                         color: modelData.status === "error" ? root.secondaryColor : root.foregroundColor
                         font.family: "SF Pro Display"
@@ -403,7 +405,7 @@ Item {
                     Text {
                         width: parent.width
                         anchors.right: parent.right
-                        text: modelData.status === "error" ? (modelData.message || "Quote error")
+                        text: modelData.status === "error" ? (modelData.message ? root.t(modelData.message) : root.t("Quote error"))
                             : StockService.signed(modelData.changePct, 2) + "%"
                         color: modelData.status === "error" ? root.negativeColor
                             : (Number(modelData.changePct || 0) >= 0 ? root.positiveColor : root.negativeColor)
@@ -471,8 +473,9 @@ Item {
                 anchors.centerIn: parent
                 visible: watchlistView.count === 0
                 width: parent.width - 28
-                text: root.watchlistError !== "" ? root.watchlistError
-                    : (watchlistProcess.running ? "Loading watchlist…" : "Add the current symbol to start a watchlist.")
+                text: root.watchlistError !== "" ? root.t(root.watchlistError)
+                    : (watchlistProcess.running ? root.t("Loading watchlist…")
+                    : root.t("Add the current symbol to start a watchlist."))
                 color: root.watchlistError !== "" ? root.negativeColor : root.secondaryColor
                 font.family: "SF Pro Display"
                 font.pixelSize: 11
@@ -482,4 +485,3 @@ Item {
         }
     }
 }
-

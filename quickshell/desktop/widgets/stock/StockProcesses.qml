@@ -28,6 +28,7 @@ Item {
     property alias screener: screenerProcess
     property alias watchlist: watchlistProcess
     property alias watchSearch: watchSearchProcess
+    property alias alertEvaluation: alertEvaluationProcess
 
 Connections {
     target: StockService
@@ -82,7 +83,7 @@ Timer {
 Timer {
     interval: 60000
     repeat: true
-    running: root.alertPollingReady && (root.enabledAlertCount > 0 || (root.active && root.watchlistVisible))
+    running: root.active && root.alertPollingReady && (root.enabledAlertCount > 0 || root.watchlistVisible)
     onTriggered: root.refreshWatchlist()
 }
 
@@ -514,6 +515,32 @@ Process {
         if (root.watchSearchQueued) {
             root.watchSearchQueued = false
             root.searchWatchlist(root.watchSearchText)
+        }
+    }
+}
+
+Process {
+    id: alertEvaluationProcess
+    stdinEnabled: true
+    stdout: StdioCollector {
+        onStreamFinished: {
+            try {
+                let result = JSON.parse(text || "{}")
+                if (result.status !== "ok") throw new Error(result.message || "Alert evaluation unavailable")
+                root.applyAlertRuntimeStates(result.states || [])
+            } catch (error) {
+                root.watchlistError = error.message || "Alert evaluation unavailable"
+            }
+        }
+    }
+    onStarted: {
+        alertEvaluationProcess.write(root.pendingAlertEvaluation + "\n")
+        root.pendingAlertEvaluation = ""
+    }
+    onExited: {
+        if (root.alertEvaluationQueued) {
+            root.alertEvaluationQueued = false
+            root.evaluatePriceAlerts((root.watchlistState || {}).items || [])
         }
     }
 }

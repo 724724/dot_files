@@ -5,6 +5,7 @@ import Quickshell.Io
 Item {
     id: ed
     property int index: -1
+    property string language: "ko"
     property string symbol: "005930"
     property string market: "KRX"
     property string range: "1D"
@@ -22,6 +23,14 @@ Item {
     property string pendingRisk: ""
     property bool riskWritePending: false
     property var queuedRiskPatch: ({})
+    property bool backgroundEnabled: false
+    property bool backgroundTargetEnabled: false
+    property bool backgroundInstalled: false
+    property bool backgroundStatusKnown: false
+    property bool backgroundBusy: false
+    property bool backgroundFailed: false
+    property string backgroundAction: "status"
+    property string backgroundMessage: "Checking background monitoring…"
 
     implicitWidth: 440
     implicitHeight: col.implicitHeight
@@ -34,6 +43,7 @@ Item {
         reload()
         refreshCredentialState()
         refreshRiskPolicy()
+        refreshBackgroundStatus()
     }
 
     Connections {
@@ -142,9 +152,41 @@ Item {
         }
     }
 
+    Process {
+        id: backgroundProcess
+        stdout: StdioCollector {
+            onStreamFinished: {
+                try {
+                    let result = JSON.parse(text || "{}")
+                    if (result.status !== "ok") throw new Error(result.message || "Background monitoring unavailable")
+                    ed.backgroundEnabled = !!result.enabled
+                    ed.backgroundInstalled = !!result.installed
+                    ed.backgroundStatusKnown = true
+                    ed.backgroundFailed = false
+                    if (ed.backgroundAction === "status") ed.backgroundTargetEnabled = ed.backgroundEnabled
+                    ed.backgroundMessage = result.message || (ed.backgroundEnabled
+                        ? "Runs every minute while enabled"
+                        : "Off · no periodic CPU or network wake-ups")
+                } catch (error) {
+                    ed.backgroundFailed = true
+                    ed.backgroundTargetEnabled = ed.backgroundEnabled
+                    ed.backgroundMessage = error.message || "Background monitoring unavailable"
+                }
+            }
+        }
+        onRunningChanged: ed.backgroundBusy = running
+        onExited: {
+            if (!ed.backgroundFailed && ed.backgroundStatusKnown
+                    && ed.backgroundTargetEnabled !== ed.backgroundEnabled) {
+                Qt.callLater(ed.applyBackgroundTarget)
+            }
+        }
+    }
+
     function reload() {
         if (index < 0) return
         let data = WidgetsService.getData(index)
+        language = data.language === "en" ? "en" : "ko"
         symbol = data.symbol || "005930"
         market = data.market || "KRX"
         range = data.range || "1D"
@@ -158,6 +200,8 @@ Item {
     function save(patch) {
         if (index >= 0) WidgetsService.setData(index, patch)
     }
+
+    function t(source, values) { return StockStrings.text(language, source, values) }
 
     function refreshCredentialState() {
         if (statusProcess.running) return
@@ -200,6 +244,29 @@ Item {
         riskProcess.running = true
     }
 
+    function refreshBackgroundStatus() {
+        if (backgroundProcess.running) return
+        backgroundAction = "status"
+        backgroundFailed = false
+        backgroundProcess.command = ["python3", StockService.stockScript, "background", "status"]
+        backgroundProcess.running = true
+    }
+
+    function setBackgroundEnabled(enabled) {
+        if (!backgroundStatusKnown || !backgroundInstalled) return
+        backgroundTargetEnabled = enabled
+        backgroundMessage = enabled ? "Starting background monitoring…" : "Stopping background monitoring…"
+        if (!backgroundProcess.running) applyBackgroundTarget()
+    }
+
+    function applyBackgroundTarget() {
+        if (backgroundProcess.running || backgroundTargetEnabled === backgroundEnabled) return
+        backgroundAction = backgroundTargetEnabled ? "enable" : "disable"
+        backgroundFailed = false
+        backgroundProcess.command = ["python3", StockService.stockScript, "background", backgroundAction]
+        backgroundProcess.running = true
+    }
+
     Column {
         id: col
         width: parent.width
@@ -209,7 +276,7 @@ Item {
             width: parent.width
             height: 24
             Text {
-                text: "Stocks"
+                text: ed.t("Stocks")
                 color: "#ffffff"
                 font.family: "SF Pro Display"
                 font.pixelSize: 20
@@ -220,7 +287,7 @@ Item {
             StatusBadge {
                 id: keychainStatus
                 anchors.verticalCenter: parent.verticalCenter
-                label: ed.credentialState.keychain ? "Keychain Ready" : "Keychain"
+                label: ed.t(ed.credentialState.keychain ? "Keychain Ready" : "Keychain")
                 ready: !!ed.credentialState.keychain
             }
         }
@@ -228,7 +295,7 @@ Item {
         Column {
             width: parent.width
             spacing: 7
-            LabelText { text: "Symbol" }
+            LabelText { text: ed.t("Symbol") }
             Rectangle {
                 width: parent.width
                 height: 36
@@ -265,8 +332,8 @@ Item {
             spacing: 16
             OptionGroup {
                 width: (parent.width - 16) / 2
-                title: "Market"
-                options: StockService.marketOptions
+                title: ed.t("Market")
+                options: StockStrings.options(ed.language, StockService.marketOptions)
                 selectedId: ed.market
                 onSelected: id => {
                     ed.market = id
@@ -278,8 +345,8 @@ Item {
             }
             OptionGroup {
                 width: (parent.width - 16) / 2
-                title: "Default Range"
-                options: StockService.rangeOptions
+                title: ed.t("Default Range")
+                options: StockStrings.options(ed.language, StockService.rangeOptions)
                 selectedId: ed.range
                 onSelected: id => { ed.range = id; ed.save({ range: id }) }
             }
@@ -290,15 +357,15 @@ Item {
             spacing: 16
             OptionGroup {
                 width: (parent.width - 16) / 2
-                title: "Data Source"
-                options: StockService.dataModeOptions
+                title: ed.t("Data Source")
+                options: StockStrings.options(ed.language, StockService.dataModeOptions)
                 selectedId: ed.dataMode
                 onSelected: id => { ed.dataMode = id; ed.save({ dataMode: id }) }
             }
             OptionGroup {
                 width: (parent.width - 16) / 2
-                title: "KIS Environment"
-                options: StockService.kisEnvironmentOptions
+                title: ed.t("KIS Environment")
+                options: StockStrings.options(ed.language, StockService.kisEnvironmentOptions)
                 selectedId: ed.kisEnvironment
                 onSelected: id => {
                     ed.kisEnvironment = id
@@ -308,6 +375,101 @@ Item {
                         ed.updateRiskPolicy({ productionEnabled: false })
                     }
                     ed.save({ kisEnvironment: id, productionTradingEnabled: ed.productionTradingEnabled })
+                }
+            }
+        }
+
+        OptionGroup {
+            width: parent.width
+            title: ed.t("Language")
+            options: StockStrings.languageOptions
+            selectedId: ed.language
+            onSelected: id => {
+                ed.language = id
+                ed.save({ language: id })
+            }
+        }
+
+        Rectangle {
+            width: parent.width
+            height: 72
+            radius: 12
+            color: Qt.rgba(1, 1, 1, 0.055)
+            border.color: Qt.rgba(1, 1, 1, 0.10)
+            border.width: 1
+
+            Column {
+                anchors.left: parent.left
+                anchors.right: backgroundToggle.left
+                anchors.leftMargin: 12
+                anchors.rightMargin: 14
+                anchors.verticalCenter: parent.verticalCenter
+                spacing: 4
+                Row {
+                    spacing: 7
+                    Text {
+                        text: ed.t("Background Monitoring")
+                        color: "#ffffff"
+                        font.family: "SF Pro Display"
+                        font.pixelSize: 13
+                        font.weight: Font.DemiBold
+                    }
+                    Rectangle {
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: globalLabel.implicitWidth + 12
+                        height: 18
+                        radius: 6
+                        color: Qt.rgba(1, 1, 1, 0.08)
+                        Text {
+                            id: globalLabel
+                            anchors.centerIn: parent
+                            text: ed.t("Global")
+                            color: Qt.rgba(1, 1, 1, 0.50)
+                            font.family: "SF Pro Display"
+                            font.pixelSize: 8
+                            font.weight: Font.DemiBold
+                        }
+                    }
+                }
+                Text {
+                    width: parent.width
+                    text: ed.t(ed.backgroundMessage)
+                    color: ed.backgroundFailed ? "#ff453a" : Qt.rgba(1, 1, 1, 0.52)
+                    font.family: "SF Pro Display"
+                    font.pixelSize: 10
+                    elide: Text.ElideRight
+                }
+            }
+
+            Rectangle {
+                id: backgroundToggle
+                anchors.right: parent.right
+                anchors.rightMargin: 12
+                anchors.verticalCenter: parent.verticalCenter
+                width: 46
+                height: 26
+                radius: 13
+                color: ed.backgroundTargetEnabled ? "#30d158" : Qt.rgba(1, 1, 1, 0.16)
+                opacity: ed.backgroundStatusKnown && ed.backgroundInstalled ? 1 : 0.42
+                scale: backgroundToggleArea.pressed ? ThemeService.pressScale : 1
+                Behavior on scale { AppleSpring { spring: 22 } }
+
+                Rectangle {
+                    width: 20
+                    height: 20
+                    radius: 10
+                    y: 3
+                    x: ed.backgroundTargetEnabled ? parent.width - width - 3 : 3
+                    color: "#ffffff"
+                    Behavior on x { AppleSpring { spring: 22; epsilon: 0.1 } }
+                }
+
+                MouseArea {
+                    id: backgroundToggleArea
+                    anchors.fill: parent
+                    enabled: ed.backgroundStatusKnown && ed.backgroundInstalled
+                    cursorShape: Qt.PointingHandCursor
+                    onPressed: ed.setBackgroundEnabled(!ed.backgroundTargetEnabled)
                 }
             }
         }
@@ -327,7 +489,7 @@ Item {
                 Row {
                     width: parent.width
                     Text {
-                        text: "KIS " + (ed.kisEnvironment === "prod" ? "Production" : "Paper")
+                        text: "KIS · " + ed.t(ed.kisEnvironment === "prod" ? "Production" : "Paper")
                         color: "#ffffff"
                         font.family: "SF Pro Display"
                         font.pixelSize: 13
@@ -336,24 +498,24 @@ Item {
                     Item { width: parent.width - parent.children[0].width - kisStatus.width; height: 1 }
                     StatusBadge {
                         id: kisStatus
-                        label: ed.kisConfigured && ed.kisAccountConfigured ? "Trade Ready" : (ed.kisConfigured ? "Quotes Ready" : "Not Saved")
+                        label: ed.t(ed.kisConfigured && ed.kisAccountConfigured ? "Trade Ready" : (ed.kisConfigured ? "Quotes Ready" : "Not Saved"))
                         ready: ed.kisConfigured && ed.kisAccountConfigured
                     }
                 }
                 CredentialField {
-                    label: "App Key"
+                    label: ed.t("App Key")
                     configured: ed.kisConfigured
                     onRequested: (value, field) => ed.storeCredential(
                         ed.kisEnvironment === "prod" ? "kis_prod_app_key" : "kis_paper_app_key", value, field)
                 }
                 CredentialField {
-                    label: "App Secret"
+                    label: ed.t("App Secret")
                     configured: ed.kisConfigured
                     onRequested: (value, field) => ed.storeCredential(
                         ed.kisEnvironment === "prod" ? "kis_prod_app_secret" : "kis_paper_app_secret", value, field)
                 }
                 CredentialField {
-                    label: "Account Number (8-2)"
+                    label: ed.t("Account Number (8-2)")
                     configured: ed.kisAccountConfigured
                     onRequested: (value, field) => ed.storeCredential(
                         ed.kisEnvironment === "prod" ? "kis_prod_account" : "kis_paper_account", value, field)
@@ -377,7 +539,7 @@ Item {
                 Row {
                     width: parent.width
                     Text {
-                        text: "Production Orders"
+                        text: ed.t("Production Orders")
                         color: "#ffffff"
                         font.family: "SF Pro Display"
                         font.pixelSize: 13
@@ -386,15 +548,15 @@ Item {
                     Item { width: parent.width - parent.children[0].width - productionStatus.width; height: 1 }
                     StatusBadge {
                         id: productionStatus
-                        label: ed.productionTradingEnabled ? "Enabled" : "Locked"
+                        label: ed.t(ed.productionTradingEnabled ? "Enabled" : "Locked")
                         ready: false
                     }
                 }
                 Text {
                     width: parent.width
-                    text: ed.productionTradingEnabled
+                    text: ed.t(ed.productionTradingEnabled
                         ? "Every live order still requires typing LIVE in its confirmation sheet."
-                        : "Type ENABLE LIVE to permit production order confirmation screens."
+                        : "Type ENABLE LIVE to permit production order confirmation screens.")
                     color: Qt.rgba(1, 1, 1, 0.62)
                     font.family: "SF Pro Display"
                     font.pixelSize: 10
@@ -439,7 +601,7 @@ Item {
                         Behavior on scale { AppleSpring { spring: 18 } }
                         Text {
                             anchors.centerIn: parent
-                            text: riskProcess.running ? "Saving…" : (ed.productionTradingEnabled ? "Lock" : "Enable")
+                            text: ed.t(riskProcess.running ? "Saving…" : (ed.productionTradingEnabled ? "Lock" : "Enable"))
                             color: "#ffffff"
                             font.family: "SF Pro Display"
                             font.pixelSize: 11
@@ -459,7 +621,7 @@ Item {
                     }
                 }
                 Text {
-                    text: "Risk Guard"
+                    text: ed.t("Risk Guard")
                     color: Qt.rgba(1, 1, 1, 0.72)
                     font.family: "SF Pro Display"
                     font.pixelSize: 11
@@ -470,13 +632,13 @@ Item {
                     spacing: 8
                     RiskField {
                         width: (parent.width - 8) / 2
-                        label: "Per order · KRW"
+                        label: ed.t("Per order · KRW")
                         policyKey: "maxOrderValueKrw"
                         value: ed.riskPolicy.maxOrderValueKrw
                     }
                     RiskField {
                         width: (parent.width - 8) / 2
-                        label: "Daily buys · KRW"
+                        label: ed.t("Daily buys · KRW")
                         policyKey: "maxDailyBuyValueKrw"
                         value: ed.riskPolicy.maxDailyBuyValueKrw
                     }
@@ -486,14 +648,14 @@ Item {
                     spacing: 8
                     RiskField {
                         width: (parent.width - 8) / 2
-                        label: "Buy orders / day"
+                        label: ed.t("Buy orders / day")
                         policyKey: "maxBuyOrdersPerDay"
                         value: ed.riskPolicy.maxBuyOrdersPerDay
                         maximum: 1000
                     }
                     RiskField {
                         width: (parent.width - 8) / 2
-                        label: "Max position · %"
+                        label: ed.t("Max position · %")
                         policyKey: "maxPositionPercent"
                         value: ed.riskPolicy.maxPositionPercent
                         maximum: 100
@@ -507,15 +669,15 @@ Item {
             spacing: 10
             OptionGroup {
                 width: parent.width
-                title: "AI Provider"
-                options: StockService.providerOptions
+                title: ed.t("AI Provider")
+                options: StockStrings.options(ed.language, StockService.providerOptions)
                 selectedId: ed.aiProvider
                 onSelected: id => { ed.aiProvider = id; ed.save({ aiProvider: id }) }
             }
             OptionGroup {
                 width: parent.width
-                title: "Analysis Quality"
-                options: StockService.analysisProfileOptions
+                title: ed.t("Analysis Quality")
+                options: StockStrings.options(ed.language, StockService.analysisProfileOptions)
                 selectedId: ed.analysisProfile
                 onSelected: id => { ed.analysisProfile = id; ed.save({ analysisProfile: id }) }
             }
@@ -528,8 +690,8 @@ Item {
             Text {
                 anchors.verticalCenter: parent.verticalCenter
                 width: parent.width - syncModelsButton.width - parent.spacing
-                text: StockService.profileModels(ed.analysisProfile)
-                    + (ed.modelMessage !== "" ? "  ·  " + ed.modelMessage : "")
+                text: ed.t(StockService.profileModels(ed.analysisProfile))
+                    + (ed.modelMessage !== "" ? "  ·  " + ed.t(ed.modelMessage) : "")
                 color: Qt.rgba(1, 1, 1, 0.45)
                 font.family: "SF Pro Display"
                 font.pixelSize: 10
@@ -546,7 +708,7 @@ Item {
                 Behavior on scale { AppleSpring { spring: 18 } }
                 Text {
                     anchors.centerIn: parent
-                    text: modelProcess.running ? "Syncing" : "Refresh"
+                    text: ed.t(modelProcess.running ? "Syncing" : "Refresh")
                     color: "#ffffff"
                     font.family: "SF Pro Display"
                     font.pixelSize: 10
@@ -568,13 +730,13 @@ Item {
             spacing: 10
             CredentialField {
                 width: (parent.width - 10) / 2
-                label: "OpenAI API Key"
+                label: ed.t("OpenAI API Key")
                 configured: !!ed.credentialState.openai
                 onRequested: (value, field) => ed.storeCredential("openai_api_key", value, field)
             }
             CredentialField {
                 width: (parent.width - 10) / 2
-                label: "Claude API Key"
+                label: ed.t("Claude API Key")
                 configured: !!ed.credentialState.claude
                 onRequested: (value, field) => ed.storeCredential("anthropic_api_key", value, field)
             }
@@ -583,7 +745,7 @@ Item {
         Text {
             visible: ed.credentialMessage !== ""
             width: parent.width
-            text: ed.credentialMessage
+            text: ed.t(ed.credentialMessage)
             color: ed.credentialMessage.indexOf("Could not") >= 0 || ed.credentialMessage.indexOf("unavailable") >= 0
                 ? "#ff453a" : Qt.rgba(1, 1, 1, 0.58)
             font.family: "SF Pro Display"
@@ -601,7 +763,7 @@ Item {
                 id: securityText
                 anchors.fill: parent
                 anchors.margins: 10
-                text: "Secrets and account numbers are stored only in GNOME Keyring. AI cannot place orders. Production trading requires settings opt-in and LIVE confirmation for every action."
+                text: ed.t("Secrets and account numbers are stored only in GNOME Keyring. AI cannot place orders. Production trading requires settings opt-in and LIVE confirmation for every action.")
                 color: Qt.rgba(1, 1, 1, 0.72)
                 font.family: "SF Pro Display"
                 font.pixelSize: 11
@@ -757,7 +919,7 @@ Item {
             Item { width: parent.width - parent.children[0].width - savedText.width; height: 1 }
             Text {
                 id: savedText
-                text: credential.configured ? "Saved" : ""
+                text: credential.configured ? ed.t("Saved") : ""
                 color: "#30d158"
                 font.family: "SF Pro Display"
                 font.pixelSize: 9
@@ -776,7 +938,7 @@ Item {
                 anchors { left: parent.left; right: saveButton.left; top: parent.top; bottom: parent.bottom }
                 anchors.leftMargin: 10
                 anchors.rightMargin: 6
-                placeholderText: credential.configured ? "Replace saved value" : "Enter securely"
+                placeholderText: ed.t(credential.configured ? "Replace saved value" : "Enter securely")
                 placeholderTextColor: Qt.rgba(1, 1, 1, 0.32)
                 color: "#ffffff"
                 selectionColor: "#0a84ff"
@@ -799,7 +961,7 @@ Item {
                 Behavior on scale { AppleSpring { spring: 18 } }
                 Text {
                     anchors.centerIn: parent
-                    text: "Save"
+                    text: ed.t("Save")
                     color: "#ffffff"
                     font.family: "SF Pro Display"
                     font.pixelSize: 10

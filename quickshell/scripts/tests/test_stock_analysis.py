@@ -114,6 +114,13 @@ class StockAnalysisTests(unittest.TestCase):
         self.assertEqual(payload["dataContext"], context)
         self.assertEqual(payload["newsContext"], news_context)
 
+    def test_prompt_uses_selected_output_language(self):
+        english = analysis_prompt({}, {}, {}, [], language="en")
+        korean = analysis_prompt({}, {}, {}, [], language="ko")
+
+        self.assertIn("in concise English", english.split("\n", 1)[0])
+        self.assertIn("간결한 한국어", korean.split("\n", 1)[0])
+
     def test_news_normalization_deduplicates_and_weights_recency(self):
         now = 1_000_000
         news = normalize_news_items([

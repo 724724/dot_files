@@ -29,13 +29,26 @@ Item {
             currentIndex: widget.optionIndex(model, widget.audioFormat)
             onActivated: index => widget.setFormat(model[index].id)
         }
-        Youtube.YoutubeCombo {
+        Row {
             width: parent.width
             height: 32
-            widget: view.widget
-            model: widget.service.bitrates
-            currentIndex: widget.optionIndex(model, widget.bitrate)
-            onActivated: index => widget.setBitrate(model[index].id)
+            spacing: 7
+            Youtube.YoutubeCombo {
+                width: (parent.width - 7) / 2
+                height: parent.height
+                widget: view.widget
+                model: widget.service.bitrates
+                currentIndex: widget.optionIndex(model, widget.bitrate)
+                onActivated: index => widget.setBitrate(model[index].id)
+            }
+            Youtube.YoutubeCombo {
+                width: (parent.width - 7) / 2
+                height: parent.height
+                widget: view.widget
+                model: widget.service.browserOptions()
+                currentIndex: widget.optionIndex(model, widget.cookieBrowser)
+                onActivated: index => widget.setCookieBrowser(model[index].id)
+            }
         }
         Text {
             width: parent.width

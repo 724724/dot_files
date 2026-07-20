@@ -1,3 +1,4 @@
+import Quickshell
 import Quickshell.Io
 import QtQuick
 
@@ -9,6 +10,10 @@ Item {
     property string iconName: ""
     property var execCmd: []
     property bool dark: true
+    readonly property string iconSource: iconName.includes("://") ? iconName
+        : iconName.startsWith("/") ? "file://" + iconName
+        : iconName ? "image://icon/" + iconName
+        : "image://icon/application-x-executable"
     // Direct reference to DockWindow — avoids signals with complex var types
     property var dockWin: null
     property bool launchpadRightSide: false
@@ -133,8 +138,13 @@ Item {
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.top: parent.top; anchors.topMargin: 12
         width: 42; height: 42
-        source: "image://icon/" + item.iconName
+        source: item.iconSource
         smooth: true; mipmap: true
+        onStatusChanged: {
+            if (status === Image.Error
+                    && source.toString() !== "image://icon/application-x-executable")
+                source = "image://icon/application-x-executable"
+        }
         transform: [
             Translate {
                 // The dragged icon tracks the cursor 1:1 (and lifts slightly); the
@@ -256,13 +266,7 @@ Item {
     // `dispatch focuswindow class:X` form errors with "')' expected near 'class'".
     // Focus the window, then raise it to the top of the z-order — otherwise a
     // focused floating window can stay buried under other floating windows.
-    Process {
-        id: focusProc
-        command: ["hyprctl", "eval",
-                  'hl.dispatch(hl.dsp.focus({ window = "class:' + item.wmClass + '" })); '
-                  + 'hl.dispatch(hl.dsp.window.bring_to_top({}))']
-    }
-    Process { id: launchProc; command: item.execCmd.length > 0 ? item.execCmd : ["true"] }
+    Process { id: focusProc; command: ["true"] }
     // Un-hide: move the app's Hidden windows back to the active workspace and
     // focus one. Built per-click (addresses vary), so no static command here.
     Process { id: restoreProc; command: ["true"] }
@@ -367,11 +371,16 @@ Item {
                 }
             } else if (wins.length === 1 || item.isRunning) {
                 if (item.dockWin) item.dockWin.previewOpen = false
+                let target = wins.length > 0 && wins[0].address
+                    ? "address:" + wins[0].address : "class:" + item.wmClass
+                focusProc.command = ["hyprctl", "eval",
+                    'hl.dispatch(hl.dsp.focus({ window = "' + target + '" })); '
+                    + 'hl.dispatch(hl.dsp.window.bring_to_top({}))']
                 focusProc.running = true
             } else if (item.execCmd.length > 0) {
                 item.launching = true
                 launchTimeout.restart()
-                launchProc.running = true
+                Quickshell.execDetached(item.execCmd)
             }
         }
     }

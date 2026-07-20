@@ -84,9 +84,9 @@ Item {
 
         Text {
             width: parent.width
-            text: "Spotify only exposes the first 100 tracks of a playlist to apps, so larger "
-                + "playlists download up to 100. Already-downloaded tracks are skipped, so you can "
-                + "split a big playlist into ≤100-track playlists and run each."
+            text: "Playlists are fetched page by page, so the full track list is downloaded. "
+                + "Each file keeps Spotify's album name and highest-resolution available album artwork. "
+                + "Browser cookies are passed to yt-dlp so it can use the best audio source available to your account."
             color: Qt.rgba(1, 1, 1, 0.48)
             wrapMode: Text.WordWrap
             font.family: "SF Pro Display"

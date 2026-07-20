@@ -17,31 +17,37 @@ Item {
         InsightCard {
             width: (parent.width - 20) / 3
             icon: root.analysisResult.stance === "bullish" ? "↗" : (root.analysisResult.stance === "bearish" ? "↘" : "→")
-            title: "Scenario"
+            title: root.t("Scenario")
             detail: root.stanceLabel(root.analysisResult.stance)
             ready: root.analysisResult.status === "ok"
         }
         InsightCard {
             width: (parent.width - 20) / 3
             icon: "◎"
-            title: "Confidence"
+            title: root.t("Confidence")
             detail: root.analysisResult.status === "ok"
                 ? (Number(root.analysisResult.rawConfidence || root.analysisResult.confidence)
                     !== Number(root.analysisResult.confidence)
-                    ? root.analysisResult.confidence + "% · raw " + root.analysisResult.rawConfidence + "%"
-                    : root.analysisResult.confidence + "% · " + root.analysisResult.newsCount + " news · "
-                        + Number((root.analysisResult.newsContext || {}).sourceCount || 0) + " sources")
-                : "Not analyzed"
+                    ? root.t("%1% · raw %2%", [root.analysisResult.confidence, root.analysisResult.rawConfidence])
+                    : root.t("%1% · %2 news · %3 sources", [
+                        root.analysisResult.confidence,
+                        root.analysisResult.newsCount,
+                        Number((root.analysisResult.newsContext || {}).sourceCount || 0)
+                    ]))
+                : root.t("Not analyzed")
             ready: root.analysisResult.status === "ok"
         }
         InsightCard {
             width: (parent.width - 20) / 3
             icon: "⌁"
-            title: "Walk-forward"
+            title: root.t("Walk-forward")
             detail: root.analysisResult.status === "ok" && root.analysisResult.evidence
-                ? (root.analysisResult.evidence.status === "insufficient" ? "Need more data"
-                : root.analysisResult.evidence.hitRate + "% · " + root.analysisResult.evidence.sampleCount + " samples")
-                : "Local evidence"
+                ? (root.analysisResult.evidence.status === "insufficient" ? root.t("Need more data")
+                : root.t("%1% · %2 samples", [
+                    root.analysisResult.evidence.hitRate,
+                    root.analysisResult.evidence.sampleCount
+                ]))
+                : root.t("Local evidence")
             ready: root.analysisResult.status === "ok" && root.analysisResult.evidence
                 && root.analysisResult.evidence.status === "usable"
         }
@@ -69,11 +75,11 @@ Item {
         anchors { left: parent.left; right: parent.right; top: probabilityBar.bottom; bottom: analysisActions.top }
         anchors.topMargin: 7
         anchors.bottomMargin: 4
-        text: root.analysisError !== "" ? root.analysisError
+        text: root.analysisError !== "" ? root.t(root.analysisError)
             : (root.analysisBusy ? "최근 뉴스와 차트 지표를 분석하고 있습니다…"
             : (root.analysisResult.status === "ok" ? root.analysisResult.summary
-            : (root.aiConfigured ? "Run analysis to build a 1–5 trading day probability scenario."
-            : "Save an OpenAI or Claude API key in Edit.")))
+            : (root.aiConfigured ? root.t("Run analysis to build a 1–5 trading day probability scenario.")
+            : root.t("Save an OpenAI or Claude API key in Edit."))))
         color: root.analysisError !== "" ? root.negativeColor : root.secondaryColor
         font.family: "SF Pro Display"
         font.pixelSize: 11
@@ -90,17 +96,24 @@ Item {
         Text {
             anchors.verticalCenter: parent.verticalCenter
             width: parent.width - historyButton.width - detailsButton.width - analyzeButton.width - parent.spacing * 3
-            text: root.analysisResult.status === "ok"
-                ? "Up " + root.analysisResult.upProbability + "%  ·  Flat " + root.analysisResult.flatProbability
-                  + "%  ·  Down " + root.analysisResult.downProbability + "%"
-                  + ((root.analysisResult.forecast || {}).id ? " · Journaled" : "")
-                  + ((root.analysisResult.calibrationAdjustment || {}).status === "applied" ? " · Calibrated" : "")
-                  + ((root.analysisResult.modelWeighting || {}).status === "applied" ? " · Weighted ensemble" : "")
-                  + ((root.analysisResult.ensembleAgreement || {}).status === "low" ? " · Model conflict" : "")
-                  + ((root.analysisResult.providerStatus || {}).degraded ? " · Partial provider result" : "")
-                  + ((root.analysisResult.qualityGate || {}).confidenceStatus === "low_confidence"
-                    || (root.analysisResult.qualityGate || {}).status === "low_confidence" ? " · Low confidence" : "")
-                : "Analysis never triggers an order."
+            text: {
+                if (root.analysisResult.status !== "ok")
+                    return root.t("Analysis never triggers an order.")
+                let value = root.t("Up %1% · Flat %2% · Down %3%", [
+                    root.analysisResult.upProbability,
+                    root.analysisResult.flatProbability,
+                    root.analysisResult.downProbability
+                ])
+                if ((root.analysisResult.forecast || {}).id) value += root.t(" · Journaled")
+                if ((root.analysisResult.calibrationAdjustment || {}).status === "applied") value += root.t(" · Calibrated")
+                if ((root.analysisResult.modelWeighting || {}).status === "applied") value += root.t(" · Weighted ensemble")
+                if ((root.analysisResult.ensembleAgreement || {}).status === "low") value += root.t(" · Model conflict")
+                if ((root.analysisResult.providerStatus || {}).degraded) value += root.t(" · Partial provider result")
+                if ((root.analysisResult.qualityGate || {}).confidenceStatus === "low_confidence"
+                        || (root.analysisResult.qualityGate || {}).status === "low_confidence")
+                    value += root.t(" · Low confidence")
+                return value
+            }
             color: (root.analysisResult.providerStatus || {}).degraded ? "#ff9f0a" : root.secondaryColor
             font.family: "SF Pro Display"
             font.pixelSize: 10
@@ -116,7 +129,7 @@ Item {
             Behavior on scale { AppleSpring { spring: 22 } }
             Text {
                 anchors.centerIn: parent
-                text: "Quant Lab"
+                text: root.t("Quant Lab")
                 color: root.foregroundColor
                 font.family: "SF Pro Display"
                 font.pixelSize: 10
@@ -141,7 +154,7 @@ Item {
             Behavior on scale { AppleSpring { spring: 22 } }
             Text {
                 anchors.centerIn: parent
-                text: "Details"
+                text: root.t("Details")
                 color: root.foregroundColor
                 font.family: "SF Pro Display"
                 font.pixelSize: 11
@@ -170,7 +183,8 @@ Item {
             Behavior on scale { AppleSpring { spring: 18 } }
             Text {
                 anchors.centerIn: parent
-                text: root.analysisBusy ? "Analyzing…" : (root.analysisResult.status === "ok" ? "Refresh" : "Run Analysis")
+                text: root.analysisBusy ? root.t("Analyzing…")
+                    : (root.analysisResult.status === "ok" ? root.t("Refresh") : root.t("Run Analysis"))
                 color: "#ffffff"
                 font.family: "SF Pro Display"
                 font.pixelSize: 12

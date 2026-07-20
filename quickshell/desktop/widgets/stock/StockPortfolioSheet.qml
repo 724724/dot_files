@@ -25,7 +25,7 @@ Rectangle {
         anchors { left: parent.left; top: parent.top }
         anchors.leftMargin: 16
         anchors.topMargin: 12
-        text: root.kisEnvironment === "paper" ? "Paper Portfolio" : "Production Portfolio"
+        text: root.kisEnvironment === "paper" ? root.t("Paper Portfolio") : root.t("Production Portfolio")
         color: root.foregroundColor
         font.family: "SF Pro Display"
         font.pixelSize: 15
@@ -36,7 +36,8 @@ Rectangle {
         anchors.left: portfolioTitle.right
         anchors.leftMargin: 8
         anchors.verticalCenter: portfolioTitle.verticalCenter
-        text: root.accountBusy ? "Updating…" : ((root.accountState.holdings || []).length + " holdings")
+        text: root.accountBusy ? root.t("Updating…")
+            : root.t("%1 holdings", [(root.accountState.holdings || []).length])
         color: root.secondaryColor
         font.family: "SF Pro Display"
         font.pixelSize: 10
@@ -77,22 +78,22 @@ Rectangle {
         spacing: 12
         PortfolioMetric {
             width: (parent.width - 36) / 4
-            title: "TOTAL"
+            title: root.t("TOTAL")
             value: StockService.money(root.accountState.totalEvaluation, "KRW")
         }
         PortfolioMetric {
             width: (parent.width - 36) / 4
-            title: "CASH"
+            title: root.t("CASH")
             value: StockService.money(root.accountState.cash, "KRW")
         }
         PortfolioMetric {
             width: (parent.width - 36) / 4
-            title: "STOCKS"
+            title: root.t("STOCKS")
             value: StockService.money(root.accountState.stockEvaluation, "KRW")
         }
         PortfolioMetric {
             width: (parent.width - 36) / 4
-            title: "P&L"
+            title: root.t("P&L")
             value: StockService.signedMoney(root.accountState.profitLoss, "KRW")
             valueColor: Number(root.accountState.profitLoss || 0) >= 0 ? root.positiveColor : root.negativeColor
         }
@@ -178,8 +179,8 @@ Rectangle {
                     }
                     Text {
                         width: parent.width
-                        text: modelData.symbol + " · " + modelData.quantity + " shares · Avg "
-                            + StockService.money(modelData.averagePrice, "KRW")
+                        text: root.t("%1 · %2 shares · Avg %3", [modelData.symbol, modelData.quantity,
+                            StockService.money(modelData.averagePrice, "KRW")])
                         color: root.secondaryColor
                         font.family: "SF Pro Display"
                         font.pixelSize: 9
@@ -228,8 +229,8 @@ Rectangle {
         Text {
             anchors.centerIn: parent
             visible: holdingsList.count === 0
-            text: root.accountError !== "" ? root.accountError
-                : (root.accountBusy ? "Loading portfolio…" : "No holdings in this account.")
+            text: root.accountError !== "" ? root.t(root.accountError)
+                : (root.accountBusy ? root.t("Loading portfolio…") : root.t("No holdings in this account."))
             color: root.accountError !== "" ? root.negativeColor : root.secondaryColor
             font.family: "SF Pro Display"
             font.pixelSize: 11

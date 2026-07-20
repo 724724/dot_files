@@ -42,7 +42,7 @@ Item {
             anchors { left: parent.left; top: parent.top }
             anchors.leftMargin: 22
             anchors.topMargin: 18
-            text: "Quant Lab"
+            text: root.t("Quant Lab")
             color: root.foregroundColor
             font.family: "SF Pro Display"
             font.pixelSize: 20
@@ -54,16 +54,16 @@ Item {
             anchors.leftMargin: 22
             anchors.topMargin: 3
             text: root.quantTab === "forecasts"
-                ? (root.snapshot.name || root.symbol) + " · 5 trading-day checks · local journal"
+                ? root.t("%1 · 5 trading-day checks · local journal", [root.snapshot.name || root.symbol])
                 : (root.quantTab === "backtest"
-                ? (root.snapshot.name || root.symbol) + " · daily close simulation · no look-ahead"
+                ? root.t("%1 · daily close simulation · no look-ahead", [root.snapshot.name || root.symbol])
                 : (root.quantTab === "compare"
-                ? (root.snapshot.name || root.symbol) + " · identical data and costs · OOS ranking"
+                ? root.t("%1 · identical data and costs · OOS ranking", [root.snapshot.name || root.symbol])
                 : (root.quantTab === "ai_eval"
-                ? (root.snapshot.name || root.symbol) + " · model calibration · confidence quality gate"
+                ? root.t("%1 · model calibration · confidence quality gate", [root.snapshot.name || root.symbol])
                 : (root.quantTab === "usage"
-                ? "30-day API token usage ledger · prompts and responses are never stored"
-                : "Watchlist · completed daily closes · local technical ranking"))))
+                ? root.t("30-day API token usage ledger · prompts and responses are never stored")
+                : root.t("Watchlist · completed daily closes · local technical ranking")))))
             color: root.secondaryColor
             font.family: "SF Pro Display"
             font.pixelSize: 11
@@ -89,7 +89,7 @@ Item {
                 text: (root.quantTab === "screener" ? root.screenerBusy
                     : (root.quantTab === "usage" ? root.aiUsageBusy
                     : (root.quantTab === "ai_eval" ? root.aiValidationBusy : forecastProcess.running)))
-                    ? "Updating…" : "Refresh"
+                    ? root.t("Updating…") : root.t("Refresh")
                 color: root.foregroundColor
                 font.family: "SF Pro Display"
                 font.pixelSize: 10
@@ -149,42 +149,42 @@ Item {
                 QuantChoice {
                     width: parent.width / 6
                     height: parent.height
-                    label: "Forecasts"
+                    label: root.t("Forecasts")
                     selected: root.quantTab === "forecasts"
                     onChosen: root.chooseQuantTab("forecasts")
                 }
                 QuantChoice {
                     width: parent.width / 6
                     height: parent.height
-                    label: "Backtest"
+                    label: root.t("Backtest")
                     selected: root.quantTab === "backtest"
                     onChosen: root.chooseQuantTab("backtest")
                 }
                 QuantChoice {
                     width: parent.width / 6
                     height: parent.height
-                    label: "Compare"
+                    label: root.t("Compare")
                     selected: root.quantTab === "compare"
                     onChosen: root.chooseQuantTab("compare")
                 }
                 QuantChoice {
                     width: parent.width / 6
                     height: parent.height
-                    label: "AI Eval"
+                    label: root.t("AI Eval")
                     selected: root.quantTab === "ai_eval"
                     onChosen: root.chooseQuantTab("ai_eval")
                 }
                 QuantChoice {
                     width: parent.width / 6
                     height: parent.height
-                    label: "Usage"
+                    label: root.t("Usage")
                     selected: root.quantTab === "usage"
                     onChosen: root.chooseQuantTab("usage")
                 }
                 QuantChoice {
                     width: parent.width / 6
                     height: parent.height
-                    label: "Screener"
+                    label: root.t("Screener")
                     selected: root.quantTab === "screener"
                     onChosen: root.chooseQuantTab("screener")
                 }
@@ -202,25 +202,25 @@ Item {
             visible: root.quantTab === "forecasts"
             ReportMetric {
                 width: (parent.width - 30) / 4
-                title: "QUALIFIED HIT"
+                title: root.t("QUALIFIED HIT")
                 value: Number((root.forecastState.stats || {}).qualifiedHitRate || 0).toFixed(1) + "%"
                 valueColor: Number((root.forecastState.stats || {}).qualifiedResolved || 0) > 0 ? root.positiveColor : root.secondaryColor
             }
             ReportMetric {
                 width: (parent.width - 30) / 4
-                title: "QUALIFIED / RESOLVED"
+                title: root.t("QUALIFIED / RESOLVED")
                 value: Number((root.forecastState.stats || {}).qualifiedResolved || 0) + " / "
                     + Number((root.forecastState.stats || {}).resolved || 0)
             }
             ReportMetric {
                 width: (parent.width - 30) / 4
-                title: "OPEN"
+                title: root.t("OPEN")
                 value: Number((root.forecastState.stats || {}).open || 0).toString()
                 valueColor: "#0a84ff"
             }
             ReportMetric {
                 width: (parent.width - 30) / 4
-                title: "BRIER · LOWER BETTER"
+                title: root.t("BRIER · LOWER BETTER")
                 value: Number((root.forecastState.stats || {}).brierScore || 0).toFixed(3)
             }
         }
@@ -309,8 +309,11 @@ Item {
                     }
                     Text {
                         width: parent.width
-                        text: (modelData.provider || "AI") + " · " + (modelData.profile || "")
-                            + (Number(modelData.confidence || 0) < 60 ? " · low confidence" : "")
+                        text: root.t("%1 · %2%3", [
+                            modelData.provider || "AI",
+                            modelData.profile || "",
+                            Number(modelData.confidence || 0) < 60 ? root.t(" · low confidence") : ""
+                        ])
                         color: root.secondaryColor
                         font.family: "SF Pro Display"
                         font.pixelSize: 9
@@ -362,8 +365,10 @@ Item {
                     }
                     Text {
                         width: parent.width
-                        text: StockService.signed(root.forecastReturn(modelData), 2) + "% · check "
-                            + root.analysisTime(modelData.targetAt)
+                        text: root.t("%1% · check %2", [
+                            StockService.signed(root.forecastReturn(modelData), 2),
+                            root.forecastTargetLabel(modelData)
+                        ])
                         color: root.forecastReturn(modelData) >= 0 ? root.positiveColor : root.negativeColor
                         font.family: "SF Pro Display"
                         font.pixelSize: 8
@@ -425,8 +430,9 @@ Item {
                 anchors.centerIn: parent
                 visible: forecastList.count === 0
                 width: parent.width - 40
-                text: root.forecastError !== "" ? root.forecastError
-                    : (forecastProcess.running ? "Loading forecast journal…" : "Run a fresh AI analysis to start measuring forecasts.")
+                text: root.forecastError !== "" ? root.t(root.forecastError)
+                    : (forecastProcess.running ? root.t("Loading forecast journal…")
+                    : root.t("Run a fresh AI analysis to start measuring forecasts."))
                 color: root.forecastError !== "" ? root.negativeColor : root.secondaryColor
                 font.family: "SF Pro Display"
                 font.pixelSize: 11
@@ -443,8 +449,8 @@ Item {
             anchors.bottomMargin: 13
             height: 15
             visible: root.quantTab === "forecasts"
-            text: root.forecastError !== "" ? root.forecastError
-                : "Measured with a ±1% neutral band. Below 60% confidence remains journaled but is excluded from qualified metrics."
+            text: root.forecastError !== "" ? root.t(root.forecastError)
+                : root.t("Measured with a ±1% neutral band. Below 60% confidence remains journaled but is excluded from qualified metrics.")
             color: root.forecastError !== "" ? root.negativeColor : root.secondaryColor
             font.family: "SF Pro Display"
             font.pixelSize: 9

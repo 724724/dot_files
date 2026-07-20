@@ -12,14 +12,21 @@ import "kinetic.js" as Kinetic
 // "covered" without being closed.
 //
 // reopenRequested is emitted after a GTK file dialog finishes — layer-shell
-// overlays always paint above normal windows, so a note's export/import picker
-// can only be seen if we hide the board first and reopen it afterwards.
+// overlays always paint above normal windows, so the YouTube/Spotify folder
+// pickers can only be seen if we hide the board first and reopen it after.
+// (Note export uses the in-board NoteExportPicker modal instead.)
 PanelWindow {
     id: win
 
     property bool show: false
     signal closeRequested
     signal reopenRequested
+
+    // Note "저장" → in-board save dialog (NoteExportPicker), called from
+    // NoteWidget via frame.winRef.
+    function openNoteExport(index, filename, content, closeAfter) {
+        board.openExport(index, filename, content, closeAfter)
+    }
 
     property bool _surfaceVisible: false
     visible: _surfaceVisible
@@ -37,6 +44,7 @@ PanelWindow {
             board.closeContext()
             board.closeEditor()
             board.closeView()
+            board.closeExport()
         }
     }
 
@@ -296,6 +304,28 @@ PanelWindow {
         function openView(index) { ctxIndex = -1; viewIndex = index }
         function closeView() { viewIndex = -1 }
 
+        // Note export (in-board save dialog). `exportCloseAfter` is set when
+        // the export comes from the note's close-confirm dialog: delete the
+        // note only once the file has actually been written.
+        property int exportIndex: -1
+        property string exportFilename: ""
+        property string exportContent: ""
+        property bool exportCloseAfter: false
+        function openExport(index, filename, content, closeAfter) {
+            exportFilename = filename
+            exportContent = content
+            exportCloseAfter = !!closeAfter
+            exportIndex = index
+        }
+        function closeExport() {
+            if (exportIndex < 0) return
+            exportIndex = -1
+            exportContent = ""
+            // Pull focus off the (now hidden) filename field so stray typing
+            // and the Esc chain land on the board again.
+            board.forceActiveFocus()
+        }
+
         opacity: win.show ? 1.0 : 0.0
         scale: win.show ? 1.0 : 0.98
         transformOrigin: Item.Center
@@ -305,6 +335,7 @@ PanelWindow {
 
         Keys.onEscapePressed: {
             if (board.placementError !== "") board.closePlacementError()
+            else if (board.exportIndex >= 0) board.closeExport()
             else if (board.ctxIndex >= 0) board.closeContext()
             else if (board.viewIndex >= 0) board.closeView()
             else if (board.editIndex >= 0) board.closeEditor()
@@ -922,6 +953,45 @@ PanelWindow {
                     id: noOptionsComp
                     Text { text: "No editable options for this widget."
                            color: Qt.rgba(1, 1, 1, 0.6); font.family: "SF Pro Display"; font.pixelSize: 14 }
+                }
+            }
+        }
+
+        // ── Note export "save as" dialog (modal) ───────────────────────────
+        Item {
+            anchors.fill: parent
+            visible: board.exportIndex >= 0 || exportPanel.opacity > 0.002
+            z: 100004
+            MouseArea { anchors.fill: parent; enabled: board.exportIndex >= 0; onPressed: board.closeExport() }
+            Rectangle {
+                id: exportPanel
+                anchors.centerIn: parent
+                width: Math.min(514, board.width - 48)
+                height: Math.min(exportPicker.implicitHeight + 44, board.height - 64)
+                radius: 18
+                color: Qt.rgba(0.10, 0.10, 0.12, 0.96)
+                border.color: Qt.rgba(1, 1, 1, 0.14); border.width: 1
+                opacity: board.exportIndex >= 0 ? 1 : 0
+                scale: board.exportIndex >= 0 ? 1 : 0.95
+                Behavior on opacity { AppleSpring { spring: 18 } }
+                Behavior on scale { AppleSpring { spring: 13 } }
+                MouseArea { anchors.fill: parent }
+                NoteExportPicker {
+                    id: exportPicker
+                    anchors.fill: parent
+                    anchors.margins: 22
+                    active: board.exportIndex >= 0
+                    filename: board.exportFilename
+                    content: board.exportContent
+                    onCancelled: board.closeExport()
+                    onSaved: {
+                        let i = board.exportIndex
+                        let del = board.exportCloseAfter
+                        board.closeExport()
+                        // Deferred so the removal doesn't tear down this
+                        // picker inside its own signal handler.
+                        if (del) Qt.callLater(function () { WidgetsService.removeAt(i) })
+                    }
                 }
             }
         }

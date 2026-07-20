@@ -114,7 +114,7 @@ Item {
                     width: parent.width
                     spacing: 10
                     Column {
-                        width: (parent.width - 10) / 2
+                        width: (parent.width - 20) / 3
                         spacing: 6
                         Text {
                             text: "FORMAT"
@@ -133,7 +133,7 @@ Item {
                         }
                     }
                     Column {
-                        width: (parent.width - 10) / 2
+                        width: (parent.width - 20) / 3
                         spacing: 6
                         Text {
                             text: "BITRATE"
@@ -149,6 +149,25 @@ Item {
                             model: widget.service.bitrates
                             currentIndex: widget.optionIndex(model, widget.bitrate)
                             onActivated: index => widget.setBitrate(model[index].id)
+                        }
+                    }
+                    Column {
+                        width: (parent.width - 20) / 3
+                        spacing: 6
+                        Text {
+                            text: "BROWSER COOKIES"
+                            color: widget.secondary
+                            font.family: "SF Pro Display"
+                            font.pixelSize: 10
+                            font.weight: Font.DemiBold
+                            font.letterSpacing: 0.45
+                        }
+                        Youtube.YoutubeCombo {
+                            width: parent.width
+                            widget: view.widget
+                            model: widget.service.browserOptions()
+                            currentIndex: widget.optionIndex(model, widget.cookieBrowser)
+                            onActivated: index => widget.setCookieBrowser(model[index].id)
                         }
                     }
                 }
@@ -172,7 +191,9 @@ Item {
                             spacing: 2
                             Text {
                                 width: parent.width
-                                text: widget.service.available ? "Ready · yt-dlp" : "yt-dlp not found"
+                                text: widget.service.available
+                                    ? "Ready · yt-dlp · " + widget.service.cookieStatus(widget.cookieBrowser)
+                                    : "yt-dlp not found"
                                 color: widget.foreground
                                 elide: Text.ElideRight
                                 font.family: "SF Pro Display"

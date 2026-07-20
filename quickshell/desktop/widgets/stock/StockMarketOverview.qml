@@ -267,15 +267,18 @@ Item {
         anchors.topMargin: 8
         height: 38
         spacing: 30
-        StatLabel { title: "LOW"; value: StockService.price(root.snapshot.low, root.snapshot.currency) }
-        StatLabel { title: "HIGH"; value: StockService.price(root.snapshot.high, root.snapshot.currency) }
-        StatLabel { title: "VOLUME"; value: Number(root.snapshot.volume || 0).toLocaleString(Qt.locale("en_US"), "f", 0) }
+        StatLabel { title: root.t("LOW"); value: StockService.price(root.snapshot.low, root.snapshot.currency) }
+        StatLabel { title: root.t("HIGH"); value: StockService.price(root.snapshot.high, root.snapshot.currency) }
+        StatLabel { title: root.t("VOLUME"); value: Number(root.snapshot.volume || 0).toLocaleString(Qt.locale("en_US"), "f", 0) }
         Item { width: 1; height: 1 }
         Text {
             anchors.verticalCenter: parent.verticalCenter
-            text: root.errorText !== "" ? root.errorText
-                : (root.realtimeConnected ? "KIS WebSocket · Live"
-                : (root.loading ? "Updating…" : (root.snapshot.mode === "kis" ? "KIS REST · " + (root.realtimeStatus || "Polling") : "Paper market data")))
+            text: root.errorText !== "" ? root.t(root.errorText)
+                : (root.realtimeConnected ? root.t("KIS WebSocket · Live")
+                : (root.loading ? root.t("Updating…")
+                : (root.snapshot.mode === "kis"
+                    ? root.t("KIS REST · %1", [root.realtimeStatus || root.t("Polling")])
+                    : root.t("Paper market data"))))
             color: root.errorText !== "" ? root.negativeColor : root.secondaryColor
             font.family: "SF Pro Display"
             font.pixelSize: 10
@@ -340,4 +343,3 @@ Item {
         }
     }
 }
-

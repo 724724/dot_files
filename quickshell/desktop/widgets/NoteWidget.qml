@@ -1,5 +1,3 @@
-import Quickshell
-import Quickshell.Io
 import QtQuick
 import QtQuick.Controls
 import "kinetic.js" as Kinetic
@@ -21,17 +19,22 @@ Item {
     // and, crucially, a *static* family with real weight styles: Pretendard
     // Variable's bold renders nearly black in Qt rich text (the wght axis isn't
     // applied per-run so it synthesises), whereas Apple SD Gothic Neo's real
-    // SemiBold/Bold render cleanly. Any other explicit font choice is respected.
+    // SemiBold/Bold render cleanly. "SF Pro Display" and "Pretendard Variable"
+    // were only ever the creation-time defaults, so both redirect to the new
+    // default; any other explicit font choice is respected.
     readonly property string fontFamily: {
         let f = (d && d.fontFamily) ? d.fontFamily : ""
-        return (!f || f === "SF Pro Display") ? "Apple SD Gothic Neo" : f
+        return (!f || f === "SF Pro Display" || f === "Pretendard Variable")
+             ? "Apple SD Gothic Neo" : f
     }
 
     // Qt bakes the document's default font-family into the saved HTML, so a
     // newly-chosen base family wouldn't restyle existing text — and bold can
     // render weakly when the baked face has poor weight coverage. Strip baked
     // font-family so the live `font.family` (bound to fontFamily) always governs
-    // the whole note. The note never sets a per-run family, so this is safe.
+    // the whole note. The formatting shortcuts (Ctrl+B/I/U/…) write whole
+    // per-run fonts, family included — stripping those too is exactly what we
+    // want: bold/size/etc survive, the family always follows the base font.
     function _stripFamily(s) {
         return (s || "").replace(/font-family:[^;"}]*;?/gi, "")
     }
@@ -63,44 +66,17 @@ Item {
         confirming = true
     }
 
-    // ── Export to .txt via GTK picker ───────────────────────────────────
-    // Layer-shell overlays always paint above normal windows, so the picker
-    // can't appear on top while the board is open. We hide the overlay first,
-    // then reopen it once the dialog (Process) exits. `closeAfter` is set when
-    // the export comes from the close-confirm dialog: delete the note once it's
-    // actually been written.
-    property bool _closeAfter: false
+    // ── Export to .txt via the in-board save dialog ─────────────────────
+    // Opens the macOS-style picker hosted by WidgetsWindow (NoteExportPicker)
+    // instead of the old zenity dialog, which — layer-shell overlays painting
+    // above normal windows — could only be shown by hiding the whole board.
+    // `closeAfter` is set when the export comes from the close-confirm dialog:
+    // the board deletes the note only once the file is actually written.
     function exportNote(closeAfter) {
-        noteRoot._closeAfter = !!closeAfter
         let ord = WidgetsService.noteOrdinal(frame ? frame.index : -1)
-        ioFile.path = "/tmp/qs-note-" + (frame ? frame.wid : 0) + ".txt"
-        ioFile.setText(body.getText(0, body.length))
-        frame.winRef.closeRequested()
-        exportProc.command = ["bash", "-c",
-            "p=$(zenity --file-selection --save --confirm-overwrite "
-            + "--title='Export note' --filename=\"$HOME/notes-" + ord + ".txt\" 2>/dev/null) "
-            + "&& cp \"" + ioFile.path + "\" \"$p\" && echo SAVED"]
-        exportProc.running = true
-    }
-    FileView { id: ioFile; blockLoading: true; printErrors: false }
-    Process {
-        id: exportProc
-        stdout: StdioCollector {
-            onStreamFinished: {
-                frame.winRef.reopenRequested()
-                if (noteRoot._closeAfter) {
-                    noteRoot._closeAfter = false
-                    // Only delete if the file was actually saved (zenity not
-                    // cancelled) — avoids losing a note to a stray Cancel.
-                    // Deferred so we don't destroy this Process inside its own
-                    // signal handler.
-                    if (text.indexOf("SAVED") >= 0) {
-                        let i = frame.index
-                        Qt.callLater(function () { WidgetsService.removeAt(i) })
-                    }
-                }
-            }
-        }
+        frame.save({ content: body.text })
+        frame.winRef.openNoteExport(frame.index, "notes-" + ord + ".txt",
+                                    body.getText(0, body.length), !!closeAfter)
     }
     Flickable {
         id: bodyFlick
@@ -202,6 +178,63 @@ Item {
             }
             onTextChanged: {
                 saveTimer.restart()
+            }
+
+            // ── Formatting shortcuts ────────────────────────────────────────
+            // Ctrl+B/I/U and Ctrl+Shift+S (strikethrough) restyle the current
+            // selection via cursorSelection (Qt 6.7+). Ctrl+± grows/shrinks the
+            // selection's per-run size, or the note's base size when nothing is
+            // selected. Ctrl+S opens the save-to-file dialog (the note content
+            // itself autosaves continuously). cursorSelection.font applies one
+            // uniform font to the whole selection, so a mixed-format selection
+            // is unified — fine for a sticky note, and Ctrl+Z undoes it.
+            function restyleSelection(mut) {
+                if (selectionStart === selectionEnd) return
+                let f = cursorSelection.font
+                mut(f)
+                cursorSelection.font = f
+                saveTimer.restart()
+            }
+            function bumpSize(delta) {
+                if (selectionStart !== selectionEnd) {
+                    restyleSelection(function (f) {
+                        // Per-run fonts may carry point sizes (Qt rich text);
+                        // fall back through pt→px before the note's base size.
+                        let px = f.pixelSize > 0 ? f.pixelSize
+                               : (f.pointSize > 0 ? Math.round(f.pointSize * 96 / 72)
+                                                  : noteRoot.fontSize)
+                        f.pixelSize = Math.max(WidgetsService.minFont,
+                                      Math.min(WidgetsService.maxFont, px + delta))
+                    })
+                } else {
+                    let v = Math.max(WidgetsService.minFont,
+                            Math.min(WidgetsService.maxFont, noteRoot.fontSize + delta))
+                    frame.save({ fontSize: v })
+                }
+            }
+            Keys.onPressed: (ev) => {
+                if (!(ev.modifiers & Qt.ControlModifier)) return
+                const shift = ev.modifiers & Qt.ShiftModifier
+                switch (ev.key) {
+                case Qt.Key_B:
+                    if (shift) return
+                    body.restyleSelection(f => f.bold = !f.bold); ev.accepted = true; break
+                case Qt.Key_I:
+                    if (shift) return
+                    body.restyleSelection(f => f.italic = !f.italic); ev.accepted = true; break
+                case Qt.Key_U:
+                    if (shift) return
+                    body.restyleSelection(f => f.underline = !f.underline); ev.accepted = true; break
+                case Qt.Key_S:
+                    if (shift) body.restyleSelection(f => f.strikeout = !f.strikeout)
+                    else { saveTimer.stop(); noteRoot.exportNote(false) }
+                    ev.accepted = true; break
+                // "+" usually needs Shift, so accept both = and + (and _ / -).
+                case Qt.Key_Plus: case Qt.Key_Equal:
+                    body.bumpSize(1); ev.accepted = true; break
+                case Qt.Key_Minus: case Qt.Key_Underscore:
+                    body.bumpSize(-1); ev.accepted = true; break
+                }
             }
 
             Timer {

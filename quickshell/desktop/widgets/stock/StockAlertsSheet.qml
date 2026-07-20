@@ -41,7 +41,7 @@ Item {
             anchors { left: parent.left; top: parent.top }
             anchors.leftMargin: 22
             anchors.topMargin: 18
-            text: "Price Alerts"
+            text: root.t("Price Alerts")
             color: root.foregroundColor
             font.family: "SF Pro Display"
             font.pixelSize: 20
@@ -52,7 +52,7 @@ Item {
             anchors { left: parent.left; top: alertsTitle.bottom }
             anchors.leftMargin: 22
             anchors.topMargin: 3
-            text: "Crossing alerts fire once, then re-arm after the price moves back."
+            text: root.t("Crossing alerts fire once, then re-arm after the price moves back.")
             color: root.secondaryColor
             font.family: "SF Pro Display"
             font.pixelSize: 11
@@ -113,7 +113,7 @@ Item {
                 }
                 Text {
                     width: parent.width
-                    text: StockService.marketLabel(root.alertDraftMarket)
+                    text: root.t(StockService.marketLabel(root.alertDraftMarket))
                     color: root.secondaryColor
                     font.family: "SF Pro Display"
                     font.pixelSize: 9
@@ -124,8 +124,8 @@ Item {
                 anchors.rightMargin: 14
                 anchors.topMargin: 16
                 width: parent.width - 250
-                text: root.alertEditorError !== "" ? root.alertEditorError
-                    : (root.priceAlerts.length + " of 16 alerts")
+                text: root.alertEditorError !== "" ? root.t(root.alertEditorError)
+                    : root.t("%1 of 16 alerts", [root.priceAlerts.length])
                 color: root.alertEditorError !== "" ? root.negativeColor : root.secondaryColor
                 font.family: "SF Pro Display"
                 font.pixelSize: 9
@@ -143,8 +143,8 @@ Item {
                 color: root.dark ? "#333336" : "#e9e9ee"
                 Row {
                     anchors.fill: parent
-                    AlertDirectionButton { width: parent.width / 2; label: "Above"; value: "above" }
-                    AlertDirectionButton { width: parent.width / 2; label: "Below"; value: "below" }
+                    AlertDirectionButton { width: parent.width / 2; label: root.t("Above"); value: "above" }
+                    AlertDirectionButton { width: parent.width / 2; label: root.t("Below"); value: "below" }
                 }
             }
             Rectangle {
@@ -163,8 +163,9 @@ Item {
                     anchors.leftMargin: 11
                     anchors.rightMargin: 11
                     placeholderText: root.alertDraftPrice > 0
-                        ? "Target · " + StockService.price(root.alertDraftPrice, root.alertDraftMarket === "KRX" ? "KRW" : "USD")
-                        : "Target price"
+                        ? root.t("Target · %1", [StockService.price(root.alertDraftPrice,
+                            root.alertDraftMarket === "KRX" ? "KRW" : "USD")])
+                        : root.t("Target price")
                     placeholderTextColor: root.secondaryColor
                     color: root.foregroundColor
                     selectionColor: "#0a84ff"
@@ -197,7 +198,7 @@ Item {
                 Behavior on scale { AppleSpring { spring: 22 } }
                 Text {
                     anchors.centerIn: parent
-                    text: "Add Alert"
+                    text: root.t("Add Alert")
                     color: "#ffffff"
                     font.family: "SF Pro Display"
                     font.pixelSize: 11
@@ -291,7 +292,7 @@ Item {
                     spacing: 2
                     Text {
                         width: parent.width
-                        text: modelData.symbol + " · " + StockService.marketLabel(modelData.market)
+                        text: modelData.symbol + " · " + root.t(StockService.marketLabel(modelData.market))
                         color: root.foregroundColor
                         font.family: "SF Pro Display"
                         font.pixelSize: 11
@@ -300,10 +301,11 @@ Item {
                     }
                     Text {
                         width: parent.width
-                        text: modelData.enabled === false ? "Paused"
+                        text: modelData.enabled === false ? root.t("Paused")
                             : (modelData.armed === false
-                                ? (Number(modelData.lastTriggeredAt || 0) > 0 ? "Triggered · waiting to re-arm" : "Waiting for recross")
-                                : "Armed")
+                                ? (Number(modelData.lastTriggeredAt || 0) > 0
+                                    ? root.t("Triggered · waiting to re-arm") : root.t("Waiting for recross"))
+                                : root.t("Armed"))
                         color: modelData.armed === false && modelData.enabled !== false ? "#ff9f0a" : root.secondaryColor
                         font.family: "SF Pro Display"
                         font.pixelSize: 9
@@ -349,7 +351,7 @@ Item {
                     Behavior on scale { AppleSpring { spring: 22 } }
                     Text {
                         anchors.centerIn: parent
-                        text: modelData.enabled === false ? "Resume" : "Pause"
+                        text: modelData.enabled === false ? root.t("Resume") : root.t("Pause")
                         color: modelData.enabled === false ? root.secondaryColor : "#0a84ff"
                         font.family: "SF Pro Display"
                         font.pixelSize: 9
@@ -394,7 +396,7 @@ Item {
             Text {
                 anchors.centerIn: parent
                 visible: alertsList.count === 0
-                text: "No price alerts yet."
+                text: root.t("No price alerts yet.")
                 color: root.secondaryColor
                 font.family: "SF Pro Display"
                 font.pixelSize: 11
@@ -431,4 +433,3 @@ Item {
         }
     }
 }
-

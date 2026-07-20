@@ -15,6 +15,7 @@ Item {
     property real mscale: 1
     property bool draggable: false
     property bool live: true
+    property bool captureEnabled: false
     property bool dim: false              // dragged elsewhere / inactive look
     property bool flat: false
     property string iconUrl: ""
@@ -112,8 +113,8 @@ Item {
         ScreencopyView {
             id: capture
             anchors.fill: parent
-            captureSource: thumb.toplevel
-            live: thumb.live
+            captureSource: thumb.captureEnabled ? thumb.toplevel : null
+            live: thumb.captureEnabled && thumb.live
             paintCursor: false
         }
 

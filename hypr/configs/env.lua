@@ -21,7 +21,6 @@ hl.env("HYPRCURSOR_SIZE", "24")
 hl.env("XCURSOR_SIZE", "24")
 
 -- IME / Fcitx
-hl.env("GTK_IM_MODULE",  "fcitx")
 hl.env("QT_IM_MODULE",   "fcitx")
 hl.env("XMODIFIERS",     "@im=fcitx")
 hl.env("SDL_IM_MODULE",  "fcitx")

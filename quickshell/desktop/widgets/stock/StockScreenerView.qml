@@ -17,12 +17,12 @@ Item {
         id: screenerStatus
         anchors { left: parent.left; right: parent.right; top: parent.top }
         height: 16
-        text: root.screenerError !== "" ? root.screenerError
-            : (root.screenerBusy ? "Ranking the watchlist from completed daily closes…"
+        text: root.screenerError !== "" ? root.t(root.screenerError)
+            : (root.screenerBusy ? root.t("Ranking the watchlist from completed daily closes…")
             : (Number(screenerView.counts.total || 0) > 0
-            ? Number(screenerView.counts.screened || 0) + " of " + Number(screenerView.counts.total || 0)
-              + " symbols screened · select a row to inspect"
-            : "Add symbols to the watchlist, then refresh the screener."))
+            ? root.t("%1 of %2 symbols screened · select a row to inspect", [
+                Number(screenerView.counts.screened || 0), Number(screenerView.counts.total || 0)])
+            : root.t("Add symbols to the watchlist, then refresh the screener.")))
         color: root.screenerError !== "" ? root.negativeColor : root.secondaryColor
         font.family: "SF Pro Display"
         font.pixelSize: 9
@@ -37,25 +37,25 @@ Item {
         spacing: 8
         ScreenerMetric {
             width: (parent.width - 24) / 4
-            title: "SCREENED"
+            title: root.t("SCREENED")
             value: Number(screenerView.counts.screened || 0) + " / " + Number(screenerView.counts.total || 0)
             valueColor: "#0a84ff"
         }
         ScreenerMetric {
             width: (parent.width - 24) / 4
-            title: "BULLISH"
+            title: root.t("BULLISH")
             value: Number(screenerView.counts.bullish || 0).toString()
             valueColor: root.positiveColor
         }
         ScreenerMetric {
             width: (parent.width - 24) / 4
-            title: "NEUTRAL"
+            title: root.t("NEUTRAL")
             value: Number(screenerView.counts.neutral || 0).toString()
             valueColor: "#0a84ff"
         }
         ScreenerMetric {
             width: (parent.width - 24) / 4
-            title: "BEARISH"
+            title: root.t("BEARISH")
             value: Number(screenerView.counts.bearish || 0).toString()
             valueColor: root.negativeColor
         }
@@ -184,21 +184,21 @@ Item {
                 anchors.verticalCenter: parent.verticalCenter
                 spacing: 15
                 ScreenValue {
-                    label: "20D"
+                    label: root.t("20D")
                     value: (Number(modelData.momentum20Pct || 0) > 0 ? "+" : "")
                         + Number(modelData.momentum20Pct || 0).toFixed(1) + "%"
                     valueColor: Number(modelData.momentum20Pct || 0) >= 0 ? root.positiveColor : root.negativeColor
                 }
                 ScreenValue {
-                    label: "RSI"
+                    label: root.t("RSI")
                     value: Number(modelData.rsi14 || 0).toFixed(0)
                 }
                 ScreenValue {
-                    label: "VOL"
+                    label: root.t("VOL")
                     value: Number(modelData.annualizedVolatilityPct || 0).toFixed(0) + "%"
                 }
                 ScreenValue {
-                    label: "DD 60D"
+                    label: root.t("DD 60D")
                     value: Number(modelData.drawdown60Pct || 0).toFixed(1) + "%"
                     valueColor: Number(modelData.drawdown60Pct || 0) < -10 ? root.negativeColor : root.foregroundColor
                 }
@@ -210,7 +210,7 @@ Item {
                 anchors.right: parent.right
                 anchors.rightMargin: 14
                 anchors.verticalCenter: parent.verticalCenter
-                text: modelData.message || "Screening unavailable"
+                text: modelData.message ? root.t(modelData.message) : root.t("Screening unavailable")
                 color: root.negativeColor
                 font.family: "SF Pro Display"
                 font.pixelSize: 9
@@ -231,8 +231,9 @@ Item {
             anchors.centerIn: parent
             visible: screenerList.count === 0
             width: parent.width - 40
-            text: root.screenerError !== "" ? root.screenerError
-                : (root.screenerBusy ? "Screening watchlist…" : "No watchlist symbols to screen.")
+            text: root.screenerError !== "" ? root.t(root.screenerError)
+                : (root.screenerBusy ? root.t("Screening watchlist…")
+                : root.t("No watchlist symbols to screen."))
             color: root.screenerError !== "" ? root.negativeColor : root.secondaryColor
             font.family: "SF Pro Display"
             font.pixelSize: 11
@@ -245,8 +246,8 @@ Item {
         id: screenerFootnote
         anchors { left: parent.left; right: parent.right; bottom: parent.bottom }
         height: 15
-        text: root.screenerError !== "" ? root.screenerError
-            : "Trend + momentum + RSI ranking from completed closes · not investment advice or an order signal."
+        text: root.screenerError !== "" ? root.t(root.screenerError)
+            : root.t("Trend + momentum + RSI ranking from completed closes · not investment advice or an order signal.")
         color: root.screenerError !== "" ? root.negativeColor : root.secondaryColor
         font.family: "SF Pro Display"
         font.pixelSize: 9

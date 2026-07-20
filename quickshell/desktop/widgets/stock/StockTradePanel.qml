@@ -27,21 +27,21 @@ Item {
 
         InputBlock {
             width: 128
-            title: "SIDE"
+            title: root.t("SIDE")
             contentItem: Rectangle {
                 color: "transparent"
                 Row {
                     anchors.fill: parent
                     SideChoice {
                         width: parent.width / 2
-                        label: "Buy"
+                        label: root.t("Buy")
                         selected: root.orderSide === "buy"
                         accent: root.positiveColor
                         onTriggered: root.orderSide = "buy"
                     }
                     SideChoice {
                         width: parent.width / 2
-                        label: "Sell"
+                        label: root.t("Sell")
                         selected: root.orderSide === "sell"
                         accent: root.negativeColor
                         onTriggered: root.orderSide = "sell"
@@ -52,7 +52,7 @@ Item {
 
         InputBlock {
             width: 112
-            title: "QUANTITY"
+            title: root.t("QUANTITY")
             contentItem: TextField {
                 id: quantityField
                 text: "1"
@@ -69,20 +69,20 @@ Item {
 
         InputBlock {
             width: 128
-            title: "ORDER TYPE"
+            title: root.t("ORDER TYPE")
             contentItem: Rectangle {
                 color: "transparent"
                 Row {
                     anchors.fill: parent
                     TypeChoice {
                         width: parent.width / 2
-                        label: "Market"
+                        label: root.t("Market Order")
                         selected: root.orderType === "market"
                         onTriggered: root.orderType = "market"
                     }
                     TypeChoice {
                         width: parent.width / 2
-                        label: "Limit"
+                        label: root.t("Limit")
                         selected: root.orderType === "limit"
                         onTriggered: {
                             root.orderType = "limit"
@@ -95,7 +95,7 @@ Item {
 
         InputBlock {
             width: 130
-            title: "LIMIT PRICE"
+            title: root.t("LIMIT PRICE")
             enabled: root.orderType === "limit"
             opacity: enabled ? 1 : 0.42
             Behavior on opacity { AppleSpring { spring: 18 } }
@@ -123,7 +123,7 @@ Item {
             width: parent.width - reviewButton.width - parent.spacing
             spacing: 2
             Text {
-                text: "ESTIMATED TOTAL"
+                text: root.t("ESTIMATED TOTAL")
                 color: root.secondaryColor
                 font.family: "SF Pro Display"
                 font.pixelSize: 9
@@ -140,8 +140,8 @@ Item {
             }
             Text {
                 visible: root.orderMessage !== "" || root.orderError !== "" || !root.canReviewOrder
-                text: root.orderError !== "" ? root.orderError
-                    : (root.orderMessage !== "" ? root.orderMessage : root.orderStatusText())
+                text: root.orderError !== "" ? root.t(root.orderError)
+                    : (root.orderMessage !== "" ? root.t(root.orderMessage) : root.orderStatusText())
                 color: root.orderError !== "" || !root.quantityAvailable ? root.negativeColor : root.secondaryColor
                 font.family: "SF Pro Display"
                 font.pixelSize: 10
@@ -160,8 +160,9 @@ Item {
             Behavior on scale { AppleSpring { spring: 18 } }
             Text {
                 anchors.centerIn: parent
-                text: root.dataMode === "kis" ? (root.kisEnvironment === "paper" ? "Review KIS Paper"
-                    : (root.productionTradingEnabled ? "Review Live Order" : "Production Locked")) : "Review Preview"
+                text: root.dataMode === "kis" ? (root.kisEnvironment === "paper" ? root.t("Review KIS Paper")
+                    : (root.productionTradingEnabled ? root.t("Review Live Order") : root.t("Production Locked")))
+                    : root.t("Review Preview")
                 color: "#ffffff"
                 font.family: "SF Pro Display"
                 font.pixelSize: 12
@@ -260,4 +261,3 @@ Item {
         }
     }
 }
-

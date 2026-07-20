@@ -15,9 +15,10 @@ Item {
         id: usageStatus
         anchors { left: parent.left; right: parent.right; top: parent.top }
         height: 16
-        text: root.aiUsageError !== "" ? root.aiUsageError
-            : (root.aiUsageBusy ? "Reading the local token ledger…"
-            : Number((root.aiUsageState.summary || {}).calls || 0) + " completed provider calls in the last 30 days")
+        text: root.aiUsageError !== "" ? root.t(root.aiUsageError)
+            : (root.aiUsageBusy ? root.t("Reading the local token ledger…")
+            : root.t("%1 completed provider calls in the last 30 days", [
+                Number((root.aiUsageState.summary || {}).calls || 0)]))
         color: root.aiUsageError !== "" ? root.negativeColor : root.secondaryColor
         font.family: "SF Pro Display"
         font.pixelSize: 9
@@ -32,23 +33,23 @@ Item {
         spacing: 8
         UsageMetric {
             width: (parent.width - 24) / 4
-            title: "API CALLS"
+            title: root.t("API CALLS")
             value: Number((root.aiUsageState.summary || {}).calls || 0).toString()
             valueColor: "#64d2ff"
         }
         UsageMetric {
             width: (parent.width - 24) / 4
-            title: "BILLABLE INPUT"
+            title: root.t("BILLABLE INPUT")
             value: root.formatTokenCount((root.aiUsageState.summary || {}).billableInputTokens)
         }
         UsageMetric {
             width: (parent.width - 24) / 4
-            title: "OUTPUT"
+            title: root.t("OUTPUT")
             value: root.formatTokenCount((root.aiUsageState.summary || {}).outputTokens)
         }
         UsageMetric {
             width: (parent.width - 24) / 4
-            title: "TOTAL TOKENS"
+            title: root.t("TOTAL TOKENS")
             value: root.formatTokenCount((root.aiUsageState.summary || {}).totalTokens)
         }
     }
@@ -68,7 +69,7 @@ Item {
             Text {
                 width: parent.width
                 height: 13
-                text: "MODEL USAGE"
+                text: root.t("MODEL USAGE")
                 color: root.secondaryColor
                 font.family: "SF Pro Display"
                 font.pixelSize: 8
@@ -116,7 +117,7 @@ Item {
                         spacing: 3
                         Text {
                             width: parent.width
-                            text: modelData.model || "Unknown model"
+                            text: modelData.model || root.t("Unknown model")
                             color: root.foregroundColor
                             font.family: "SF Pro Display"
                             font.pixelSize: 10
@@ -125,8 +126,8 @@ Item {
                         }
                         Text {
                             width: parent.width
-                            text: StockService.providerLabel(modelData.provider) + " · "
-                                + Number(modelData.calls || 0) + " calls"
+                            text: root.t("%1 · %2 calls", [root.t(StockService.providerLabel(modelData.provider)),
+                                Number(modelData.calls || 0)])
                             color: root.secondaryColor
                             font.family: "SF Pro Display"
                             font.pixelSize: 9
@@ -141,7 +142,7 @@ Item {
                         spacing: 3
                         Text {
                             width: parent.width
-                            text: root.formatTokenCount(modelData.totalTokens) + " total"
+                            text: root.t("%1 total", [root.formatTokenCount(modelData.totalTokens)])
                             color: root.foregroundColor
                             font.family: "SF Pro Display"
                             font.pixelSize: 10
@@ -150,8 +151,8 @@ Item {
                         }
                         Text {
                             width: parent.width
-                            text: root.formatTokenCount(modelData.billableInputTokens) + " in · "
-                                + root.formatTokenCount(modelData.outputTokens) + " out"
+                            text: root.t("%1 in · %2 out", [root.formatTokenCount(modelData.billableInputTokens),
+                                root.formatTokenCount(modelData.outputTokens)])
                             color: root.secondaryColor
                             font.family: "SF Pro Display"
                             font.pixelSize: 8
@@ -162,7 +163,7 @@ Item {
                 Text {
                     anchors.centerIn: parent
                     visible: modelUsageList.count === 0
-                    text: root.aiUsageBusy ? "Loading…" : "No recorded API usage"
+                    text: root.aiUsageBusy ? root.t("Loading…") : root.t("No recorded API usage")
                     color: root.secondaryColor
                     font.family: "SF Pro Display"
                     font.pixelSize: 10
@@ -177,7 +178,7 @@ Item {
             Text {
                 width: parent.width
                 height: 13
-                text: "RECENT CALLS"
+                text: root.t("RECENT CALLS")
                 color: root.secondaryColor
                 font.family: "SF Pro Display"
                 font.pixelSize: 8
@@ -227,8 +228,9 @@ Item {
                             spacing: 2
                             Text {
                                 width: parent.width
-                                text: StockService.providerLabel(modelData.provider) + " · "
-                                    + (modelData.symbol || "Unknown") + " · " + (modelData.profile || "")
+                                text: root.t(StockService.providerLabel(modelData.provider)) + " · "
+                                    + (modelData.symbol || root.t("Unknown")) + " · "
+                                    + root.t(StockService.profileLabel(modelData.profile))
                                 color: root.foregroundColor
                                 font.family: "SF Pro Display"
                                 font.pixelSize: 9
@@ -237,8 +239,8 @@ Item {
                             }
                             Text {
                                 width: parent.width
-                                text: root.analysisTime(modelData.timestamp) + " · "
-                                    + root.formatTokenCount(modelData.totalTokens) + " tokens"
+                                text: root.t("%1 · %2 tokens", [root.analysisTime(modelData.timestamp),
+                                    root.formatTokenCount(modelData.totalTokens)])
                                 color: root.secondaryColor
                                 font.family: "SF Pro Display"
                                 font.pixelSize: 8
@@ -250,7 +252,7 @@ Item {
                 Text {
                     anchors.centerIn: parent
                     visible: recentUsageList.count === 0
-                    text: root.aiUsageBusy ? "Loading…" : "No recent calls"
+                    text: root.aiUsageBusy ? root.t("Loading…") : root.t("No recent calls")
                     color: root.secondaryColor
                     font.family: "SF Pro Display"
                     font.pixelSize: 10
@@ -263,8 +265,8 @@ Item {
         id: usageFootnote
         anchors { left: parent.left; right: parent.right; bottom: parent.bottom }
         height: 15
-        text: root.aiUsageError !== "" ? root.aiUsageError
-            : "Local metadata only · provider billing dashboards remain the source of truth for cost."
+        text: root.aiUsageError !== "" ? root.t(root.aiUsageError)
+            : root.t("Local metadata only · provider billing dashboards remain the source of truth for cost.")
         color: root.aiUsageError !== "" ? root.negativeColor : root.secondaryColor
         font.family: "SF Pro Display"
         font.pixelSize: 9

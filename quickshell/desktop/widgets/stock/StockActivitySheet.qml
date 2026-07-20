@@ -41,7 +41,7 @@ Item {
             anchors { left: parent.left; top: parent.top }
             anchors.leftMargin: 22
             anchors.topMargin: 18
-            text: "Trade Activity"
+            text: root.t("Trade Activity")
             color: root.foregroundColor
             font.family: "SF Pro Display"
             font.pixelSize: 20
@@ -52,7 +52,7 @@ Item {
             anchors { left: parent.left; top: activityTitle.bottom }
             anchors.leftMargin: 22
             anchors.topMargin: 3
-            text: "Local audit trail · not a substitute for your KIS broker statement"
+            text: root.t("Local audit trail · not a substitute for your KIS broker statement")
             color: root.secondaryColor
             font.family: "SF Pro Display"
             font.pixelSize: 11
@@ -71,7 +71,7 @@ Item {
             Behavior on scale { AppleSpring { spring: 22 } }
             Text {
                 anchors.centerIn: parent
-                text: activityProcess.running ? "Updating…" : "Refresh"
+                text: activityProcess.running ? root.t("Updating…") : root.t("Refresh")
                 color: root.foregroundColor
                 font.family: "SF Pro Display"
                 font.pixelSize: 10
@@ -124,9 +124,9 @@ Item {
             color: root.dark ? "#333336" : "#e9e9ee"
             Row {
                 anchors.fill: parent
-                ActivityFilterButton { width: parent.width / 3; label: "All"; filterId: "all" }
-                ActivityFilterButton { width: parent.width / 3; label: "Paper"; filterId: "paper" }
-                ActivityFilterButton { width: parent.width / 3; label: "Production"; filterId: "prod" }
+                ActivityFilterButton { width: parent.width / 3; label: root.t("All"); filterId: "all" }
+                ActivityFilterButton { width: parent.width / 3; label: root.t("Paper"); filterId: "paper" }
+                ActivityFilterButton { width: parent.width / 3; label: root.t("Production"); filterId: "prod" }
             }
         }
 
@@ -140,25 +140,25 @@ Item {
             spacing: 10
             ActivityMetric {
                 width: (parent.width - 30) / 4
-                title: "ACCEPTED"
+                title: root.t("ACCEPTED")
                 value: Number((root.activityState.counts || {}).accepted || 0).toString()
                 accent: root.positiveColor
             }
             ActivityMetric {
                 width: (parent.width - 30) / 4
-                title: "FAILED"
+                title: root.t("FAILED")
                 value: Number((root.activityState.counts || {}).failed || 0).toString()
                 accent: root.negativeColor
             }
             ActivityMetric {
                 width: (parent.width - 30) / 4
-                title: "SUBMITTING"
+                title: root.t("SUBMITTING")
                 value: Number((root.activityState.counts || {}).pending || 0).toString()
                 accent: "#0a84ff"
             }
             ActivityMetric {
                 width: (parent.width - 30) / 4
-                title: "VERIFY"
+                title: root.t("VERIFY")
                 value: Number((root.activityState.counts || {}).uncertain || 0).toString()
                 accent: "#ff9f0a"
             }
@@ -263,7 +263,7 @@ Item {
                         color: root.dark ? "#3a3a3c" : "#f1f1f4"
                         Text {
                             anchors.centerIn: parent
-                            text: modelData.environment === "prod" ? "Production" : "Paper"
+                            text: modelData.environment === "prod" ? root.t("Production") : root.t("Paper")
                             color: root.secondaryColor
                             font.family: "SF Pro Display"
                             font.pixelSize: 9
@@ -276,7 +276,7 @@ Item {
                         spacing: 2
                         Text {
                             anchors.right: parent.right
-                            text: root.activityStatusLabel(modelData.status)
+                            text: root.t(root.activityStatusLabel(modelData.status))
                             color: root.activityStatusColor(modelData.status)
                             font.family: "SF Pro Display"
                             font.pixelSize: 10
@@ -295,8 +295,9 @@ Item {
             Text {
                 anchors.centerIn: parent
                 visible: activityList.count === 0
-                text: root.activityError !== "" ? root.activityError
-                    : (activityProcess.running ? "Loading local activity…" : "No local trade activity yet.")
+                text: root.activityError !== "" ? root.t(root.activityError)
+                    : (activityProcess.running ? root.t("Loading local activity…")
+                        : root.t("No local trade activity yet."))
                 color: root.activityError !== "" ? root.negativeColor : root.secondaryColor
                 font.family: "SF Pro Display"
                 font.pixelSize: 11
@@ -390,4 +391,3 @@ Item {
         }
     }
 }
-

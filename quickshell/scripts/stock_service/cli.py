@@ -1,4 +1,5 @@
 from .forecasting import *
+from .scheduler import background_control, background_control_status, evaluate_alert_payload, run_background_cycle
 
 def main():
     parser = argparse.ArgumentParser()
@@ -46,9 +47,14 @@ def main():
     analysis.add_argument("profile", nargs="?", default="balanced", choices=["quick", "balanced", "deep"])
     analysis.add_argument("refresh", nargs="?", default="cache", choices=["cache", "force"])
     forecasts = subparsers.add_parser("forecasts")
-    forecasts.add_argument("action", choices=["list", "evaluate", "delete"])
+    forecasts.add_argument("action", choices=["list", "evaluate", "evaluate-all", "delete"])
     forecasts.add_argument("value", nargs="?", default="")
     forecasts.add_argument("limit", nargs="?", default="50")
+    alerts = subparsers.add_parser("alerts")
+    alerts.add_argument("action", choices=["evaluate"])
+    background = subparsers.add_parser("background")
+    background.add_argument("action", choices=["run", "status", "enable", "disable"])
+    background.add_argument("widgets_path", nargs="?", default="")
     ai_validation_parser = subparsers.add_parser("validate-ai")
     ai_validation_parser.add_argument("symbol", nargs="?", default="")
     ai_validation_parser.add_argument("threshold", nargs="?", default=str(AI_CONFIDENCE_FLOOR))
@@ -124,8 +130,18 @@ def main():
             emit(forecast_history(args.value, args.limit))
         elif args.command == "forecasts" and args.action == "evaluate":
             emit(evaluate_forecasts(json.loads(sys.stdin.readline())))
+        elif args.command == "forecasts" and args.action == "evaluate-all":
+            emit(evaluate_all_forecasts())
         elif args.command == "forecasts" and args.action == "delete":
             emit(delete_forecast(args.value))
+        elif args.command == "alerts" and args.action == "evaluate":
+            emit(evaluate_alert_payload(json.loads(sys.stdin.readline())))
+        elif args.command == "background" and args.action == "run":
+            emit(run_background_cycle(args.widgets_path))
+        elif args.command == "background" and args.action == "status":
+            emit(background_control_status())
+        elif args.command == "background" and args.action in ("enable", "disable"):
+            emit(background_control(args.action))
         elif args.command == "validate-ai":
             emit(ai_validation(args.symbol, args.threshold, args.limit))
         elif args.command == "ai-usage":

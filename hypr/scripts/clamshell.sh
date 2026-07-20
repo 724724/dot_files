@@ -17,12 +17,16 @@
 #                 hl.monitor()를 다시 호출하는 것만으로는 0.55에서 재활성화가 안 된다(reload 필요).
 #                 reload는 autostart(hl.on "hyprland.start")를 재실행하지 않으므로 앱 중복 없음.
 #
-# 사용법: clamshell.sh [closed|open|resume]   (인자 없으면 /proc 에서 현재 lid 상태 감지)
-# 호출 위치: configs/keybindings.lua 의 switch:Lid Switch 바인딩
+# 사용법: clamshell.sh [closed|open|resume|monitor-removed]
+# 호출 위치: configs/keybindings.lua 의 Lid Switch 바인딩과 configs/autostart.lua 의 monitor.removed 이벤트
 
 set -euo pipefail
 
 INTERNAL="eDP-1"   # 내장 패널 (hyprctl monitors)
+LOCK_FILE="${XDG_RUNTIME_DIR:-/tmp}/clamshell-${UID}.lock"
+
+exec 9>"$LOCK_FILE"
+flock -w 5 9 || exit 0
 
 note() { logger -t clamshell -- "$*"; }
 
@@ -47,7 +51,12 @@ on_ac() {
 
 # 2) 내장 외 외부 디스플레이 활성 여부  (pseudocode: isExternalDisplayActive)
 external_connected() {
-    hyprctl monitors -j | jq -e --arg i "$INTERNAL" 'any(.[]; .name != $i)' >/dev/null
+    hyprctl monitors -j 2>/dev/null | jq -e --arg i "$INTERNAL" \
+        'any(.[]; .name != $i and (.name | test("^(FALLBACK|HEADLESS)") | not))' >/dev/null
+}
+
+hide_mission_control() {
+    qs ipc -c desktop call -- mc hide >/dev/null 2>&1 || true
 }
 
 wait_hypr() {
@@ -82,12 +91,15 @@ internal_spec() {
 restore_internal() {
     wait_hypr || true
     dpms_on
+    internal_active && return 0
+    hide_mission_control
+
+    note "restore $INTERNAL → hyprctl reload"
+    hyprctl reload >/dev/null 2>&1 || true
 
     local delay
-    for delay in 0 0.15 0.35 0.7; do
-        [[ "$delay" == "0" ]] || sleep "$delay"
-        note "restore $INTERNAL → hyprctl reload"
-        hyprctl reload >/dev/null 2>&1 || true
+    for delay in 0.1 0.2 0.4 0.7; do
+        sleep "$delay"
         dpms_on
         internal_active && return 0
     done
@@ -111,6 +123,8 @@ restore_internal() {
 
 disable_internal() {
     wait_hypr || true
+    hide_mission_control
+    sleep 0.15
     hyprctl eval "hl.monitor({ output = \"$INTERNAL\", disabled = true })" >/dev/null
 }
 
@@ -136,6 +150,22 @@ case "${1:-$(lid_state)}" in
             disable_internal
         else
             dpms_on
+        fi
+        ;;
+    monitor-removed)
+        hide_mission_control
+        sleep 0.15
+        if [[ "$(lid_state)" == "open" ]]; then
+            note "monitor removed + lid open → restore $INTERNAL"
+            restore_internal || true
+        elif external_connected; then
+            note "monitor removed + lid closed + external remains → keep clamshell"
+        else
+            note "last external removed + lid closed → restore $INTERNAL before suspend"
+            restore_internal || true
+            if [[ "$(lid_state)" == "closed" ]]; then
+                systemctl suspend
+            fi
         fi
         ;;
 esac

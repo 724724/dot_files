@@ -99,8 +99,8 @@ FEEDS = {
 
 
 def clean_text(value):
-    value = html.unescape(value or "")
-    value = re.sub(r"<[^>]+>", " ", value)
+    value = re.sub(r"(?is)<!--.*?-->|<!DOCTYPE[^>]*>|<\?[^>]*\?>|</?[A-Za-z][^>]*>", " ", value or "")
+    value = html.unescape(value)
     value = re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", value)
     value = re.sub(r"\x9b[0-?]*[ -/]*[@-~]", "", value)
     value = re.sub(r"\ufffd(?:\[[0-?]*[ -/]*[@-~]|[A-Za-z])?", "", value)
@@ -241,10 +241,13 @@ def html_items(text, source, category):
     for m in pattern.finditer(text):
         url = html.unescape(m.group(1))
         title = clean_text(m.group(2))
+        title_rank = 2 if len(title) >= 5 else 0
         image = image_from_html(m.group(2))
         if len(title) < 5:
             alt = re.search(r'alt="([^"]+)"', m.group(2), re.I | re.S)
             title = clean_text(alt.group(1)) if alt else ""
+            title = re.sub(r"^[^\s<>]+\.(?:jpe?g|png|webp|gif)(?=[\"'“”‘’])", "", title, flags=re.I)
+            title_rank = 1 if len(title) >= 5 else 0
         window = text[m.end():m.end() + 1600]
         desc = ""
         dm = re.search(r'<p\s+class="description"[^>]*>(.*?)</p>', window, re.I | re.S)
@@ -255,11 +258,12 @@ def html_items(text, source, category):
         if tm:
             pub = parse_joongang_date(clean_text(tm.group(1)))
         if url not in records:
-            records[url] = {"title": "", "desc": "", "pub": "", "image": ""}
+            records[url] = {"title": "", "titleRank": 0, "desc": "", "pub": "", "image": ""}
             order.append(url)
         record = records[url]
-        if len(title) >= 5 and not record["title"]:
+        if len(title) >= 5 and title_rank > record["titleRank"]:
             record["title"] = title
+            record["titleRank"] = title_rank
         if image and not record["image"]:
             record["image"] = image
         if desc and not record["desc"]:

@@ -1,0 +1,13 @@
+[Unit]
+Description=Run Quickshell Stock Worker Every Minute
+
+[Timer]
+OnBootSec=45s
+OnUnitActiveSec=60s
+AccuracySec=5s
+Persistent=true
+Unit=quickshell-stock-worker.service
+
+[Install]
+WantedBy=timers.target
+

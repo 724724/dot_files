@@ -28,21 +28,21 @@ Item {
                 QuantChoice {
                     width: parent.width / 3
                     height: parent.height
-                    label: "Ideal"
+                    label: root.t("Ideal")
                     selected: root.backtestCostProfile === "ideal"
                     onChosen: { root.backtestCostProfile = "ideal"; root.resetBacktest(); root.resetComparison() }
                 }
                 QuantChoice {
                     width: parent.width / 3
                     height: parent.height
-                    label: "Base"
+                    label: root.t("Base")
                     selected: root.backtestCostProfile === "base"
                     onChosen: { root.backtestCostProfile = "base"; root.resetBacktest(); root.resetComparison() }
                 }
                 QuantChoice {
                     width: parent.width / 3
                     height: parent.height
-                    label: "Stress"
+                    label: root.t("Stress")
                     selected: root.backtestCostProfile === "stress"
                     onChosen: { root.backtestCostProfile = "stress"; root.resetBacktest(); root.resetComparison() }
                 }
@@ -51,7 +51,7 @@ Item {
         Text {
             anchors.verticalCenter: parent.verticalCenter
             width: parent.width - comparisonCostPicker.width - runComparisonButton.width - parent.spacing * 2
-            text: "Same adjusted closes · same execution costs"
+            text: root.t("Same adjusted closes · same execution costs")
             color: root.secondaryColor
             font.family: "SF Pro Display"
             font.pixelSize: 9
@@ -69,7 +69,7 @@ Item {
             Behavior on scale { AppleSpring { spring: 22 } }
             Text {
                 anchors.centerIn: parent
-                text: root.comparisonBusy ? "Comparing…" : "Compare Strategies"
+                text: root.comparisonBusy ? root.t("Comparing…") : root.t("Compare Strategies")
                 color: "white"
                 font.family: "SF Pro Display"
                 font.pixelSize: 10
@@ -91,12 +91,15 @@ Item {
         anchors { left: parent.left; right: parent.right; top: comparisonControls.bottom }
         anchors.topMargin: 6
         height: 15
-        text: root.comparisonError !== "" ? root.comparisonError
-            : (root.comparisonBusy ? "Running identical full-sample and walk-forward tests…"
+        text: root.comparisonError !== "" ? root.t(root.comparisonError)
+            : (root.comparisonBusy ? root.t("Running identical full-sample and walk-forward tests…")
             : (root.comparisonResult.status === "ok"
-            ? root.backtestDate(root.comparisonResult.from) + "—" + root.backtestDate(root.comparisonResult.to)
-              + " · " + root.comparisonResult.sampleCount + " sessions · ranking is OOS-weighted"
-            : "Compare all strategies under one data window and execution profile."))
+            ? root.t("%1—%2 · %3 sessions · ranking is OOS-weighted", [
+                root.backtestDate(root.comparisonResult.from),
+                root.backtestDate(root.comparisonResult.to),
+                root.comparisonResult.sampleCount
+            ])
+            : root.t("Compare all strategies under one data window and execution profile.")))
         color: root.comparisonError !== "" ? root.negativeColor : root.secondaryColor
         font.family: "SF Pro Display"
         font.pixelSize: 9
@@ -111,25 +114,25 @@ Item {
         spacing: 8
         ReportMetric {
             width: (parent.width - 24) / 4
-            title: "BEST OOS BALANCE"
-            value: root.comparisonResult.status === "ok" ? root.comparisonResult.bestLabel : "—"
+            title: root.t("BEST OOS BALANCE")
+            value: root.comparisonResult.status === "ok" ? root.t(root.comparisonResult.bestLabel) : "—"
             valueColor: "#0a84ff"
         }
         ReportMetric {
             width: (parent.width - 24) / 4
-            title: "ROBUSTNESS"
+            title: root.t("ROBUSTNESS")
             value: root.comparisonResult.status === "ok" ? Number(root.comparisonResult.bestScore || 0) + "/100" : "—"
             valueColor: Number(root.comparisonResult.bestScore || 0) >= 70 ? root.positiveColor : "#ff9f0a"
         }
         ReportMetric {
             width: (parent.width - 24) / 4
-            title: "HIGH OVERFIT RISK"
+            title: root.t("HIGH OVERFIT RISK")
             value: root.comparisonResult.status === "ok" ? Number(root.comparisonResult.highRiskCount || 0).toString() : "—"
             valueColor: Number(root.comparisonResult.highRiskCount || 0) > 0 ? root.negativeColor : root.positiveColor
         }
         ReportMetric {
             width: (parent.width - 24) / 4
-            title: "STRATEGIES"
+            title: root.t("STRATEGIES")
             value: root.comparisonResult.status === "ok" ? Number((root.comparisonResult.items || []).length).toString() : "—"
         }
     }
@@ -173,7 +176,7 @@ Item {
                     anchors.leftMargin: 42
                     anchors.topMargin: 9
                     width: 180
-                    text: modelData.label
+                    text: root.t(modelData.label)
                     color: root.foregroundColor
                     font.family: "SF Pro Display"
                     font.pixelSize: 12
@@ -186,7 +189,7 @@ Item {
                     anchors.leftMargin: 42
                     anchors.topMargin: 29
                     width: parent.width - 208
-                    text: (modelData.overfitReasons || []).join(" · ")
+                    text: (modelData.overfitReasons || []).map(reason => root.t(reason)).join(" · ")
                     color: root.secondaryColor
                     font.family: "SF Pro Display"
                     font.pixelSize: 8
@@ -204,7 +207,7 @@ Item {
                         : (modelData.overfitRisk === "high" ? Qt.rgba(1, 0.27, 0.23, 0.15) : Qt.rgba(1, 0.62, 0.04, 0.15))
                     Text {
                         anchors.centerIn: parent
-                        text: root.comparisonRiskLabel(modelData.overfitRisk)
+                        text: root.t(root.comparisonRiskLabel(modelData.overfitRisk))
                         color: root.comparisonRiskColor(modelData.overfitRisk)
                         font.family: "SF Pro Display"
                         font.pixelSize: 8
@@ -224,7 +227,7 @@ Item {
                     Behavior on scale { AppleSpring { spring: 22 } }
                     Text {
                         anchors.centerIn: parent
-                        text: "Inspect"
+                        text: root.t("Inspect")
                         color: "#0a84ff"
                         font.family: "SF Pro Display"
                         font.pixelSize: 8
@@ -246,40 +249,40 @@ Item {
                     height: 34
                     ComparisonValue {
                         width: parent.width / 7
-                        title: "OOS"
+                        title: root.t("OOS")
                         value: StockService.signed(modelData.oosReturnPct, 2) + "%"
                         valueColor: Number(modelData.oosReturnPct) >= 0 ? root.positiveColor : root.negativeColor
                     }
                     ComparisonValue {
                         width: parent.width / 7
-                        title: "EXCESS"
+                        title: root.t("EXCESS")
                         value: StockService.signed(modelData.oosExcessReturnPct, 2) + "%"
                         valueColor: Number(modelData.oosExcessReturnPct) >= 0 ? root.positiveColor : root.negativeColor
                     }
                     ComparisonValue {
                         width: parent.width / 7
-                        title: "FOLDS"
+                        title: root.t("FOLDS")
                         value: modelData.foldWins + "/" + modelData.foldCount
                     }
                     ComparisonValue {
                         width: parent.width / 7
-                        title: "OOS MDD"
+                        title: root.t("OOS MDD")
                         value: Number(modelData.oosMaxDrawdownPct).toFixed(1) + "%"
                         valueColor: root.negativeColor
                     }
                     ComparisonValue {
                         width: parent.width / 7
-                        title: "P/L FACTOR"
+                        title: root.t("P/L FACTOR")
                         value: Number(modelData.profitFactor).toFixed(2)
                     }
                     ComparisonValue {
                         width: parent.width / 7
-                        title: "HIT RATE"
+                        title: root.t("HIT RATE")
                         value: Number(modelData.hitRate).toFixed(1) + "%"
                     }
                     ComparisonValue {
                         width: parent.width / 7
-                        title: "SWITCH/YR"
+                        title: root.t("SWITCH/YR")
                         value: Number(modelData.turnoverAnnualized).toFixed(1)
                     }
                 }
@@ -290,7 +293,8 @@ Item {
     Text {
         anchors.centerIn: parent
         visible: !root.comparisonBusy && (root.comparisonResult.items || []).length === 0
-        text: root.comparisonError !== "" ? "Could not complete the comparison." : "Run one identical test across all strategies."
+        text: root.comparisonError !== "" ? root.t("Could not complete the comparison.")
+            : root.t("Run one identical test across all strategies.")
         color: root.secondaryColor
         font.family: "SF Pro Display"
         font.pixelSize: 10
@@ -300,8 +304,11 @@ Item {
         anchors { left: parent.left; right: parent.right; bottom: parent.bottom }
         height: 30
         text: root.comparisonResult.status === "ok"
-            ? root.comparisonResult.methodology + " " + root.comparisonResult.disclaimer
-            : "Robustness is a transparent heuristic, not an expected-return forecast."
+            ? root.t("%1 %2", [
+                root.t(root.comparisonResult.methodology || ""),
+                root.t(root.comparisonResult.disclaimer || "")
+            ])
+            : root.t("Robustness is a transparent heuristic, not an expected-return forecast.")
         color: root.secondaryColor
         font.family: "SF Pro Display"
         font.pixelSize: 8
