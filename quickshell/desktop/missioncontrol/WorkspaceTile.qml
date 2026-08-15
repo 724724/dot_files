@@ -54,9 +54,15 @@ Item {
     // stays even (names elide with … instead of widening the tile).
     implicitWidth: tile.expanded ? tile.thumbW : Math.min(nameRow.implicitWidth, tile.thumbW)
     implicitHeight: thumbCard.height + (tile.expanded ? 6 : 0) + nameRow.implicitHeight
-    Behavior on implicitWidth { AppleSpring { spring: 18; epsilon: 0.15 } }
+    Behavior on implicitWidth {
+        enabled: !(tile.overview && tile.overview.reducedMotion)
+        AppleSpring { spring: 4.4; epsilon: 0.15 }
+    }
     scale: (tileTap.pressed || tileDrag.active) ? ThemeService.pressScale : 1.0
-    Behavior on scale { AppleSpring { spring: 18 } }
+    Behavior on scale {
+        enabled: !(tile.overview && tile.overview.reducedMotion)
+        AppleSpring { spring: 4.4 }
+    }
 
     // Dim while being dragged to a new position in the strip.
     opacity: (overview && overview.tileDragActive && overview.tileDragId === wsId) ? 0.35 : 1.0
@@ -74,9 +80,18 @@ Item {
         border.color: (tile.isDropTarget || tile.isSplitTarget || tile.isActive)
             ? "#0A84FF" : (tile.dark ? Qt.rgba(1, 1, 1, 0.18) : Qt.rgba(0, 0, 0, 0.18))
         border.width: (tile.isActive || tile.isDropTarget || tile.isSplitTarget) ? 3 : 1
-        Behavior on width { AppleSpring { spring: 18; epsilon: 0.15 } }
-        Behavior on height { AppleSpring { spring: 18; epsilon: 0.15 } }
-        Behavior on opacity { AppleSpring { spring: 18 } }
+        Behavior on width {
+            enabled: !(tile.overview && tile.overview.reducedMotion)
+            AppleSpring { spring: 4.4; epsilon: 0.15 }
+        }
+        Behavior on height {
+            enabled: !(tile.overview && tile.overview.reducedMotion)
+            AppleSpring { spring: 4.4; epsilon: 0.15 }
+        }
+        Behavior on opacity {
+            enabled: !(tile.overview && tile.overview.reducedMotion)
+            AppleSpring { spring: 4.4 }
+        }
 
         // Real desktop wallpaper behind the previews → looks like the actual space.
         Rectangle {
@@ -105,11 +120,14 @@ Item {
                     windowData: MCService.windowByAddress(modelData)
                     monitorData: tile.monitorData
                     mscale: tile.miniScale
-                    live: tile.isActive
-                    captureEnabled: tile.captureEnabled
+                    // The stage owns the real-time stream. Spaces miniatures are
+                    // one-shot captures, avoiding a second live stream per window.
+                    live: false
+                    // The delegate can outlive its outer tile context by one
+                    // binding turn during teardown; never dereference it then.
+                    captureEnabled: tile ? tile.captureEnabled : false
                     flat: true
                     draggable: false
-                    iconUrl: (tile.overview && windowData) ? tile.overview.iconUrlForClass(windowData.class) : ""
                 }
             }
         }
@@ -193,6 +211,7 @@ Item {
 
     HoverHandler {
         id: tileHover
+        enabled: tile.overview !== null && tile.overview.overviewInteractive
         cursorShape: Qt.PointingHandCursor
         onHoveredChanged: {
             if (!tile.overview) return
@@ -207,6 +226,7 @@ Item {
     // (not a fill MouseArea) leaves the icon button clickable on top.
     TapHandler {
         id: tileTap
+        enabled: tile.overview !== null && tile.overview.overviewInteractive
         onTapped: if (tile.overview) tile.overview.activateWorkspace(tile.wsId)
     }
 
@@ -216,6 +236,7 @@ Item {
         id: tileDrag
         target: null
         enabled: tile.expanded && tile.overview !== null
+            && tile.overview.overviewInteractive
         dragThreshold: 8
         onActiveChanged: {
             if (active) {

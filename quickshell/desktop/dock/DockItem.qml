@@ -1,6 +1,7 @@
 import Quickshell
 import Quickshell.Io
 import QtQuick
+import "../icons" as Icons
 
 Item {
     id: item
@@ -18,17 +19,27 @@ Item {
     property var dockWin: null
     property bool launchpadRightSide: false
 
-    // Magnify on hover, macOS-style. hoverScale drives both the visual Scale
-    // (below) and the layout width here, so the widened slot shoves neighbouring
-    // icons aside in the Row instead of overlapping them. +16 keeps the icon's
-    // 8px side padding constant at any zoom (42 + 16 = 58 when idle).
-    readonly property real hoverScale: 1.75
-    implicitWidth: 42 * (magnified ? hoverScale : 1) + 16
-    implicitHeight: 66
-    Behavior on implicitWidth { AppleSpring { spring: 13 } }
+    readonly property bool horizontalDock: !dockWin || dockWin.horizontalDock
+    readonly property bool leftDock: dockWin && dockWin.leftDock
+    readonly property bool rightDock: dockWin && dockWin.rightDock
+
+    readonly property real densityScale: dockWin ? dockWin.dockScale : 1
+    readonly property real baseIconSize: 42 * densityScale
+    readonly property real iconInset: 12 * densityScale
+    readonly property real slotPadding: 16 * densityScale
+    readonly property real hoverScale: DockService.iconZoomScale
+    property real hoverProgress: magnified ? 1 : 0
+    Behavior on hoverProgress { AppleSpring { spring: 13 } }
+    readonly property real expandedSlotSize: baseIconSize + slotPadding
+        + baseIconSize * (hoverScale - 1) * hoverProgress
+    implicitWidth: horizontalDock ? expandedSlotSize : 66 * densityScale
+    implicitHeight: horizontalDock ? 66 * densityScale : expandedSlotSize
 
     readonly property bool isRunning: DockService.runningClasses.indexOf(wmClass.toLowerCase()) >= 0
     readonly property bool isFocused: DockService.focusedClass === wmClass.toLowerCase()
+    // Blocked while a Pomodoro focus phase is active and this app isn't allowed.
+    readonly property bool focusBlocked: DockService.focusActive
+        && !DockService.isFocusAllowed(execCmd)
     readonly property var windows: DockService.clientsByClass[wmClass.toLowerCase()] || []
 
     // While the window-picker preview is open, the clicked app's icon stays
@@ -51,7 +62,8 @@ Item {
 
     // ── Drag to reorder / pin / unpin ────────────────────────────────────────
     property int pinnedIndex: -1    // index in DockWindow.pinnedApps; -1 = a running (unpinned) app
-    property real _pressX: 0         // press point in dockRow coords
+    property int transientIndex: -1 // index in DockWindow.extraApps
+    property real _pressAxis: 0      // press point in dockRow's layout axis
     property bool _pressed: false
     property bool _dragging: false
     property bool _didDrag: false    // suppress the click that ends a drag
@@ -66,13 +78,15 @@ Item {
     readonly property real dragShift: {
         if (!anyDragActive || pinnedIndex < 0 || isDragged) return 0
         let src = dockWin.dragSourceIndex, dp = dockWin.dropIndex
-        if (dp < 0) return 0                                           // heading to the running side
+        // Crossing the separator into the running side previews the committed
+        // layout immediately: siblings after the dragged pin close its old gap.
+        if (dp < 0) return src >= 0 && pinnedIndex > src ? -dockWin.pitch : 0
         if (src < 0) return pinnedIndex >= dp ? dockWin.pitch : 0      // inserting a new pin
         if (src < dp && pinnedIndex > src && pinnedIndex <= dp) return -dockWin.pitch
         if (src > dp && pinnedIndex >= dp && pinnedIndex < src) return dockWin.pitch
         return 0
     }
-    readonly property real directDragX: isDragged ? dockWin.dragDeltaX : 0
+    readonly property real directDragAxis: isDragged ? dockWin.dragDeltaAxis : 0
     readonly property real reorderShift: anyDragActive && !isDragged ? dragShift : 0
 
     // Gap for a launchpad app being dragged over the dock: the icons spread apart
@@ -88,21 +102,53 @@ Item {
         if (pinnedIndex < 0) return launchpadRightSide ? half : 0
         return pinnedIndex >= dp ? half : -half
     }
+    // When an unpinned app moves into the pinned section, only transient
+    // siblings before its original position move with the separator. Siblings
+    // after it and Trash stay still, so the source hole closes symmetrically.
+    readonly property real transientPinShift: {
+        if (!dockWin || !dockWin.nativePinDropActive || isDragged
+                || transientIndex < 0) return 0
+        return transientIndex < dockWin.dragSourceTransientIndex
+            ? dockWin.pitch : 0
+    }
+    transform: Translate {
+        x: item.horizontalDock ? item.transientPinShift : 0
+        y: item.horizontalDock ? 0 : item.transientPinShift
+        Behavior on x {
+            enabled: item.anyDragActive
+            AppleSpring { spring: 13; epsilon: 0.25 }
+        }
+        Behavior on y {
+            enabled: item.anyDragActive
+            AppleSpring { spring: 13; epsilon: 0.25 }
+        }
+    }
 
     // Also stays enlarged for the whole launch bounce, not just on hover. No
     // hover magnify while a preview / menu / drag is in progress.
-    readonly property bool magnified: previewActive || menuActive || launching
-        || (hover.hovered && !anyPreviewOpen && !anyMenuOpen && !anyDragActive && !anyLaunchpadDropActive)
+    readonly property bool zoomInteractionAllowed: DockService.iconZoomEnabled
+        && !(dockWin && dockWin.separatorInteractionActive)
+    readonly property bool tooltipInteractionAllowed:
+        !(dockWin && dockWin.separatorInteractionActive)
+    // Keep the tooltip a fixed logical distance from the icon's *rendered*
+    // edge. Using the live scale makes it follow both the zoom slider and the
+    // hover spring instead of jumping between two precomputed offsets.
+    readonly property real tooltipGap: 8
+    readonly property bool magnified: launching
+        || (zoomInteractionAllowed && (previewActive || menuActive
+            || (hover.hovered && !anyPreviewOpen && !anyMenuOpen
+                && !anyDragActive && !anyLaunchpadDropActive)))
     readonly property real iconScale: isDragged ? 1.15
-        : (magnified ? hoverScale : 1) * (_pressed ? ThemeService.pressScale : 1)
+        : (1 + (hoverScale - 1) * hoverProgress)
+            * (_pressed ? ThemeService.pressScale : 1)
     z: isDragged ? 1000 : 0
 
-    // Launch feedback retargets a critically damped spring until the app appears.
-    property real bounceY: 0
+    // Keep launch motion on a normalized, fixed-time track. Dock density only
+    // changes the travel distance, never the bounce period; icon zoom is not
+    // part of this clock either.
+    property real launchProgress: 0
+    readonly property real launchOffset: 16 * densityScale * launchProgress
     property bool launching: false
-    property bool launchLifted: false
-
-    Behavior on bounceY { AppleSpring { spring: 11 } }
 
     // The event-driven window refresh ends launch feedback as soon as it appears.
     onIsRunningChanged: if (isRunning) launching = false
@@ -113,17 +159,26 @@ Item {
         onTriggered: item.launching = false
     }
 
-    Timer {
-        id: launchPulse
+    SequentialAnimation on launchProgress {
+        id: launchBounce
         running: item.launching
-        repeat: true
-        interval: 336
-        onTriggered: item.launchLifted = !item.launchLifted
+        loops: Animation.Infinite
+        onStopped: item.launchProgress = 0
+
+        NumberAnimation {
+            from: 0
+            to: 1
+            duration: 560
+            easing.type: Easing.OutQuad
+        }
+        NumberAnimation {
+            from: 1
+            to: 0
+            duration: 560
+            easing.type: Easing.InQuad
+        }
     }
-    onLaunchLiftedChanged: bounceY = launchLifted ? -16 : 0
     onLaunchingChanged: {
-        launchLifted = launching
-        if (!launching) bounceY = 0
         // Keep the dock revealed for the whole bounce (DockWindow watches this).
         if (dockWin) dockWin.launchingCount += launching ? 1 : -1
     }
@@ -133,25 +188,68 @@ Item {
 
     HoverHandler { id: hover }
 
-    Image {
+    Icons.AppIcon {
         id: iconImg
-        anchors.horizontalCenter: parent.horizontalCenter
-        anchors.top: parent.top; anchors.topMargin: 12
-        width: 42; height: 42
-        source: item.iconSource
+        // Explicit square geometry avoids stale conditional anchors when the
+        // Dock moves bottom -> left -> right (Qt can otherwise briefly keep an
+        // old anchor while the size-drag changes the item's dimensions).
+        x: item.horizontalDock ? (parent.width - width) / 2
+            : item.leftDock ? item.iconInset
+            : parent.width - width - item.iconInset
+        y: item.horizontalDock ? item.iconInset : (parent.height - height) / 2
+        width: item.baseIconSize
+        height: item.baseIconSize
+        iconName: item.iconName
+        resolvePriority: 100
+        appClass: item.wmClass
+        desktopId: item.execCmd && item.execCmd.length >= 2 && item.execCmd[0] === "gtk-launch"
+            ? item.execCmd[1] : ""
         smooth: true; mipmap: true
-        onStatusChanged: {
-            if (status === Image.Error
-                    && source.toString() !== "image://icon/application-x-executable")
-                source = "image://icon/application-x-executable"
+
+        // Dark-grey mask over apps that are blocked during a focus phase. A child
+        // of the icon so it inherits the same hover/launch transforms below.
+        Rectangle {
+            anchors.fill: parent
+            visible: item.focusBlocked
+            radius: Math.max(3, 9 * item.densityScale)
+            color: Qt.rgba(0.10, 0.10, 0.11, 0.62)
+            Text {
+                anchors.centerIn: parent
+                text: "󰌾"
+                color: Qt.rgba(1, 1, 1, 0.85)
+                font.family: "JetBrainsMono Nerd Font Propo"
+                font.pixelSize: Math.max(8, 18 * item.densityScale)
+            }
         }
+
         transform: [
+            Translate {
+                // Apply launch feedback directly from its fixed-time phase. A
+                // second spring here used to low-pass the motion and made larger
+                // Dock sizes appear progressively slower.
+                x: item.horizontalDock ? 0
+                    : item.leftDock ? item.launchOffset : -item.launchOffset
+                y: item.horizontalDock ? -item.launchOffset : 0
+            },
             Translate {
                 // The dragged icon tracks the cursor 1:1 (and lifts slightly); the
                 // release spring is disabled during the grab so tracking stays 1:1.
-                x: item.directDragX
-                y: item.bounceY + (item.isDragged ? -8 : 0)
+                x: item.horizontalDock ? item.directDragAxis
+                    : item.leftDock
+                        ? (item.isDragged ? 8 * item.densityScale : 0)
+                        : -(item.isDragged ? 8 * item.densityScale : 0)
+                y: item.horizontalDock
+                    ? -(item.isDragged ? 8 * item.densityScale : 0)
+                    : item.directDragAxis
                 Behavior on x {
+                    enabled: !item.isDragged
+                    SpringAnimation {
+                        spring: ThemeService.spring
+                        damping: ThemeService.momentumDamping
+                        epsilon: 0.25
+                    }
+                }
+                Behavior on y {
                     enabled: !item.isDragged
                     SpringAnimation {
                         spring: ThemeService.spring
@@ -161,42 +259,60 @@ Item {
                 }
             },
             Translate {
-                x: item.reorderShift
-                Behavior on x { AppleSpring {} }
+                x: item.horizontalDock ? item.reorderShift : 0
+                y: item.horizontalDock ? 0 : item.reorderShift
+                Behavior on x {
+                    enabled: item.anyDragActive
+                    AppleSpring {}
+                }
+                Behavior on y {
+                    enabled: item.anyDragActive
+                    AppleSpring {}
+                }
             },
             Translate {
-                // Animated "make room" gap for a launchpad app dragged over the dock.
-                x: item.launchpadShift
+                // Animated gap for a launchpad app dragged over the dock.
+                x: item.horizontalDock ? item.launchpadShift : 0
+                y: item.horizontalDock ? 0 : item.launchpadShift
                 Behavior on x { AppleSpring {} }
+                Behavior on y { AppleSpring {} }
             },
             Scale {
                 // Grow upward from the icon's base (not its center), macOS-style,
                 // so the icon lifts out of the dock on hover instead of bloating
                 // in place. The running dot below is anchored separately and stays.
-                origin.x: iconImg.width / 2; origin.y: iconImg.height
+                origin.x: item.leftDock ? 0
+                    : item.rightDock ? iconImg.width : iconImg.width / 2
+                origin.y: item.horizontalDock ? iconImg.height : iconImg.height / 2
                 xScale: item.iconScale
                 yScale: item.iconScale
-                Behavior on xScale { AppleSpring { spring: 13 } }
-                Behavior on yScale { AppleSpring { spring: 13 } }
             }
         ]
     }
 
-    // App-name tooltip — small label that floats above the magnified icon on
-    // hover, macOS-style. Anchored above parent.top so it sits in the dock
-    // window's headroom (DockWindow's non-preview height was raised to make
-    // room). z keeps it above neighbouring icons.
+    // App-name tooltip — small label that follows the live transformed icon
+    // boundary. Explicit geometry is also transactional across Dock edges.
     Rectangle {
         id: tooltip
         z: 200
         visible: opacity > 0
-        opacity: (hover.hovered && !item.anyPreviewOpen && !item.anyMenuOpen && !item.anyDragActive && !item.anyLaunchpadDropActive) ? 1 : 0
-        anchors.horizontalCenter: parent.horizontalCenter
-        anchors.bottom: parent.top
-        anchors.bottomMargin: 24
-        width: tipLabel.implicitWidth + 16
-        height: tipLabel.implicitHeight + 8
-        radius: 7
+        opacity: (item.tooltipInteractionAllowed && hover.hovered
+            && !item.anyPreviewOpen && !item.anyMenuOpen
+            && !item.anyDragActive && !item.anyLaunchpadDropActive) ? 1 : 0
+        x: item.horizontalDock ? (parent.width - width) / 2
+            : item.leftDock
+                ? item.iconInset + item.baseIconSize * item.iconScale
+                    + item.tooltipGap
+                : parent.width - item.iconInset
+                    - item.baseIconSize * item.iconScale
+                    - item.tooltipGap - width
+        y: item.horizontalDock
+            ? item.iconInset - item.baseIconSize * (item.iconScale - 1)
+                - item.tooltipGap - height
+            : (parent.height - height) / 2
+        width: tipLabel.implicitWidth + 16 * item.densityScale
+        height: tipLabel.implicitHeight + 8 * item.densityScale
+        radius: Math.max(4, 7 * item.densityScale)
         color: ThemeService.popupBg
         border.color: ThemeService.stroke
         border.width: 1
@@ -216,11 +332,18 @@ Item {
     // Running indicator — macOS-style dot below icon
     // Blue for focused window, white (or dark in light mode) for other running apps
     Rectangle {
+        id: runningIndicator
+
         visible: item.isRunning
-        anchors.horizontalCenter: parent.horizontalCenter
-        anchors.bottom: parent.bottom; anchors.bottomMargin: 3
-        width:  item.isFocused ? 6 : 4
+        width: item.isFocused
+            ? Math.max(3, 6 * item.densityScale)
+            : Math.max(2, 4 * item.densityScale)
         height: width
+        x: item.horizontalDock ? (parent.width - width) / 2
+            : item.leftDock ? 3 * item.densityScale
+            : parent.width - width - 3 * item.densityScale
+        y: item.horizontalDock ? parent.height - height - 3 * item.densityScale
+            : (parent.height - height) / 2
         radius: 999
         color: item.isFocused
             ? "#0A84FF"
@@ -229,8 +352,17 @@ Item {
         // Travel 1:1 during drag, then inherit the same release/spacing springs.
         transform: [
             Translate {
-                x: item.directDragX
+                x: item.horizontalDock ? item.directDragAxis : 0
+                y: item.horizontalDock ? 0 : item.directDragAxis
                 Behavior on x {
+                    enabled: !item.isDragged
+                    SpringAnimation {
+                        spring: ThemeService.spring
+                        damping: ThemeService.momentumDamping
+                        epsilon: 0.25
+                    }
+                }
+                Behavior on y {
                     enabled: !item.isDragged
                     SpringAnimation {
                         spring: ThemeService.spring
@@ -240,12 +372,22 @@ Item {
                 }
             },
             Translate {
-                x: item.reorderShift
-                Behavior on x { AppleSpring {} }
+                x: item.horizontalDock ? item.reorderShift : 0
+                y: item.horizontalDock ? 0 : item.reorderShift
+                Behavior on x {
+                    enabled: item.anyDragActive
+                    AppleSpring {}
+                }
+                Behavior on y {
+                    enabled: item.anyDragActive
+                    AppleSpring {}
+                }
             },
             Translate {
-                x: item.launchpadShift
+                x: item.horizontalDock ? item.launchpadShift : 0
+                y: item.horizontalDock ? 0 : item.launchpadShift
                 Behavior on x { AppleSpring {} }
+                Behavior on y { AppleSpring {} }
             }
         ]
 
@@ -253,7 +395,8 @@ Item {
         Rectangle {
             visible: item.isFocused
             anchors.centerIn: parent
-            width: parent.width + 4; height: parent.height + 4
+            width: parent.width + 4 * item.densityScale
+            height: parent.height + 4 * item.densityScale
             radius: 999
             color: "transparent"
             border.color: Qt.rgba(10/255, 132/255, 255/255, 0.35)
@@ -286,21 +429,24 @@ Item {
             item._pressed = true
             if (mouse.button === Qt.LeftButton && item.dockWin) {
                 item._dragging = false
-                item._pressX = item.mapToItem(item.dockWin.rowItem, mouse.x, mouse.y).x
+                let p = item.mapToItem(item.dockWin.rowItem, mouse.x, mouse.y)
+                item._pressAxis = item.horizontalDock ? p.x : p.y
             }
         }
         onPositionChanged: (mouse) => {
             if (!item._pressed || !item.dockWin) return
-            let cx = item.mapToItem(item.dockWin.rowItem, mouse.x, mouse.y).x
-            if (!item._dragging && Math.abs(cx - item._pressX) > 8) {
+            let p = item.mapToItem(item.dockWin.rowItem, mouse.x, mouse.y)
+            let axis = item.horizontalDock ? p.x : p.y
+            if (!item._dragging && Math.abs(axis - item._pressAxis) > 8) {
                 item._dragging = true
                 item._didDrag = true
                 item.dockWin.beginDrag({
                     name: item.name, wmClass: item.wmClass,
                     iconName: item.iconName, execCmd: item.execCmd
-                }, item.pinnedIndex)
+                }, item.pinnedIndex, item.transientIndex)
             }
-            if (item._dragging) item.dockWin.updateDrag(cx - item._pressX, cx)
+            if (item._dragging)
+                item.dockWin.updateDrag(axis - item._pressAxis, axis)
         }
         onReleased: {
             item._pressed = false
@@ -328,12 +474,20 @@ Item {
             // anchored to the icon's centre (same anchor maths as the preview).
             if (mouse.button === Qt.RightButton) {
                 if (item.dockWin) {
-                    let p = item.mapToItem(item.dockWin.contentItem, item.width / 2, 0)
+                    let p = item.mapToItem(item.dockWin.contentItem,
+                        item.width / 2, item.height / 2)
                     item.dockWin.openMenu({
                         name: item.name, wmClass: item.wmClass,
                         iconName: item.iconName, execCmd: item.execCmd
-                    }, p.x)
+                    }, p.x, p.y)
                 }
+                return
+            }
+
+            // Focus mode: a disallowed app can't be launched or focused. Fire the
+            // "blocked" notification and stop before any activation happens.
+            if (item.focusBlocked) {
+                DockService.notifyFocusBlocked(item.name)
                 return
             }
 
@@ -366,8 +520,9 @@ Item {
             if (wins.length > 1) {
                 // Multiple windows → toggle preview, anchored to this icon's center
                 if (item.dockWin) {
-                    let p = item.mapToItem(item.dockWin.contentItem, item.width / 2, 0)
-                    item.dockWin.togglePreview(item.wmClass, item.iconName, p.x)
+                    let p = item.mapToItem(item.dockWin.contentItem,
+                        item.width / 2, item.height / 2)
+                    item.dockWin.togglePreview(item.wmClass, item.iconName, p.x, p.y)
                 }
             } else if (wins.length === 1 || item.isRunning) {
                 if (item.dockWin) item.dockWin.previewOpen = false

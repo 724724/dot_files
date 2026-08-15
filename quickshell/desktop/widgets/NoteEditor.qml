@@ -29,7 +29,7 @@ Item {
 
     onIndexChanged: ed.reload()
     function reload() {
-        if (index < 0) return
+        if (index === -1) return
         let d = WidgetsService.getData(index)
         swatch = d.swatch || WidgetsService.palette[0]
         fontFamily = d.fontFamily || "Apple SD Gothic Neo"

@@ -26,6 +26,9 @@ Item {
     property alias aiValidation: aiValidationProcess
     property alias aiUsage: aiUsageProcess
     property alias screener: screenerProcess
+    property alias automation: automationProcess
+    property alias autopilot: autopilotProcess
+    property alias autopilotEmergency: autopilotEmergencyProcess
     property alias watchlist: watchlistProcess
     property alias watchSearch: watchSearchProcess
     property alias alertEvaluation: alertEvaluationProcess
@@ -36,7 +39,6 @@ Connections {
         root.refreshCredentialState()
         root.scheduleFetch()
         root.scheduleRealtime()
-        root.scheduleAccount()
     }
     function onRiskPolicyChanged() { root.refreshCredentialState() }
 }
@@ -83,7 +85,8 @@ Timer {
 Timer {
     interval: 60000
     repeat: true
-    running: root.active && root.alertPollingReady && (root.enabledAlertCount > 0 || root.watchlistVisible)
+    running: root.active && root.alertPollingReady
+        && (root.enabledAlertCount > 0 || root.watchlistVisible || root.xxlLayout)
     onTriggered: root.refreshWatchlist()
 }
 
@@ -94,6 +97,16 @@ Timer {
     onTriggered: root.refreshForecasts(true)
 }
 
+Timer {
+    interval: 10000
+    repeat: true
+    running: root.autopilotStatusPolling
+    onTriggered: {
+        root.refreshAutopilot()
+        root.refreshAutomation()
+    }
+}
+
 Process {
     id: quoteProcess
     stdout: StdioCollector {
@@ -101,6 +114,12 @@ Process {
             try {
                 let result = JSON.parse(text || "{}")
                 if (result.status !== "ok") throw new Error(result.message || "Quote unavailable")
+                if (result.symbol !== root.symbol || result.market !== root.market
+                        || result.range !== root.chartRange || result.mode !== root.dataMode
+                        || (result.mode === "kis" && result.environment !== root.kisEnvironment)) {
+                    root.pendingFetch = true
+                    return
+                }
                 root.snapshot = result
                 root.errorText = ""
                 mainPanel.syncLimitPrice(StockService.price(result.price, result.currency))
@@ -127,7 +146,6 @@ Process {
                 let result = JSON.parse(text || "{}")
                 if (result.status === "ok") {
                     root.credentialState = result
-                    root.scheduleAccount()
                 }
             } catch (error) {
                 root.credentialState = ({ kisProd: false, kisPaper: false, kisProdAccount: false, kisPaperAccount: false, openai: false, claude: false, productionTradingEnabled: false })
@@ -306,6 +324,7 @@ Process {
             }
         }
     }
+    onRunningChanged: root.activityBusy = running
     onExited: {
         if (root.activityQueued && root.activityVisible) {
             root.activityQueued = false
@@ -468,6 +487,127 @@ Process {
 }
 
 Process {
+    id: automationProcess
+    stdinEnabled: true
+    stdout: StdioCollector {
+        onStreamFinished: {
+            try {
+                let result = JSON.parse(text || "{}")
+                if (result.status !== "ok") throw new Error(result.message || "Automation unavailable")
+                if (result.kind === "plan") {
+                    root.automationPlan = result
+                    root.automationState = Object.assign({}, root.automationState, { policy: result.policy || {} })
+                } else if (result.kind === "execution") {
+                    root.automationExecution = result
+                    root.automationRefreshQueued = true
+                } else if (result.kind === "reconciliation") {
+                    root.automationExecution = result.latest || ({})
+                    root.automationState = Object.assign({}, root.automationState, { execution: result })
+                } else if (result.part === 1) {
+                    root.automationState = Object.assign({}, root.automationState, { operationsPart1: result })
+                } else if (result.part === 2) {
+                    root.automationState = Object.assign({}, root.automationState, { operationsPart2: result })
+                } else if (result.productionAutomationEligible !== undefined
+                        && result.gates !== undefined) {
+                    root.automationState = Object.assign(
+                        {}, root.automationState, { liveReadiness: result }
+                    )
+                } else {
+                    root.automationState = result
+                    if (result.autopilot && result.autopilot.kind === "autopilot")
+                        root.autopilotState = result.autopilot
+                }
+                root.automationError = ""
+            } catch (error) {
+                root.automationError = error.message || "Automation unavailable"
+            }
+        }
+    }
+    onRunningChanged: root.automationBusy = running
+    onStarted: {
+        if (root.pendingAutomation !== "") {
+            automationProcess.write(root.pendingAutomation + "\n")
+            root.pendingAutomation = ""
+        }
+    }
+    onExited: {
+        if (root.automationRefreshQueued && (root.autopilotStatusPolling
+                || (root.forecastVisible && root.quantTab === "automation"))) {
+            root.automationRefreshQueued = false
+            root.refreshAutomation()
+        } else if (root.automationRefreshQueued) {
+            root.automationRefreshQueued = false
+        }
+    }
+}
+
+Process {
+    id: autopilotProcess
+    stdinEnabled: true
+    stdout: StdioCollector {
+        onStreamFinished: {
+            try {
+                let result = JSON.parse(text || "{}")
+                if (result.status !== "ok" || result.kind !== "autopilot")
+                    throw new Error(result.message || "AI Autopilot unavailable")
+                root.autopilotState = result
+                root.autopilotError = ""
+            } catch (error) {
+                root.autopilotError = error.message || "AI Autopilot unavailable"
+            }
+        }
+    }
+    onRunningChanged: root.autopilotBusy = running
+    onStarted: {
+        if (root.pendingAutopilot !== "") {
+            autopilotProcess.write(root.pendingAutopilot + "\n")
+            root.pendingAutopilot = ""
+        }
+    }
+    onExited: {
+        let completedAction = root.autopilotAction
+        root.autopilotAction = ""
+        if (root.autopilotRefreshQueued) {
+            root.autopilotRefreshQueued = false
+            root.refreshAutopilot()
+        }
+        if (completedAction === "autopilot-start" || completedAction === "autopilot-stop") {
+            StockService.automationPolicyChanged()
+            if (!automationProcess.running) root.refreshAutomation()
+        } else if (root.forecastVisible && root.quantTab === "automation" && !automationProcess.running)
+            root.refreshAutomation()
+    }
+}
+
+Process {
+    id: autopilotEmergencyProcess
+    stdinEnabled: true
+    stdout: StdioCollector {
+        onStreamFinished: {
+            try {
+                let result = JSON.parse(text || "{}")
+                if (result.status !== "ok" || result.kind !== "autopilot")
+                    throw new Error(result.message || "Emergency stop failed")
+                root.autopilotState = result
+                root.autopilotError = ""
+            } catch (error) {
+                root.autopilotError = error.message || "Emergency stop failed"
+            }
+        }
+    }
+    onRunningChanged: root.autopilotEmergencyBusy = running
+    onStarted: {
+        autopilotEmergencyProcess.write(root.pendingAutopilotEmergency + "\n")
+        root.pendingAutopilotEmergency = ""
+    }
+    onExited: {
+        StockService.automationPolicyChanged()
+        if (!automationProcess.running)
+            root.refreshAutomation()
+    }
+}
+
+Process {
     id: watchlistProcess
     stdinEnabled: true
     stdout: StdioCollector {
@@ -488,7 +628,7 @@ Process {
         root.pendingWatchlist = ""
     }
     onExited: {
-        if (root.watchlistQueued && (root.watchlistVisible || root.enabledAlertCount > 0)) {
+        if (root.watchlistQueued && (root.watchlistVisible || root.enabledAlertCount > 0 || root.xxlLayout)) {
             root.watchlistQueued = false
             root.refreshWatchlist()
         }

@@ -18,11 +18,11 @@ Item {
 
     onIndexChanged: ed.reload()
     function reload() {
-        if (index < 0) return
+        if (index === -1) return
         let d = WidgetsService.getData(index)
         layout = d.layout || 2
     }
-    function pickLayout(n) { WidgetsService.setCalendarLayout(index, n); ed.layout = n }
+    function pickLayout(n) { WidgetsService.setCalendarLayout(index, n); ed.reload() }
 
     function addSource() {
         if (!urlField.text.trim()) return

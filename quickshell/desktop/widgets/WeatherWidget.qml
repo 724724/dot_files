@@ -36,48 +36,73 @@ Item {
     property string lo: ""
     property var hourly: []
     property var daily: []
-    property real weekMin: 0
-    property real weekMax: 1
     property string sunrise: ""
     property string sunset: ""
     property real dayProgress: -1
     property color gradTop: "#1a74d4"
     property color gradBottom: "#73b7ef"
+    property double lastFetchMs: 0
 
-    onEffLatChanged: if (active) fetchDebounce.restart()
-    onEffLonChanged: if (active) fetchDebounce.restart()
-    onActiveChanged: if (active) fetchDebounce.restart()
-    Component.onCompleted: if (active) fetchDebounce.restart()
+    onEffLatChanged: {
+        loadCachedForecast()
+        if (active) fetchDebounce.restart()
+    }
+    onEffLonChanged: {
+        loadCachedForecast()
+        if (active) fetchDebounce.restart()
+    }
+    onActiveChanged: if (active) {
+        loadCachedForecast()
+        fetchDebounce.restart()
+    }
+    Component.onCompleted: {
+        loadCachedForecast()
+        if (active) fetchDebounce.restart()
+    }
 
     Timer { id: fetchDebounce; interval: 80; onTriggered: wRoot._fetch() }
-    Timer { interval: 15 * 60 * 1000; repeat: true; running: wRoot.active; onTriggered: wRoot._fetch() }
+    Timer { interval: 60 * 60 * 1000; repeat: true; running: wRoot.active; onTriggered: wRoot._fetch() }
     // Failed fetch (offline, API unreachable) → retry in 1 min instead of
-    // waiting for the 15-min tick. Restarted, not accumulated, so at most one
+    // waiting for the hourly tick. Restarted, not accumulated, so at most one
     // retry is ever pending.
     Timer { id: retryTimer; interval: 60 * 1000; onTriggered: wRoot._fetch() }
 
     Process {
         id: fcProc
-        stdout: StdioCollector { onStreamFinished: wRoot._parse(text) }
+        stdout: StdioCollector { onStreamFinished: wRoot._parse(text, 0) }
         onExited: (code, status) => { if (code !== 0) retryTimer.restart() }
+    }
+
+    function loadCachedForecast() {
+        const cached = svc.cachedForecast(effLat, effLon)
+        if (!cached)
+            return false
+        return _parse(cached.text, Number(cached.savedAt || 0))
     }
 
     function _fetch() {
         if (!wRoot.active) return
         if (isNaN(effLat) || isNaN(effLon)) return
+        if (svc.forecastFresh(effLat, effLon)) {
+            loadCachedForecast()
+            return
+        }
         let url = "https://api.open-meteo.com/v1/forecast?latitude=" + effLat + "&longitude=" + effLon
             + "&current=temperature_2m,apparent_temperature,weather_code,is_day,relative_humidity_2m,wind_speed_10m"
             + "&hourly=temperature_2m,weather_code"
             + "&daily=weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset"
-            + "&timezone=auto&forecast_days=7&wind_speed_unit=ms"
+            // 16 daily entries so a tall card can fill its height with forecast
+            // rows; forecast_hours caps the hourly block (which would otherwise
+            // grow to 16 days) at the ~10 hours the strip actually shows.
+            + "&timezone=auto&forecast_days=16&forecast_hours=24&wind_speed_unit=ms"
         // openmeteo-fetch.sh = curl with a fallback route for api.open-meteo.com
         // (unreachable from some ISPs; see the script header).
         fcProc.command = [WeatherService.fetchScript, url]
         fcProc.running = true
     }
 
-    function _parse(t) {
-        if (!t || !t.trim()) return
+    function _parse(t, cachedAt) {
+        if (!t || !t.trim()) return false
         try {
             let j = JSON.parse(t)
             let cur = j.current
@@ -97,18 +122,18 @@ Item {
             wRoot.sunset = svc.clock12(dl.sunset[0])
 
             let dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
-            let days = [], wmin = 999, wmax = -999
-            let n = Math.min(6, dl.time.length)
-            for (let i = 0; i < n; i++) {
+            let days = []
+            // Keep every day the API returned; the layout decides how many of
+            // them fit, so this must not be pre-trimmed to a fixed count.
+            for (let i = 0; i < dl.time.length; i++) {
                 let hiN = dl.temperature_2m_max[i], loN = dl.temperature_2m_min[i]
-                wmin = Math.min(wmin, loN); wmax = Math.max(wmax, hiN)
                 let dt = new Date(dl.time[i] + "T00:00:00")
                 days.push({ day: (i === 0) ? "Today" : dayNames[dt.getDay()],
                             hi: svc.roundDeg(hiN), lo: svc.roundDeg(loN),
                             hiNum: hiN, loNum: loN, icon: svc.iconOf(dl.weather_code[i], true),
                             iconColor: svc.iconColorOf(dl.weather_code[i]) })
             }
-            wRoot.daily = days; wRoot.weekMin = wmin; wRoot.weekMax = wmax
+            wRoot.daily = days
 
             let h = j.hourly
             let nowMin = svc.minsOf(cur.time), nowDate = cur.time.split("T")[0], start = 0
@@ -133,7 +158,24 @@ Item {
             wRoot.gradTop = pair[0]; wRoot.gradBottom = pair[1]
 
             wRoot.loaded = true
-        } catch (e) { /* keep previous */ }
+            const savedAt = Number(cachedAt || 0)
+            wRoot.lastFetchMs = savedAt > 0 ? savedAt : Date.now()
+            if (savedAt <= 0)
+                svc.storeForecast(effLat, effLon, t)
+            return true
+        } catch (e) { return false }
+    }
+
+    // Low/high span of the days actually on screen. Scaling the bars over the
+    // visible slice rather than all 16 fetched days keeps them from collapsing
+    // into stubs when only a handful of rows fit.
+    function rangeOf(list) {
+        let mn = 999, mx = -999
+        for (let i = 0; i < list.length; i++) {
+            if (list[i].loNum < mn) mn = list[i].loNum
+            if (list[i].hiNum > mx) mx = list[i].hiNum
+        }
+        return [mn, mx]
     }
 
     // ── Gradient background ────────────────────────────────────────────────
@@ -194,55 +236,87 @@ Item {
     component Divider: Rectangle { height: 1; color: Qt.rgba(1, 1, 1, 0.18) }
 
     // ── Layout 1: Large ────────────────────────────────────────────────────
-    Column {
+    // Anchored rather than stacked in a Column: the daily list has to know how
+    // much room is left over so it can size its own row count to it.
+    Item {
         anchors.fill: parent
         anchors.margins: 16
-        spacing: 12
         visible: wRoot.layout === 1
 
-        CurrentHeader { width: parent.width }
-        Divider { width: parent.width }
-        HourlyRow { width: parent.width; count: 6 }
-        Divider { width: parent.width }
+        CurrentHeader {
+            id: l1Head
+            anchors.left: parent.left; anchors.right: parent.right; anchors.top: parent.top
+        }
+        Divider {
+            id: l1DivA
+            anchors.left: parent.left; anchors.right: parent.right
+            anchors.top: l1Head.bottom; anchors.topMargin: 12
+        }
+        HourlyRow {
+            id: l1Hours
+            anchors.left: parent.left; anchors.right: parent.right
+            anchors.top: l1DivA.bottom; anchors.topMargin: 12
+            count: 6
+        }
+        Divider {
+            id: l1DivB
+            anchors.left: parent.left; anchors.right: parent.right
+            anchors.top: l1Hours.bottom; anchors.topMargin: 12
+        }
 
-        Column {
-            width: parent.width
-            spacing: 7
-            Repeater {
-                model: wRoot.daily
-                delegate: Row {
-                    required property var modelData
-                    width: parent.width
-                    height: 20
-                    spacing: 8
-                    Text { anchors.verticalCenter: parent.verticalCenter; width: 42
-                           text: modelData.day; color: "#ffffff"
-                           font.family: "SF Pro Display"; font.pixelSize: 14; font.weight: Font.Medium }
-                    Text { anchors.verticalCenter: parent.verticalCenter; width: 16; text: modelData.icon
-                           color: modelData.iconColor; font.family: wRoot.svc.iconFont; font.pixelSize: 14 }
-                    Text { anchors.verticalCenter: parent.verticalCenter; width: 34; horizontalAlignment: Text.AlignRight
-                           text: modelData.lo; color: Qt.rgba(1, 1, 1, 0.65)
-                           font.family: "SF Pro Display"; font.pixelSize: 14 }
-                    Item {
-                        anchors.verticalCenter: parent.verticalCenter
-                        width: parent.width - 42 - 16 - 34 - 34 - 4 * 8
-                        height: 5
-                        Rectangle { anchors.fill: parent; radius: 3; color: Qt.rgba(1, 1, 1, 0.18) }
-                        Rectangle {
-                            readonly property real span: Math.max(1, wRoot.weekMax - wRoot.weekMin)
-                            x: ((modelData.loNum - wRoot.weekMin) / span) * parent.width
-                            width: Math.max(6, ((modelData.hiNum - modelData.loNum) / span) * parent.width)
-                            height: parent.height; radius: 3
-                            gradient: Gradient {
-                                orientation: Gradient.Horizontal
-                                GradientStop { position: 0.0; color: wRoot.svc.tempColor(modelData.loNum) }
-                                GradientStop { position: 1.0; color: wRoot.svc.tempColor(modelData.hiNum) }
+        // Claims all remaining height and shows as many days as fit, so the
+        // card ends on a forecast row instead of a block of dead padding.
+        Item {
+            id: l1Days
+            anchors.left: parent.left; anchors.right: parent.right
+            anchors.top: l1DivB.bottom; anchors.topMargin: 12
+            anchors.bottom: parent.bottom
+
+            readonly property real rowH: 20
+            readonly property real gap: 7
+            readonly property int fits: Math.max(1, Math.floor((height + gap) / (rowH + gap)))
+            readonly property var days: wRoot.daily.slice(0, fits)
+            readonly property var span: wRoot.rangeOf(days)
+
+            Column {
+                width: parent.width
+                spacing: l1Days.gap
+                Repeater {
+                    model: l1Days.days
+                    delegate: Row {
+                        required property var modelData
+                        width: parent.width
+                        height: l1Days.rowH
+                        spacing: 8
+                        Text { anchors.verticalCenter: parent.verticalCenter; width: 42
+                               text: modelData.day; color: "#ffffff"
+                               font.family: "SF Pro Display"; font.pixelSize: 14; font.weight: Font.Medium }
+                        Text { anchors.verticalCenter: parent.verticalCenter; width: 16; text: modelData.icon
+                               color: modelData.iconColor; font.family: wRoot.svc.iconFont; font.pixelSize: 14 }
+                        Text { anchors.verticalCenter: parent.verticalCenter; width: 34; horizontalAlignment: Text.AlignRight
+                               text: modelData.lo; color: Qt.rgba(1, 1, 1, 0.65)
+                               font.family: "SF Pro Display"; font.pixelSize: 14 }
+                        Item {
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: parent.width - 42 - 16 - 34 - 34 - 4 * 8
+                            height: 5
+                            Rectangle { anchors.fill: parent; radius: 3; color: Qt.rgba(1, 1, 1, 0.18) }
+                            Rectangle {
+                                readonly property real range: Math.max(1, l1Days.span[1] - l1Days.span[0])
+                                x: ((modelData.loNum - l1Days.span[0]) / range) * parent.width
+                                width: Math.max(6, ((modelData.hiNum - modelData.loNum) / range) * parent.width)
+                                height: parent.height; radius: 3
+                                gradient: Gradient {
+                                    orientation: Gradient.Horizontal
+                                    GradientStop { position: 0.0; color: wRoot.svc.tempColor(modelData.loNum) }
+                                    GradientStop { position: 1.0; color: wRoot.svc.tempColor(modelData.hiNum) }
+                                }
                             }
                         }
+                        Text { anchors.verticalCenter: parent.verticalCenter; width: 34
+                               text: modelData.hi; color: "#ffffff"
+                               font.family: "SF Pro Display"; font.pixelSize: 14 }
                     }
-                    Text { anchors.verticalCenter: parent.verticalCenter; width: 34
-                           text: modelData.hi; color: "#ffffff"
-                           font.family: "SF Pro Display"; font.pixelSize: 14 }
                 }
             }
         }

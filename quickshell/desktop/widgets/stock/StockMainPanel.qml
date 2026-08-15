@@ -62,16 +62,18 @@ Item {
         anchors.verticalCenter: tabBar.verticalCenter
         width: parent.width - tabBar.width - 16
         height: 30
-        spacing: portfolioButton.visible ? 8 : 0
+        spacing: 8
         Text {
             anchors.verticalCenter: parent.verticalCenter
-            width: parent.width - portfolioButton.width - ordersButton.width
-                - (portfolioButton.visible ? parent.spacing * 2 : 0)
+            width: Math.max(0, parent.width - portfolioButton.width - ordersButton.width
+                - tradingModeControl.width - parent.spacing
+                * ((portfolioButton.visible ? 1 : 0) + (ordersButton.visible ? 1 : 0)
+                    + (tradingModeControl.visible ? 1 : 0)))
             text: root.selectedTab === "trade" ? (root.dataMode === "kis"
                 ? (root.kisEnvironment === "prod" && !root.productionTradingEnabled ? root.t("KIS Production · Orders locked")
                 : (root.accountState.status === "ok"
                     ? (root.orderSide === "buy" ? root.t("Buyable %1 · %2", [root.accountState.buyingQuantity,
-                        StockService.money(root.accountState.buyingPower, "KRW")])
+                        StockService.money(root.accountState.buyingPower, root.accountState.currency || root.snapshot.currency || "KRW")])
                         : root.t("Sellable %1 shares", [root.accountState.sellableQuantity]))
                     : root.orderStatusText()))
                 : root.t("Buying power %1", [StockService.money(root.snapshot.buyingPower, root.snapshot.currency)]))
@@ -137,6 +139,66 @@ Item {
                 enabled: root.tradingConfigured
                 cursorShape: Qt.PointingHandCursor
                 onPressed: root.openOrders()
+            }
+        }
+        Rectangle {
+            id: tradingModeControl
+            visible: root.selectedTab === "trade" && root.dataMode === "kis"
+            width: visible ? 120 : 0
+            height: 28
+            radius: 9
+            color: root.separatorColor
+            clip: true
+
+            Rectangle {
+                x: root.autoTradingMode ? parent.width / 2 : 3
+                y: 3
+                width: parent.width / 2 - 3
+                height: parent.height - 6
+                radius: 7
+                color: root.autoTradingMode
+                    ? Qt.rgba(0.04, 0.52, 1, root.dark ? 0.34 : 0.16)
+                    : root.raisedColor
+                Behavior on x { AppleSpring { spring: 18; epsilon: 0.1 } }
+            }
+
+            Text {
+                anchors { left: parent.left; top: parent.top; bottom: parent.bottom }
+                width: parent.width / 2
+                text: root.t("Manual")
+                color: !root.autoTradingMode ? root.foregroundColor : root.secondaryColor
+                font.family: "SF Pro Display"
+                font.pixelSize: 9
+                font.weight: !root.autoTradingMode ? Font.DemiBold : Font.Medium
+                horizontalAlignment: Text.AlignHCenter
+                verticalAlignment: Text.AlignVCenter
+            }
+            Text {
+                anchors { right: parent.right; top: parent.top; bottom: parent.bottom }
+                width: parent.width / 2
+                text: root.t("Auto")
+                color: root.autoTradingMode ? root.foregroundColor : root.secondaryColor
+                font.family: "SF Pro Display"
+                font.pixelSize: 9
+                font.weight: root.autoTradingMode ? Font.DemiBold : Font.Medium
+                horizontalAlignment: Text.AlignHCenter
+                verticalAlignment: Text.AlignVCenter
+            }
+
+            MouseArea {
+                anchors { left: parent.left; top: parent.top; bottom: parent.bottom }
+                width: parent.width / 2
+                enabled: !root.autopilotRunning && root.autopilotAction !== "autopilot-start"
+                    && !root.autopilotEmergencyBusy
+                cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
+                onPressed: root.setTradingMode("manual")
+            }
+            MouseArea {
+                anchors { right: parent.right; top: parent.top; bottom: parent.bottom }
+                width: parent.width / 2
+                enabled: !root.autopilotEmergencyBusy
+                cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
+                onPressed: root.setTradingMode("automatic")
             }
         }
     }

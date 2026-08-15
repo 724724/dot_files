@@ -1,0 +1,6 @@
+#%PAM-1.0
+
+# Run in a separate PamContext so fingerprint and password remain available in
+# parallel. The lock explicitly aborts this no-timeout conversation before
+# suspend; three rejected scans disable fingerprint until the next lock.
+auth required pam_fprintd.so max-tries=3 timeout=-1

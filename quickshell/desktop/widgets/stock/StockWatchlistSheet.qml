@@ -56,12 +56,12 @@ Item {
             anchors.topMargin: 3
             width: parent.width - 36
             text: root.watchSearchText.trim() !== ""
-                ? (watchSearchProcess.running ? root.t("Searching…")
+                ? (root.watchSearchBusy ? root.t("Searching…")
                     : (root.watchSearchError !== "" ? root.t(root.watchSearchError)
                     : root.t("%1 results", [root.watchSearchResults.length])))
                 : (root.watchlistError !== "" ? root.t(root.watchlistError)
-                    : (watchlistProcess.running ? root.t("Updating quotes…")
-                    : root.t("%1 of 8 symbols", [root.watchlist.length])))
+                    : (root.watchlistBusy ? root.t("Updating quotes…")
+                    : root.t("%1 symbols", [root.watchlist.length])))
             color: root.watchSearchText.trim() !== "" && root.watchSearchError !== "" ? root.negativeColor
                 : (root.watchlistError !== "" ? root.negativeColor : root.secondaryColor)
             font.family: "SF Pro Display"
@@ -217,7 +217,7 @@ Item {
             delegate: Rectangle {
                 required property var modelData
                 readonly property bool added: root.watchlist.some(item => item.symbol === modelData.symbol && item.market === modelData.market)
-                readonly property bool canAdd: added || root.watchlist.length < 8
+                readonly property bool canAdd: true
                 width: searchResultsView.width
                 height: 52
                 radius: 11
@@ -280,7 +280,7 @@ Item {
                 anchors.centerIn: parent
                 visible: searchResultsView.count === 0
                 width: parent.width - 28
-                text: watchSearchProcess.running ? root.t("Searching symbols…")
+                text: root.watchSearchBusy ? root.t("Searching symbols…")
                     : (root.watchSearchError !== "" ? root.t(root.watchSearchError) : root.t("No matching symbols."))
                 color: root.watchSearchError !== "" ? root.negativeColor : root.secondaryColor
                 font.family: "SF Pro Display"
@@ -474,7 +474,7 @@ Item {
                 visible: watchlistView.count === 0
                 width: parent.width - 28
                 text: root.watchlistError !== "" ? root.t(root.watchlistError)
-                    : (watchlistProcess.running ? root.t("Loading watchlist…")
+                    : (root.watchlistBusy ? root.t("Loading watchlist…")
                     : root.t("Add the current symbol to start a watchlist."))
                 color: root.watchlistError !== "" ? root.negativeColor : root.secondaryColor
                 font.family: "SF Pro Display"

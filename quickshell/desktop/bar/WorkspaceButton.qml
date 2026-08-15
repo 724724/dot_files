@@ -1,6 +1,7 @@
 import Quickshell.Hyprland
 import QtQuick
 import QtQuick.Layouts
+import "../icons" as Icons
 
 Rectangle {
     id: btn
@@ -64,7 +65,7 @@ Rectangle {
 
             Repeater {
                 model: btn.apps
-                delegate: Image {
+                delegate: Icons.AppIcon {
                     required property var modelData
                     width: 11
                     height: 11
@@ -72,11 +73,7 @@ Rectangle {
                     sourceSize.height: 11
                     smooth: true
                     mipmap: true
-                    source: "image://icon/" + modelData
-                    onStatusChanged: {
-                        if (status === Image.Error)
-                            source = "image://icon/application-x-executable"
-                    }
+                    iconName: modelData
                 }
             }
         }

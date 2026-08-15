@@ -1,19 +1,43 @@
 #!/usr/bin/env python3
 import email.utils
+import difflib
 import html
+import hashlib
 import json
 import os
+import pathlib
 import re
 import shutil
 import subprocess
 import sys
 import time
+import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
-from datetime import datetime, timezone
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime, timedelta, timezone
 
 
 UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 QuickshellNews/1.0"
+STOCK_NEWS_WINDOW = 3 * 24 * 60 * 60
+STOCK_CACHE_DIR = pathlib.Path(
+    os.environ.get("XDG_CACHE_HOME") or pathlib.Path.home() / ".cache"
+) / "quickshell" / "stock-news"
+STOCK_PROFILE_PATH = pathlib.Path(__file__).with_name("stock-news-profiles.json")
+
+
+def load_stock_profiles():
+    try:
+        value = json.loads(STOCK_PROFILE_PATH.read_text(encoding="utf-8"))
+        if isinstance(value.get("sectors"), dict) and isinstance(value.get("companies"), dict):
+            return value
+    except Exception:
+        pass
+    return {"version": 1, "sectors": {}, "companies": {}}
+
+
+STOCK_PROFILES = load_stock_profiles()
+STOCK_CACHE_VERSION = int(STOCK_PROFILES.get("version", 1))
 
 CATEGORY_LABELS = {
     "politics": "Politics",
@@ -339,6 +363,1102 @@ def fetch_news(args):
     for item in deduped:
         item.pop("_ts", None)
     print(json.dumps({"ok": True, "updatedAt": int(time.time()), "items": deduped[:limit], "errors": errors}, ensure_ascii=False))
+
+
+def stock_profile(market, symbol):
+    return STOCK_PROFILES.get("companies", {}).get(f"{market.upper()}:{symbol.upper()}", {})
+
+
+def stock_canonical_name(name, symbol, market="KRX"):
+    aliases = stock_profile(market, symbol).get("aliases", [])
+    return clean_text(aliases[0] if aliases else name) or clean_text(symbol)
+
+
+def stock_company_terms(name, symbol, market="KRX"):
+    raw = clean_text(name)
+    compact = re.sub(r"(?:주식회사|\(주\)|㈜)", "", raw, flags=re.I).strip()
+    compact = re.sub(r"\s+(?:inc\.?|corp\.?|corporation|co\.?|ltd\.?)$", "", compact, flags=re.I).strip()
+    terms = []
+    aliases = stock_profile(market, symbol).get("aliases", [])
+    for value in (compact, raw, *aliases, clean_text(symbol)):
+        lowered = value.casefold().strip()
+        if len(lowered) >= 2 and lowered not in terms:
+            terms.append(lowered)
+    return terms
+
+
+def stock_profile_values(profile, key):
+    values = profile.get(key, []) if isinstance(profile, dict) else []
+    return tuple(
+        value for value in (clean_text(str(item)).casefold() for item in values)
+        if value
+    )
+
+
+def stock_source_quality(source):
+    value = clean_text(source).casefold()
+    tiers = STOCK_PROFILES.get("relevance", {}).get("sourceQuality", {})
+    weights = {
+        "authoritative": 1.0,
+        "established": 0.9,
+        "aggregator": 0.68,
+        "low": 0.5,
+    }
+    for tier in ("authoritative", "established", "low", "aggregator"):
+        if any(clean_text(term).casefold() in value for term in tiers.get(tier, []) if clean_text(term)):
+            return {"tier": tier, "weight": weights[tier], "score": round(weights[tier] * 100)}
+    return {"tier": "standard", "weight": 0.78, "score": 78}
+
+
+KOREAN_PARTICLES = r"(?:으로부터|로부터|에게서|께서는|에서는|와의|과의|으로|에서|에게|께서|은|는|이|가|을|를|의|에|도|만|와|과|로|서|측)"
+
+
+def stock_term_pattern(term):
+    escaped = re.escape(term)
+    if re.search(r"[가-힣]", term):
+        return r"(?<![0-9a-z가-힣])" + escaped + r"(?=$|[^0-9a-z가-힣]|" + KOREAN_PARTICLES + r"(?:$|[^0-9a-z가-힣]))"
+    if re.fullmatch(r"[a-z]+", term, re.I):
+        forms = {term}
+        if term.endswith("y") and len(term) > 2 and term[-2] not in "aeiou":
+            forms.update((term + "ing", term[:-1] + "ies", term[:-1] + "ied"))
+        elif term.endswith("e"):
+            forms.update((term + "s", term + "d", term[:-1] + "ing"))
+        else:
+            forms.update((term + "s", term + "es", term + "ed", term + "ing"))
+        escaped = "(?:" + "|".join(re.escape(value) for value in sorted(forms, key=len, reverse=True)) + ")"
+    return r"(?<![a-z0-9])" + escaped + r"(?![a-z0-9])"
+
+
+def stock_term_spans(text, terms):
+    value = clean_text(text).casefold()
+    matches = []
+    for raw in terms:
+        term = clean_text(str(raw)).casefold()
+        if not term:
+            continue
+        for occurrence in re.finditer(stock_term_pattern(term), value, re.I):
+            matches.append((term, occurrence.start(), occurrence.end()))
+    return matches
+
+
+def stock_term_matches(text, terms):
+    matches = []
+    for term, _, _ in stock_term_spans(text, terms):
+        if term not in matches:
+            matches.append(term)
+    return matches
+
+
+def stock_alias_pattern(alias):
+    escaped = re.escape(alias)
+    if re.search(r"[가-힣]", alias):
+        return r"(?<![0-9a-z가-힣])" + escaped + r"(?=$|[^0-9a-z가-힣]|" + KOREAN_PARTICLES + r"(?:$|[^0-9a-z가-힣]))"
+    return r"(?<![a-z0-9])" + escaped + r"(?![a-z0-9])"
+
+
+def stock_alias_spans(text, aliases):
+    value = clean_text(text).casefold()
+    spans = []
+    for raw in aliases:
+        alias = clean_text(str(raw)).casefold()
+        if not alias:
+            continue
+        spans.extend((alias, match.start(), match.end()) for match in re.finditer(stock_alias_pattern(alias), value, re.I))
+    return spans
+
+
+def stock_alias_matches(text, aliases):
+    matches = []
+    for alias, _, _ in stock_alias_spans(text, aliases):
+        if alias not in matches:
+            matches.append(alias)
+    return matches
+
+
+def stock_company_material_events(text, target_aliases, symbol, market):
+    normalized_text = clean_text(text)
+    event_terms = (
+        STOCK_PROFILES.get("relevance", {}).get("corporateEvents", [])
+        + STOCK_PROFILES.get("relevance", {}).get("materialityEvents", [])
+    )
+    event_spans = stock_term_spans(text, event_terms)
+    target_spans = [
+        {"start": start, "end": end, "target": True}
+        for _, start, end in stock_alias_spans(normalized_text, target_aliases)
+    ]
+    ticker = clean_text(symbol).casefold()
+    if ticker:
+        ticker_pattern = r"(?:\$|(?:nasdaq|nyse|krx)\s*[:：]\s*)" + re.escape(ticker) + r"(?![a-z0-9])"
+        target_spans.extend(
+            {"start": match.start(), "end": match.end(), "target": True}
+            for match in re.finditer(ticker_pattern, normalized_text.casefold(), re.I)
+        )
+
+    entity_spans = list(target_spans)
+    target_key = f"{market.upper()}:{symbol.upper()}"
+    for key, profile in STOCK_PROFILES.get("companies", {}).items():
+        if key == target_key:
+            continue
+        for _, start, end in stock_alias_spans(normalized_text, stock_profile_values(profile, "aliases")):
+            entity_spans.append({"start": start, "end": end, "target": False})
+
+    subject_pattern = re.compile(
+        r"(?:^|[,;:]\s*|\b(?:as|while|after|before|following)\s+)"
+        r"([A-Z][A-Za-z0-9&.'-]*(?:\s+[A-Z][A-Za-z0-9&.'-]*){0,3})\s+"
+        r"(?=(?:reports?|announces?|unveils?|launches?|posts?|records?|forecasts?|expects?|approves?|declares?)\b)"
+    )
+    for match in subject_pattern.finditer(normalized_text):
+        start, end = match.span(1)
+        if not any(span["start"] < end and span["end"] > start for span in target_spans):
+            entity_spans.append({"start": start, "end": end, "target": False})
+
+    accepted = []
+    for term, start, end in event_spans:
+        nearby = []
+        for entity in entity_spans:
+            distance = start - entity["end"] if entity["end"] <= start else entity["start"] - end if entity["start"] >= end else 0
+            between_start = min(end, entity["end"])
+            between_end = max(start, entity["start"])
+            if re.search(r"[;；|。!?␞]", normalized_text[between_start:between_end]):
+                continue
+            if 0 <= distance <= 160:
+                nearby.append((distance, 0 if entity["target"] else 1, entity))
+        if nearby and min(nearby, key=lambda value: (value[0], value[1]))[2]["target"] and term not in accepted:
+            accepted.append(term)
+    return accepted
+
+
+def stock_sector_signal_terms(market, symbol, signal):
+    values = []
+    for sector_id in stock_profile(market, symbol).get("sectors", []):
+        sector = STOCK_PROFILES.get("sectorSignals", {}).get(sector_id, {})
+        for term in sector.get(signal, []):
+            cleaned = clean_text(str(term)).casefold()
+            if cleaned and cleaned not in values:
+                values.append(cleaned)
+    return tuple(values)
+
+
+def stock_sector_theme_terms(market, sector_id):
+    sector = STOCK_PROFILES.get("sectors", {}).get(sector_id, {})
+    locale = "ko" if market.upper() == "KRX" else "en"
+    alternate = "en" if locale == "ko" else "ko"
+    values = []
+    query_terms = sector.get("queryTerms", {})
+    for value in (
+        query_terms.get(locale, [])
+        + sector.get(locale, [])
+        + query_terms.get(alternate, [])
+        + sector.get(alternate, [])
+    ):
+        cleaned = clean_text(str(value)).casefold()
+        if cleaned and cleaned not in values:
+            values.append(cleaned)
+    return tuple(values)
+
+
+def stock_sector_query_terms(market, symbol, sector_id):
+    sector = STOCK_PROFILES.get("sectors", {}).get(sector_id, {})
+    locale = "ko" if market.upper() == "KRX" else "en"
+    values = []
+
+    def append(items):
+        for value in items:
+            cleaned = clean_text(str(value)).casefold()
+            if cleaned and cleaned not in values:
+                values.append(cleaned)
+
+    append(sector.get("queryTerms", {}).get(locale, []))
+    signals = STOCK_PROFILES.get("sectorSignals", {}).get(sector_id, {})
+    for signal in ("supplyChain", "regulation", "macro"):
+        localized = [
+            value for value in signals.get(signal, [])
+            if bool(re.search(r"[가-힣]", value)) == (locale == "ko")
+        ]
+        append(localized[:2])
+    append(stock_sector_theme_terms(market, sector_id))
+    return tuple(values[:8])
+
+
+def stock_ticker_matches(text, symbol, market):
+    value = clean_text(text).casefold()
+    ticker = clean_text(symbol).casefold()
+    if not ticker:
+        return False
+    escaped = re.escape(ticker)
+    if re.search(r"(?:\$|(?:nasdaq|nyse|krx)\s*[:：]\s*)" + escaped + r"(?![a-z0-9])", value, re.I):
+        return True
+    contexts = STOCK_PROFILES.get("relevance", {}).get("stockContexts", [])
+    if not stock_term_matches(value, contexts):
+        return False
+    return re.search(r"(?<![a-z0-9])" + escaped + r"(?![a-z0-9])", value, re.I) is not None
+
+
+def stock_competitor_matches(text, market, symbol):
+    own_key = f"{market.upper()}:{symbol.upper()}"
+    own_sectors = set(stock_profile(market, symbol).get("sectors", []))
+    if not own_sectors:
+        return []
+    matches = []
+    for key, profile in STOCK_PROFILES.get("companies", {}).items():
+        if key == own_key or not own_sectors.intersection(profile.get("sectors", [])):
+            continue
+        aliases = stock_profile_values(profile, "aliases")
+        hits = stock_alias_matches(text, aliases)
+        if hits:
+            matches.append((key, hits[0]))
+    return matches
+
+
+def competitor_is_headline_subject(title, target_aliases, competitor_hits):
+    value = clean_text(title).casefold()
+    action = r"(?:expects?|forecasts?|reports?|says?|launches?|announces?|warns?|예상|전망|발표|출시|경고)"
+    for _, competitor_alias in competitor_hits:
+        competitor = re.escape(competitor_alias)
+        for target_alias in target_aliases:
+            target = re.escape(target_alias)
+            if re.search(
+                r"^.{0,30}" + competitor + r".{0,100}" + action + r".{0,100}" + target,
+                value,
+                re.I,
+            ):
+                return competitor_alias
+    return ""
+
+
+def incidental_company_mention(text, aliases, profile=None):
+    value = clean_text(text).casefold()
+    if not stock_alias_matches(value, aliases):
+        return False
+    if re.search(r"(?:증정|경품|이벤트|giveaway|sweepstakes).{0,50}(?:주식|주|shares?)|(?:주식|주|shares?).{0,50}(?:증정|경품|이벤트|giveaway|sweepstakes)", value, re.I):
+        return True
+    if re.search(r"(?:연예인|방송인|유튜버|인플루언서|개미|직장인|초고수).{0,60}(?:보유|샀|매수|팔았|매도|투자)", value, re.I):
+        return True
+    for alias in aliases:
+        escaped = re.escape(alias)
+        if re.search(r"(?:former|ex-)\s+" + escaped + r"\b|" + escaped + r".{0,18}(?:출신|전직)", value, re.I):
+            return True
+        if re.search(r"(?:중국판|제2의)\s*" + escaped + r"|" + escaped + r".{0,35}(?:배후수요|인근\s+아파트|부동산)", value, re.I):
+            return True
+        if alias in ("네이버", "naver") and re.search(
+            escaped + r"(?:에서|서)?\s*.{0,45}(?:할인|특가|판매|구매|최저가)",
+            value,
+            re.I,
+        ):
+            return True
+    for alias in aliases:
+        escaped = re.escape(alias)
+        if re.search(
+            escaped + r".{0,55}(?:raises?|lowers?|cuts?|sets?|adjusts?|reiterates?|upgrades?|downgrades?|forecasts?|predicts?|estimates?).{0,60}(?:price target|rating|outlook|\bfor\b)",
+            value,
+            re.I,
+        ):
+            return True
+        if re.search(
+            escaped + r".{0,55}(?:has|owns?|buys?|sells?|holds?|boosts?|cuts?|trims?|reduces?|increases?|decreases?|acquires?|purchases?).{0,55}(?:shares?|stock holdings?|stock position|stake|position|holdings?)(?:\s+(?:in|of)\b|\s*$)",
+            value,
+            re.I,
+        ):
+            return True
+    if "finance" in (profile or {}).get("sectors", []):
+        roles = STOCK_PROFILES.get("relevance", {}).get("incidentalRoles", [])
+        if stock_term_matches(value, roles):
+            return True
+        if re.search(r"\b(?:form\s+(?:8-k|10-k|10-q|424b\d*|fwp)|indenture|prospectus)\b", value, re.I):
+            return True
+        if re.search(r"\b(?:tr|trust)\s+plc\b|\bstock\s+data(?:,|\s)+(?:price|news)\b", value, re.I):
+            return True
+        for alias in aliases:
+            escaped = re.escape(alias)
+            if re.search(
+                escaped + r".{0,70}(?:analysts?\s+says?|predicts?|forecasts?|thinks?|recommends?|picks?|worth\s+watching|target(?:\s+valuation)?|rating|price\s+objective)",
+                value,
+                re.I,
+            ):
+                return True
+            if re.search(
+                escaped + r".{0,45}(?:buys?|sells?|trims?|boosts?|cuts?|reduces?|increases?|acquires?)\s+.{1,55}(?:\([a-z]{1,6}\)|\b(?:inc|corp|plc|ltd)\b)",
+                value,
+                re.I,
+            ):
+                return True
+    return False
+
+
+def external_market_commentary(text, aliases):
+    value = clean_text(text).casefold()
+    for alias in aliases:
+        escaped = re.escape(alias)
+        if re.search(
+            r"(?:analysts?|broker|bank|research|증권사?|애널리스트|리포트|목표주가|투자의견).{0,80}" + escaped,
+            value,
+            re.I,
+        ):
+            return True
+        if re.search(
+            escaped + r".{0,90}(?:실적\s*발표\s*후|after\s+(?:the\s+)?earnings).{0,90}(?:우려|전망|비중|매수|매도|buy|sell|rating|weight)"
+            + r"|(?:비중\s*(?:유지|확대|축소)|투자의견).{0,60}" + escaped,
+            value,
+            re.I,
+        ):
+            return True
+        if re.search(
+            escaped + r".{0,80}(?:price\s+target|analyst\s+rating|stock\s+(?:looks|rated)|ahead\s+of\s+(?:its\s+)?earnings|목표주가|투자의견|주가\s+전망)",
+            value,
+            re.I,
+        ):
+            return True
+        if re.search(
+            r"(?:earnings\s+(?:preview|on\s+deck)|what\s+to\s+(?:look\s+for|expect)|expected\s+to|rumou?r|실적\s+(?:전망|예상)|관전\s+포인트|루머).{0,90}" + escaped
+            + r"|" + escaped + r".{0,90}(?:earnings\s+(?:preview|on\s+deck)|what\s+to\s+(?:look\s+for|expect)|expected\s+to|rumou?r|실적\s+(?:전망|예상)|관전\s+포인트|루머)",
+            value,
+            re.I,
+        ):
+            return True
+    return False
+
+
+def stock_relevance(item, name, symbol, market="KRX"):
+    title = clean_text(item.get("title", ""))
+    source = clean_text(item.get("source", ""))
+    if source:
+        title = re.sub(
+            r"\s*(?:[-–—:|]\s*)" + re.escape(source) + r"\s*$",
+            "",
+            title,
+            flags=re.I,
+        ).strip()
+    summary = clean_text(item.get("summary", ""))
+    if summary.casefold().startswith(title.casefold()):
+        summary = summary[len(title):].strip(" -–—:|")
+    combined = f"{title} ␞ {summary}".strip(" ␞")
+    empty = {
+        "score": 0,
+        "relationType": "theme",
+        "relationClass": "unrelated",
+        "topic": "",
+        "reason": "No relevant company or industry evidence",
+        "evidence": [],
+        "materialEvent": False,
+    }
+    if not title or low_information_stock_title(title):
+        return empty
+
+    profile = stock_profile(market, symbol)
+    aliases = []
+    compact_name = re.sub(r"(?:주식회사|\(주\)|㈜)", "", clean_text(name), flags=re.I).strip()
+    for value in (compact_name, *profile.get("aliases", [])):
+        cleaned = clean_text(str(value)).casefold()
+        if len(cleaned) >= 2 and cleaned != clean_text(symbol).casefold() and cleaned not in aliases:
+            aliases.append(cleaned)
+    products = stock_profile_values(profile, "products")
+    title_aliases = stock_alias_matches(title, aliases)
+    summary_aliases = stock_alias_matches(summary, aliases)
+    title_products = stock_term_matches(title, products)
+    summary_products = stock_term_matches(summary, products)
+    exclusions = stock_term_matches(combined, stock_profile_values(profile, "exclusions"))
+    ambiguous = set(stock_profile_values(profile, "ambiguousAliases"))
+    ambiguous.update(
+        alias for alias in aliases
+        if re.fullmatch(r"[a-z]{1,3}", alias, re.I)
+    )
+    only_ambiguous = bool(title_aliases or summary_aliases) and all(
+        value in ambiguous for value in title_aliases + summary_aliases
+    )
+    if exclusions and only_ambiguous and not (title_products or summary_products):
+        return dict(empty, reason=f"Ambiguous company name conflicts with: {exclusions[0]}")
+    company_clauses = [
+        clause for clause in re.split(r"[;；|。!?␞]\s*", combined)
+        if stock_alias_matches(clause, aliases)
+        or stock_ticker_matches(clause, symbol, market)
+    ]
+    corporate_events = stock_company_material_events(combined, aliases, symbol, market)
+    if re.search(
+        r"(?:ai|인공지능|개인|retail|investor)\s*(?:investment|투자)|(?:investment|투자)\s*(?:과열|열풍|심리|경고|버블|거품|sentiment|warning|boom|bubble)",
+        " ".join(company_clauses),
+        re.I,
+    ):
+        corporate_events = [
+            term for term in corporate_events if term not in ("investment", "투자")
+        ]
+    if external_market_commentary(combined, title_aliases + summary_aliases):
+        corporate_events = []
+    mention_context = stock_term_matches(
+        combined,
+        STOCK_PROFILES.get("relevance", {}).get("corporateEvents", [])
+        + STOCK_PROFILES.get("relevance", {}).get("materialityEvents", [])
+        + STOCK_PROFILES.get("relevance", {}).get("stockContexts", []),
+    )
+    if only_ambiguous and not mention_context and not (title_products or summary_products):
+        return dict(empty, reason="Short or ambiguous company name lacks corporate context")
+    if incidental_company_mention(combined, title_aliases + summary_aliases, profile):
+        return dict(empty, reason="Company name is incidental to a promotion, anecdote, analyst note, or fund holding")
+
+    early_competitors = stock_competitor_matches(title, market, symbol)
+    competitor_subject = competitor_is_headline_subject(
+        title,
+        title_aliases,
+        early_competitors,
+    )
+    if competitor_subject:
+        return {
+            "score": 64,
+            "relationType": "theme",
+            "relationClass": "competitor",
+            "topic": competitor_subject,
+            "reason": "Another company is the headline subject and the selected company is affected indirectly",
+            "evidence": [
+                {"kind": "competitor", "term": competitor_subject, "location": "title"},
+                {"kind": "company", "term": title_aliases[0], "location": "title"},
+            ],
+            "materialEvent": False,
+        }
+
+    evidence = []
+    if title_aliases:
+        evidence.append({"kind": "company", "term": title_aliases[0], "location": "title"})
+        if corporate_events:
+            evidence.append({"kind": "corporate_event", "term": corporate_events[0], "location": "title-summary"})
+        return {
+            "score": (100 if not only_ambiguous else 96) if corporate_events else (76 if not only_ambiguous else 70),
+            "relationType": "direct",
+            "relationClass": "company",
+            "topic": title_aliases[0],
+            "reason": "A material company event appears in the headline" if corporate_events else "Company is central to the headline but no material event is confirmed",
+            "evidence": evidence,
+            "materialEvent": bool(corporate_events),
+        }
+    if stock_ticker_matches(combined, symbol, market):
+        evidence.append({"kind": "ticker", "term": symbol.upper(), "location": "title-summary"})
+        return {
+            "score": 92 if corporate_events else 72,
+            "relationType": "direct",
+            "relationClass": "company",
+            "topic": symbol.upper(),
+            "reason": "Ticker appears with a material company event" if corporate_events else "Ticker appears with market context but no material event is confirmed",
+            "evidence": evidence,
+            "materialEvent": bool(corporate_events),
+        }
+    if summary_aliases:
+        evidence.append({"kind": "company", "term": summary_aliases[0], "location": "summary"})
+        if corporate_events:
+            evidence.append({"kind": "corporate_event", "term": corporate_events[0], "location": "title-summary"})
+        return {
+            "score": (90 if not only_ambiguous else 86) if corporate_events else (68 if not only_ambiguous else 62),
+            "relationType": "direct",
+            "relationClass": "company",
+            "topic": summary_aliases[0],
+            "reason": "A material company event appears in the article description" if corporate_events else "Company appears in the description but no material event is confirmed",
+            "evidence": evidence,
+            "materialEvent": bool(corporate_events),
+        }
+    product_events = stock_term_matches(combined, STOCK_PROFILES.get("relevance", {}).get("productEvents", []))
+    if (title_products or summary_products) and product_events:
+        term = (title_products or summary_products)[0]
+        location = "title" if title_products else "summary"
+        evidence.extend((
+            {"kind": "product", "term": term, "location": location},
+            {"kind": "product_event", "term": product_events[0], "location": "title-summary"},
+        ))
+        return {
+            "score": 88 if title_products else 80,
+            "relationType": "direct",
+            "relationClass": "product",
+            "topic": term,
+            "reason": "A company-specific product or service is discussed",
+            "evidence": evidence,
+            "materialEvent": True,
+        }
+
+    supply_hits = stock_term_matches(combined, stock_sector_signal_terms(market, symbol, "supplyChain"))
+    if supply_hits:
+        evidence.append({"kind": "supply_chain", "term": supply_hits[0], "location": "title-summary"})
+        return {
+            "score": 76 if stock_term_matches(title, supply_hits) else 68,
+            "relationType": "theme",
+            "relationClass": "supply_chain",
+            "topic": supply_hits[0],
+            "reason": "A sector supply, demand, pricing, or capacity driver is discussed",
+            "evidence": evidence,
+        }
+
+    event_terms = STOCK_PROFILES.get("relevance", {}).get("competitiveEvents", [])
+    competitor_hits = stock_competitor_matches(combined, market, symbol)
+    competitive_events = stock_term_matches(combined, event_terms)
+    if competitor_hits and competitive_events:
+        evidence.extend((
+            {"kind": "competitor", "term": competitor_hits[0][1], "location": "title-summary"},
+            {"kind": "competitive_event", "term": competitive_events[0], "location": "title-summary"},
+        ))
+        return {
+            "score": 64,
+            "relationType": "theme",
+            "relationClass": "competitor",
+            "topic": competitor_hits[0][1],
+            "reason": "A direct competitor has a potentially market-moving event",
+            "evidence": evidence,
+        }
+
+    regulation_hits = stock_term_matches(combined, stock_sector_signal_terms(market, symbol, "regulation"))
+    if regulation_hits:
+        evidence.append({"kind": "regulation", "term": regulation_hits[0], "location": "title-summary"})
+        return {
+            "score": 62,
+            "relationType": "theme",
+            "relationClass": "regulation",
+            "topic": regulation_hits[0],
+            "reason": "A regulation or policy directly affecting the company's sector is discussed",
+            "evidence": evidence,
+        }
+
+    macro_hits = stock_term_matches(combined, stock_sector_signal_terms(market, symbol, "macro"))
+    if macro_hits:
+        evidence.append({"kind": "macro", "term": macro_hits[0], "location": "title-summary"})
+        return {
+            "score": 56,
+            "relationType": "theme",
+            "relationClass": "macro",
+            "topic": macro_hits[0],
+            "reason": "A macro driver with a defined link to the company's sector is discussed",
+            "evidence": evidence,
+        }
+
+    theme_hits = stock_term_matches(combined, stock_theme_terms(market, symbol))
+    precise_hits = [term for term in theme_hits if re.search(r"\s", term)]
+    if len(theme_hits) >= 2 or precise_hits:
+        term = (precise_hits or theme_hits)[0]
+        evidence.append({"kind": "industry", "term": term, "location": "title-summary"})
+        return {
+            "score": 54 if len(theme_hits) >= 2 else 50,
+            "relationType": "theme",
+            "relationClass": "industry",
+            "topic": term,
+            "reason": "Specific industry evidence is relevant but not company-confirmed",
+            "evidence": evidence,
+        }
+    return empty
+
+
+def stock_item_matches(item, name, symbol, market="KRX"):
+    return stock_relevance(item, name, symbol, market)["relationClass"] == "company"
+
+
+def stock_theme_terms(market, symbol):
+    profile = stock_profile(market, symbol)
+    terms = []
+    for sector_id in profile.get("sectors", []):
+        for value in stock_sector_theme_terms(market, sector_id):
+            if value not in terms:
+                terms.append(value)
+    return tuple(terms)
+
+
+def stock_theme_matches(item, market, symbol):
+    haystack = " ".join((
+        clean_text(item.get("title", "")),
+        clean_text(item.get("summary", "")),
+    )).casefold()
+    return bool(stock_term_matches(haystack, stock_theme_terms(market, symbol)))
+
+
+# Aggregator listicles, market-recap spam, and retail/celebrity gambling
+# stories drown out actual company news in Google News results.
+STOCK_NOISE_PATTERNS = tuple(re.compile(pattern, re.IGNORECASE) for pattern in (
+    r"^\d{4}-\d{2}-\d{2}",
+    r"인기\s*종목",
+    r"주식\s*시황|시황\s*알아보기",
+    r"장\s*마감\s*리포트",
+    r"급등주|급락주|테마주\s*(정리|모음)",
+    r"추천주|매수\s*추천",
+    r"투자\s*대박|몰빵|전\s*재산\b|근황|반응\s*터진",
+    r"초고수",
+    r"일하고\s+싶은\s+기업|취업\s*선호|꿈의\s+직장|구직자\s+픽",
+    r"jersey\s+patch|sponsorship|community\s+event",
+    r"price\s+breakout",
+    r"trending\s+stock",
+    r"stocks?\s+to\s+(buy|watch)\b",
+    r"buy\s*,?\s*sell\s+or\s+hold|if\s+you(?:'d|\s+had)\s+(?:put|invested)|outpacing\s+its\s+.+peers",
+    r"stocks?\s+(?:rises?|falls?)\s+.+(?:outperforms?|underperforms?)\s+(?:the\s+)?market",
+    r"\bcfds?\b",
+))
+
+
+def low_information_stock_title(title):
+    value = clean_text(title)
+    return any(pattern.search(value) for pattern in STOCK_NOISE_PATTERNS)
+
+
+STORY_STOP_WORDS = {
+    "관련", "대한", "위한", "통해", "따라", "발표", "공개", "news", "says", "said",
+    "with", "from", "that", "this", "will", "after", "amid", "into", "대한민국",
+}
+STORY_TOKEN_ALIASES = {
+    "괴리율": "premium", "웃돈": "premium", "고평가": "premium", "프리미엄": "premium",
+    "버블": "overheat", "거품": "overheat", "과열": "overheat",
+    "영업익": "earnings", "영업이익": "earnings", "순이익": "earnings", "실적": "earnings",
+}
+
+
+def stock_story_tokens(value):
+    words = re.findall(r"[0-9a-z가-힣]{2,}", clean_text(value).casefold())
+    return {
+        STORY_TOKEN_ALIASES.get(word, word)
+        for word in words if word not in STORY_STOP_WORDS
+    }
+
+
+def stock_story_similarity(first, second):
+    first_title = re.sub(r"[^0-9a-z가-힣]+", " ", clean_text(first.get("title", "")).casefold()).strip()
+    second_title = re.sub(r"[^0-9a-z가-힣]+", " ", clean_text(second.get("title", "")).casefold()).strip()
+    if not first_title or not second_title:
+        return 0
+    sequence = difflib.SequenceMatcher(None, first_title, second_title).ratio()
+    first_tokens = stock_story_tokens(first_title)
+    second_tokens = stock_story_tokens(second_title)
+    union = first_tokens | second_tokens
+    title_jaccard = len(first_tokens & second_tokens) / len(union) if union else 0
+    containment = len(first_tokens & second_tokens) / min(len(first_tokens), len(second_tokens)) if first_tokens and second_tokens else 0
+    if sequence >= 0.84 or (len(first_tokens) >= 3 and len(second_tokens) >= 3 and title_jaccard >= 0.66) or containment >= 0.82:
+        return max(sequence, title_jaccard, containment)
+    first_summary = stock_story_tokens(first.get("summary", ""))
+    second_summary = stock_story_tokens(second.get("summary", ""))
+    summary_union = first_summary | second_summary
+    summary_jaccard = len(first_summary & second_summary) / len(summary_union) if summary_union else 0
+    if summary_jaccard >= 0.72 and containment >= 0.34:
+        return summary_jaccard
+    return max(sequence, title_jaccard)
+
+
+def stock_material_event_bucket(item):
+    if not item.get("materialEvent"):
+        return ""
+    event_terms = [
+        str(evidence.get("term", "")).casefold()
+        for evidence in item.get("relevanceEvidence", [])
+        if evidence.get("kind") == "corporate_event"
+    ]
+    earnings_terms = {
+        "실적", "매출", "영업이익", "순이익", "earnings", "revenue", "profit", "guidance",
+    }
+    if not earnings_terms.intersection(event_terms):
+        return ""
+    published = datetime.fromtimestamp(ts_from_iso(item.get("published", ""))).astimezone()
+    company = str(item.get("stockSymbol") or item.get("relationTopic") or "").casefold()
+    return f"earnings:{company}:{published.date().isoformat()}"
+
+
+def cluster_stock_items(items):
+    clusters = []
+    for item in sorted(items, key=lambda value: ts_from_iso(value.get("published", "")), reverse=True):
+        timestamp = ts_from_iso(item.get("published", ""))
+        event_bucket = stock_material_event_bucket(item)
+        target = None
+        for cluster in clusters:
+            representative = cluster[0]
+            other_timestamp = ts_from_iso(representative.get("published", ""))
+            if timestamp and other_timestamp and abs(timestamp - other_timestamp) > 36 * 60 * 60:
+                continue
+            if (
+                event_bucket
+                and event_bucket == stock_material_event_bucket(representative)
+            ) or any(stock_story_similarity(item, member) >= 0.66 for member in cluster):
+                target = cluster
+                break
+        if target is None:
+            clusters.append([item])
+        else:
+            target.append(item)
+
+    output = []
+    for cluster in clusters:
+        representative = max(
+            cluster,
+            key=lambda value: (
+                int(value.get("relevanceScore", 0)),
+                float(value.get("sourceWeight", 0)),
+                value.get("relationType") == "direct",
+                bool(value.get("image")),
+                len(clean_text(value.get("summary", ""))),
+                ts_from_iso(value.get("published", "")),
+            ),
+        )
+        result = dict(representative)
+        sources = []
+        source_details = []
+        for member in cluster:
+            source = clean_text(member.get("source", ""))
+            if source and source not in sources:
+                sources.append(source)
+                source_details.append({
+                    "source": source,
+                    "tier": str(member.get("sourceTier", "standard")),
+                    "weight": float(member.get("sourceWeight", 0.78)),
+                })
+        signature = re.sub(r"[^0-9a-z가-힣]+", " ", clean_text(result.get("title", "")).casefold()).strip()
+        result["clusterId"] = hashlib.sha1(signature.encode("utf-8")).hexdigest()[:12]
+        result["duplicateCount"] = len(cluster)
+        result["duplicateSources"] = sources
+        result["sourceDetails"] = source_details
+        result["verifiedSourceCount"] = sum(
+            1 for detail in source_details if detail["weight"] >= 0.85
+        )
+        query_sectors = []
+        for member in cluster:
+            for sector_id in member.get("querySectors", []) or [member.get("querySector", "")]:
+                if sector_id and sector_id not in query_sectors:
+                    query_sectors.append(sector_id)
+        result["querySectors"] = query_sectors
+        result["querySector"] = query_sectors[0] if query_sectors else ""
+        result["clusterLatestPublished"] = max(
+            (member.get("published", "") for member in cluster),
+            key=ts_from_iso,
+            default=result.get("published", ""),
+        )
+        output.append(result)
+    output.sort(key=lambda value: ts_from_iso(value.get("clusterLatestPublished", value.get("published", ""))), reverse=True)
+    return output
+
+
+def balanced_stock_items(items, limit, sector_ids=()):
+    if len(items) <= limit:
+        return items
+    connected = [item for item in items if item.get("relationType") == "theme"]
+    direct = [item for item in items if item.get("relationType") != "theme"]
+    if not connected or not direct:
+        return items[:limit]
+
+    sector_ids = tuple(sector_ids)
+    sector_floor = min(len(sector_ids), max(1, limit // 3))
+    reserve = min(
+        len(connected),
+        max(sector_floor, limit // 3),
+        max(1, limit // 2),
+    )
+    buckets = {}
+    for item in connected:
+        sector_id = item.get("querySector") or "other"
+        buckets.setdefault(sector_id, []).append(item)
+    ordered_buckets = [
+        buckets[sector_id]
+        for sector_id in (*sector_ids, "other")
+        if sector_id in buckets
+    ]
+    ordered_buckets.extend(
+        bucket for sector_id, bucket in buckets.items()
+        if sector_id not in set((*sector_ids, "other"))
+    )
+    balanced_connected = []
+    while len(balanced_connected) < reserve and any(ordered_buckets):
+        for bucket in ordered_buckets:
+            if bucket and len(balanced_connected) < reserve:
+                balanced_connected.append(bucket.pop(0))
+
+    selected = direct[:limit - len(balanced_connected)] + balanced_connected
+    selected_ids = {id(item) for item in selected}
+    if len(selected) < limit:
+        selected.extend(item for item in items if id(item) not in selected_ids)
+    selected = selected[:limit]
+    selected.sort(
+        key=lambda value: ts_from_iso(value.get("clusterLatestPublished", value.get("published", ""))),
+        reverse=True,
+    )
+    return selected
+
+
+def recent_stock_items(items, name, symbol, market="KRX", limit=30, now=None):
+    current = datetime.fromtimestamp(int(now or time.time())).astimezone()
+    cutoff = int((current.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=2)).timestamp())
+    output = []
+    seen = set()
+    for item in items:
+        timestamp = ts_from_iso(item.get("published", ""))
+        url = item.get("url", "")
+        if timestamp < cutoff or timestamp > int(current.timestamp()) + 10 * 60 or not url or url in seen:
+            continue
+        relevance = stock_relevance(item, name, symbol, market)
+        minimum_score = int(STOCK_PROFILES.get("relevance", {}).get("minimumScore", 50))
+        if relevance["score"] < minimum_score:
+            continue
+        source_quality = stock_source_quality(item.get("source", ""))
+        if source_quality["tier"] == "low" and not relevance.get("materialEvent"):
+            continue
+        seen.add(url)
+        ranked = dict(item)
+        ranked["relationType"] = relevance["relationType"]
+        ranked["relationClass"] = relevance["relationClass"]
+        ranked["relationTopic"] = relevance["topic"]
+        ranked["relevanceScore"] = relevance["score"]
+        ranked["relevanceWeight"] = round(relevance["score"] / 100, 2)
+        ranked["relevanceReason"] = relevance["reason"]
+        ranked["relevanceEvidence"] = relevance["evidence"]
+        ranked["materialEvent"] = bool(relevance.get("materialEvent"))
+        ranked["sourceTier"] = source_quality["tier"]
+        ranked["sourceWeight"] = source_quality["weight"]
+        ranked["sourceQualityScore"] = source_quality["score"]
+        output.append(ranked)
+    clustered = cluster_stock_items(output)
+    return balanced_stock_items(
+        clustered,
+        limit,
+        stock_profile(market, symbol).get("sectors", []),
+    )
+
+
+def stock_cache_path(market, symbol, name):
+    identity = f"{STOCK_CACHE_VERSION}|{market.upper()}|{symbol.upper()}"
+    digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:20]
+    return STOCK_CACHE_DIR / f"{digest}.json"
+
+
+def stock_attention_snapshot(items, now):
+    recent_items = [
+        item for item in items
+        if 0 <= now - ts_from_iso(item.get("published", "")) <= 6 * 60 * 60
+    ]
+    recent_weight = sum(
+        float(item.get("relevanceWeight", 0)) * float(item.get("sourceWeight", 0))
+        for item in recent_items
+    )
+    return {
+        "hour": int(now // 3600),
+        "eventWeight6h": round(recent_weight, 3),
+        "eventCount": len(recent_items),
+    }
+
+
+def stock_attention_history(cached, items, now):
+    current_hour = int(now // 3600)
+    history_by_hour = {
+        int(entry.get("hour", 0)): entry
+        for entry in ((cached or {}).get("attentionHistory") or [])
+        if isinstance(entry, dict)
+        and current_hour - 24 * 14 < int(entry.get("hour", 0)) < current_hour
+    }
+    cached_hour = int((cached or {}).get("updatedAt", 0)) // 3600
+    if cached_hour > 0 and cached_hour < current_hour:
+        previous_items = (cached or {}).get("items") or []
+        start_hour = max(
+            current_hour - 24 * 7,
+            min(history_by_hour) + 1 if history_by_hour else cached_hour + 1,
+        )
+        for hour in range(start_hour, current_hour):
+            if hour not in history_by_hour:
+                history_by_hour[hour] = stock_attention_snapshot(previous_items, hour * 3600 + 3599)
+    history = [
+        history_by_hour[hour]
+        for hour in sorted(history_by_hour)
+    ][-167:]
+    samples = [
+        float(entry.get("eventWeight6h", 0))
+        for entry in history[-48:]
+        if "eventWeight6h" in entry and float(entry.get("eventWeight6h", 0)) >= 0
+    ]
+    baseline = {
+        "expectedEventWeight6h": round(sum(samples) / len(samples), 3) if samples else 0,
+        "sampleWindowCount": len(samples),
+        "method": "mean_of_prior_hourly_rolling_6h_windows",
+    }
+    history.append(stock_attention_snapshot(items, now))
+    return history[-168:], baseline
+
+
+def load_stock_cache(path, name, symbol, market, limit):
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    if int(payload.get("relevanceVersion", 0)) != STOCK_CACHE_VERSION:
+        return None
+    payload["items"] = recent_stock_items(payload.get("items", []), name, symbol, market, limit)
+    return payload
+
+
+def save_stock_cache(path, payload):
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = path.with_suffix(".tmp")
+        temporary.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+        os.replace(temporary, path)
+    except Exception:
+        pass
+
+
+def fetch_google_stock_feed(query, market, relation_type, relation_topic):
+    locale = market.upper() == "KRX"
+    params = urllib.parse.urlencode({
+        "q": query,
+        "hl": "ko" if locale else "en-US",
+        "gl": "KR" if locale else "US",
+        "ceid": "KR:ko" if locale else "US:en",
+    })
+    text = fetch_url("https://news.google.com/rss/search?" + params)
+    root = ET.fromstring(text.encode("utf-8"))
+    items = []
+    for node in root.findall("./channel/item")[:60]:
+        title = clean_text(node.findtext("title"))
+        source = clean_text(node.findtext("source"))
+        if source and title.endswith(" - " + source):
+            title = title[:-(len(source) + 3)].strip()
+        link = clean_text(node.findtext("link"))
+        summary = clean_text(node.findtext("description"))
+        if title and summary.casefold().startswith(title.casefold()):
+            summary = summary[len(title):].strip(" -–—:|")
+        if source and summary.casefold() == source.casefold():
+            summary = ""
+        if source.casefold() == "naver blog":
+            title = re.sub(
+                r"\s*[:|]\s*네이버\s*블로그\s*$",
+                "",
+                title,
+                flags=re.I,
+            ).strip()
+        published = iso_from_rfc(clean_text(node.findtext("pubDate")))
+        if not title or not link or not published:
+            continue
+        items.append({
+            "sourceId": "stock-search",
+            "source": source or "Google News",
+            "categoryId": "economy",
+            "category": CATEGORY_LABELS["economy"],
+            "title": title,
+            "summary": summary,
+            "url": link,
+            "image": image_from_html(node.findtext("description") or ""),
+            "published": published,
+            "publishedText": published_text(published),
+            "relationType": relation_type,
+            "relationTopic": relation_topic,
+            "querySector": relation_topic.removeprefix("sector:") if relation_topic.startswith("sector:") else "",
+        })
+    return items
+
+
+def stock_feed_queries(name, symbol, market):
+    canonical_name = stock_canonical_name(name, symbol, market)
+    company_terms = stock_company_terms(canonical_name, symbol, market)
+    company = company_terms[0]
+    locale = market.upper() == "KRX"
+    profile = stock_profile(market, symbol)
+    aliases = [term for term in company_terms if term != symbol.casefold()][:4]
+    company_query = " OR ".join(f'"{term}"' for term in aliases or [company])
+    market_query = f'({company_query}) 주식 when:3d' if locale else f'({company_query}) stock when:3d'
+    # The company-only feed catches product and business news (launches,
+    # earnings) that never contain the word 주식/stock and would otherwise
+    # be invisible to the anchored market feed.
+    company_news_query = f'({company_query}) when:2d'
+    queries = []
+    seen = set()
+
+    def append(query, relation_type, topic):
+        key = clean_text(query).casefold()
+        if key and key not in seen:
+            seen.add(key)
+            queries.append((query, relation_type, topic))
+
+    append(company_news_query, "direct", company)
+    append(market_query, "direct", company)
+    material_terms = (
+        STOCK_PROFILES.get("relevance", {}).get("corporateEvents", [])
+        + STOCK_PROFILES.get("relevance", {}).get("materialityEvents", [])
+    )
+    if locale:
+        material_terms = [term for term in material_terms if re.search(r"[가-힣]", term)]
+    else:
+        material_terms = [term for term in material_terms if re.search(r"[a-z]", term, re.I)]
+    if material_terms:
+        joined = " OR ".join(f'"{term}"' for term in material_terms[:24])
+        append(
+            f"({company_query}) ({joined}) when:3d",
+            "direct",
+            "material-company-event",
+        )
+    products = stock_profile_values(profile, "products")
+    for offset in range(0, len(products), 6):
+        joined = " OR ".join(f'"{term}"' for term in products[offset:offset + 6])
+        append(f"({joined}) when:3d", "direct", "product")
+
+    for sector_id in profile.get("sectors", []):
+        terms = stock_sector_query_terms(market, symbol, sector_id)
+        if not terms:
+            continue
+        joined = " OR ".join(f'"{term}"' for term in terms)
+        append(f"({joined}) when:3d", "theme", f"sector:{sector_id}")
+    return queries
+
+
+def fetch_stock_feed(name, symbol, market):
+    queries = stock_feed_queries(name, symbol, market)
+    company = stock_canonical_name(name, symbol, market).casefold()
+    items = []
+    errors = []
+    with ThreadPoolExecutor(max_workers=min(6, len(queries))) as executor:
+        futures = {
+            executor.submit(fetch_google_stock_feed, query, market, relation_type, topic): query
+            for query, relation_type, topic in queries
+        }
+        for future in as_completed(futures):
+            try:
+                items.extend(future.result())
+            except Exception as error:
+                errors.append(str(error))
+    if not items and errors:
+        raise RuntimeError(errors[0])
+    for item in items:
+        if stock_item_matches(item, name, symbol, market):
+            item["relationType"] = "direct"
+            item["relationTopic"] = company
+    return items
+
+
+def fetch_stock_news(args):
+    symbol = clean_text(args[0] if len(args) > 0 else "").upper()
+    market = clean_text(args[1] if len(args) > 1 else "KRX").upper() or "KRX"
+    requested_name = clean_text(args[2] if len(args) > 2 else symbol) or symbol
+    name = stock_canonical_name(requested_name, symbol, market)
+    limit = int(args[3]) if len(args) > 3 and args[3].isdigit() else 30
+    refresh_mode = args[4].lower() if len(args) > 4 else "cache"
+    force = refresh_mode in ("1", "true", "force")
+    path = stock_cache_path(market, symbol, name)
+    cached = load_stock_cache(path, name, symbol, market, limit)
+    now = int(time.time())
+    same_hour = cached and int(cached.get("updatedAt", 0)) // 3600 == now // 3600
+    if cached and not force and same_hour:
+        print(json.dumps(dict(cached, ok=True, cached=True, stale=False), ensure_ascii=False))
+        return
+    try:
+        items = recent_stock_items(fetch_stock_feed(name, symbol, market), name, symbol, market, limit, now)
+        for item in items:
+            item["stockSymbol"] = symbol
+            item["stockMarket"] = market
+            item["stockName"] = name
+        attention_history, attention_baseline = stock_attention_history(cached, items, now)
+        payload = {
+            "ok": True,
+            "symbol": symbol,
+            "market": market,
+            "name": name,
+            "updatedAt": now,
+            "cacheVersion": STOCK_CACHE_VERSION,
+            "relevanceVersion": STOCK_CACHE_VERSION,
+            "cached": False,
+            "stale": False,
+            "attentionHistory": attention_history,
+            "attentionBaseline": attention_baseline,
+            "items": items,
+        }
+        save_stock_cache(path, payload)
+        print(json.dumps(payload, ensure_ascii=False))
+    except Exception as error:
+        if cached:
+            print(json.dumps(dict(cached, ok=True, cached=True, stale=True, warning=str(error)), ensure_ascii=False))
+            return
+        print(json.dumps({
+            "ok": False,
+            "symbol": symbol,
+            "market": market,
+            "name": name,
+            "error": str(error),
+        }, ensure_ascii=False))
 
 
 def ollama_models():
@@ -826,6 +1946,9 @@ def main():
     cmd = sys.argv[1] if len(sys.argv) > 1 else "fetch"
     if cmd == "fetch":
         fetch_news(sys.argv[2:])
+        return 0
+    if cmd == "stock-fetch":
+        fetch_stock_news(sys.argv[2:])
         return 0
     if cmd == "models":
         print_models()

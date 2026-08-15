@@ -5,12 +5,13 @@ import QtQuick
 
 Item {
     id: root
+    required property var mediaService
     readonly property bool dark: ThemeService.isDark
 
-    property string status: "none"
-    property string title: ""
-    property string artist: ""
-    property string artUrl: ""
+    readonly property string status: mediaService ? mediaService.status : "none"
+    readonly property string title: mediaService ? mediaService.title : ""
+    readonly property string artist: mediaService ? mediaService.artist : ""
+    readonly property string artUrl: mediaService ? mediaService.artUrl : ""
 
     readonly property bool hasMedia: status === "Playing" || status === "Paused"
     readonly property bool isPlaying: status === "Playing"
@@ -19,31 +20,11 @@ Item {
     scale: panelMa.pressed ? 0.985 : 1
     Behavior on scale { AppleSpring { spring: 13 } }
 
-    function refresh() { mediaProc.running = true }
-
-    Process {
-        id: mediaProc
-        command: [Quickshell.env("HOME") + "/.config/hypr/scripts/media-info.sh"]
-        running: true
-        stdout: StdioCollector {
-            onStreamFinished: {
-                let line = text.trim()
-                if (!line) { root.status = "none"; return }
-                try {
-                    let obj = JSON.parse(line)
-                    root.status = obj.status || "none"
-                    root.title  = obj.title  || ""
-                    root.artist = obj.artist || ""
-                    root.artUrl = obj.artUrl || ""
-                } catch (e) {}
-            }
-        }
-    }
-
-    Process { id: ctlProc; command: ["true"] }
     function _ctl(cmd) {
-        ctlProc.command = ["playerctl", "--player=playerctld", cmd]
-        ctlProc.running = true
+        if (!mediaService) return
+        if (cmd === "previous") mediaService.prev()
+        else if (cmd === "play-pause") mediaService.playPause()
+        else if (cmd === "next") mediaService.next()
     }
 
     // Raises the currently-playing app's window (Spotify, browser, …). Resolves
@@ -52,18 +33,6 @@ Item {
     Process {
         id: focusProc
         command: [Quickshell.env("HOME") + "/.config/hypr/scripts/focus-media-player.sh"]
-    }
-
-    // Poll only while the control center is actually on screen — this panel
-    // lives inside the always-loaded (but usually hidden) CC window, and its
-    // unconditional 1.5s poll duplicated MediaService's fetch around the clock.
-    // triggeredOnStart refreshes immediately when the CC opens.
-    Timer {
-        interval: 1500
-        running: NcServer.controlCenterVisible
-        repeat: true
-        triggeredOnStart: true
-        onTriggered: if (!mediaProc.running) mediaProc.running = true
     }
 
     // Whole-panel click target — raises the playing app's window and closes the

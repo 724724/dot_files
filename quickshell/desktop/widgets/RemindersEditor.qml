@@ -19,14 +19,14 @@ Item {
 
     onIndexChanged: ed.reload()
     function reload() {
-        if (index < 0) return
+        if (index === -1) return
         let d = WidgetsService.getData(index)
         layout = d.layout || 2
         title = (d.title !== undefined) ? d.title : "Reminders"
         accent = d.accent || "blue"
         icon = d.icon || "list"
     }
-    function pickLayout(n) { WidgetsService.setRemindersLayout(index, n); ed.layout = n }
+    function pickLayout(n) { WidgetsService.setRemindersLayout(index, n); ed.reload() }
     function setTitle(t)   { WidgetsService.setData(index, { title: t }); ed.title = t }
     function setAccent(a)  { WidgetsService.setData(index, { accent: a }); ed.accent = a }
     function setIcon(name) { WidgetsService.setData(index, { icon: name }); ed.icon = name }

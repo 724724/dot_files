@@ -23,7 +23,7 @@ Item {
 
     onIndexChanged: ed.reload()
     function reload() {
-        if (index < 0) return
+        if (index === -1) return
         let d = WidgetsService.getData(index)
         layout = d.layout || 4
         faces = (d.faces && d.faces.length) ? d.faces.slice() : [{ city: "Local", tz: 0 }]

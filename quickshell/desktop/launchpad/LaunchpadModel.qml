@@ -140,6 +140,70 @@ Singleton {
         _commit(next)
     }
 
+    function extractFromFolderToEnd(folderIdx, appId) {
+        extractFromFolderAt(folderIdx, appId, -1)
+    }
+
+    function extractFromFolderAt(folderIdx, appId, dstIdx) {
+        let next = items.slice()
+        let folder = next[folderIdx]
+        if (!folder || folder.type !== "folder") return
+        let apps = folder.apps.filter(id => id !== appId)
+        if (apps.length === folder.apps.length) return
+        if (apps.length >= 2)
+            next[folderIdx] = { type: "folder", name: folder.name, apps: apps }
+        else if (apps.length === 1)
+            next.splice(folderIdx, 1, { type: "app", id: apps[0] })
+        else
+            next.splice(folderIdx, 1)
+        let insertAt = dstIdx >= 0
+            ? Math.max(0, Math.min(next.length, dstIdx)) : next.length
+        next.splice(insertAt, 0, { type: "app", id: appId })
+        _commit(next)
+    }
+
+    function dropExtractedFolderApp(folderIdx, appId, dstIdx, merge) {
+        let source = items[folderIdx]
+        if (!source || source.type !== "folder"
+                || source.apps.indexOf(appId) < 0) return
+        if (merge && dstIdx === folderIdx) return
+
+        let next = items.slice()
+        let apps = source.apps.filter(id => id !== appId)
+        let sourceRemoved = false
+        if (apps.length >= 2)
+            next[folderIdx] = { type: "folder", name: source.name, apps: apps }
+        else if (apps.length === 1)
+            next.splice(folderIdx, 1, { type: "app", id: apps[0] })
+        else {
+            next.splice(folderIdx, 1)
+            sourceRemoved = true
+        }
+
+        let targetIdx = dstIdx
+        if (sourceRemoved && targetIdx > folderIdx) targetIdx--
+        let target = targetIdx >= 0 && targetIdx < next.length
+            ? next[targetIdx] : null
+        if (merge && target && target.type === "folder") {
+            next[targetIdx] = {
+                type: "folder",
+                name: target.name,
+                apps: target.apps.concat([appId])
+            }
+        } else if (merge && target && target.type === "app") {
+            next[targetIdx] = {
+                type: "folder",
+                name: "Folder",
+                apps: [target.id, appId]
+            }
+        } else {
+            let insertAt = targetIdx >= 0
+                ? Math.max(0, Math.min(next.length, targetIdx)) : next.length
+            next.splice(insertAt, 0, { type: "app", id: appId })
+        }
+        _commit(next)
+    }
+
     function reorderInFolder(folderIdx, from, to) {
         let next = items.slice()
         let folder = next[folderIdx]

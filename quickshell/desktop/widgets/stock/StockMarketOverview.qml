@@ -139,10 +139,48 @@ Item {
             model: StockService.rangeOptions
             delegate: RangeButton {
                 required property var modelData
-                label: modelData.label
+                label: root.t(modelData.label)
                 selected: root.chartRange === modelData.id
                 onTriggered: root.chooseRange(modelData.id)
             }
+        }
+    }
+
+    // iOS-style "spokes" spinner (12 fading bars) at the right edge of the
+    // range row while a chart snapshot fetch is in flight.
+    Item {
+        id: chartSpinner
+        visible: root.loading
+        anchors { right: parent.right; verticalCenter: rangeRow.verticalCenter }
+        anchors.rightMargin: 22
+        width: 14; height: 14
+
+        Repeater {
+            model: 12
+            delegate: Rectangle {
+                required property int index
+                width: 2
+                height: 4
+                radius: 1
+                color: root.foregroundColor
+                // Fading trail: one bar leads at full opacity, the rest fade.
+                opacity: (index + 1) / 12
+                x: chartSpinner.width / 2 - width / 2
+                y: 0
+                transform: Rotation {
+                    origin.x: 1
+                    origin.y: chartSpinner.height / 2
+                    angle: index * 30
+                }
+            }
+        }
+
+        transformOrigin: Item.Center
+        RotationAnimation on rotation {
+            running: chartSpinner.visible
+            from: 0; to: 360
+            duration: 1000
+            loops: Animation.Infinite
         }
     }
     
@@ -226,20 +264,33 @@ Item {
                 (root.points.length > 1 ? root.hoverIndex * (parent.width - 10) / (root.points.length - 1) : 0) - width / 2))
             y: 7
             width: hoverPrice.implicitWidth + 16
-            height: 28
+            height: 42
             radius: 8
             color: root.dark ? "#3a3a3c" : "#ffffff"
             border.color: root.separatorColor
             border.width: 1
-            Text {
-                id: hoverPrice
+            Column {
                 anchors.centerIn: parent
-                text: root.hoverIndex >= 0 && root.hoverIndex < root.points.length
-                    ? StockService.money(root.points[root.hoverIndex].v, root.snapshot.currency) : ""
-                color: root.foregroundColor
-                font.family: "SF Pro Display"
-                font.pixelSize: 11
-                font.weight: Font.Medium
+                spacing: 1
+                Text {
+                    id: hoverPrice
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    text: root.hoverIndex >= 0 && root.hoverIndex < root.points.length
+                        ? StockService.money(root.points[root.hoverIndex].v, root.snapshot.currency) : ""
+                    color: root.foregroundColor
+                    font.family: "SF Pro Display"
+                    font.pixelSize: 11
+                    font.weight: Font.Medium
+                }
+                Text {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    text: root.hoverIndex >= 0 && root.hoverIndex < root.points.length
+                        ? Qt.formatDateTime(new Date(Number(root.points[root.hoverIndex].t) * 1000),
+                            root.chartRange === "30M" || root.chartRange === "1D" ? "hh:mm" : "MM.dd") : ""
+                    color: root.secondaryColor
+                    font.family: "SF Pro Display"
+                    font.pixelSize: 8
+                }
             }
         }
     

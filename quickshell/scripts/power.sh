@@ -36,12 +36,7 @@ case "$ACTION" in
         hyprctl dispatch 'hl.dsp.exit()'
         ;;
     lock)
-        # Direct invocation — loginctl lock-session relies on hypridle's
-        # LockSession listener which can be fragile, so just launch hyprlock
-        # ourselves and detach so it survives this script exiting.
-        if ! pidof hyprlock >/dev/null 2>&1; then
-            setsid -f hyprlock </dev/null >/dev/null 2>&1
-        fi
+        exec "$HOME/.config/quickshell/scripts/quickshell-lock.sh" lock
         ;;
     *)
         echo "usage: $0 {shutdown|reboot|logout|lock}" >&2

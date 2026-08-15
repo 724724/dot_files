@@ -63,7 +63,14 @@ Item {
                 ? root.t("%1 · model calibration · confidence quality gate", [root.snapshot.name || root.symbol])
                 : (root.quantTab === "usage"
                 ? root.t("30-day API token usage ledger · prompts and responses are never stored")
-                : root.t("Watchlist · completed daily closes · local technical ranking")))))
+                : (root.quantTab === "automation"
+                ? (root.automationState.policy && root.automationState.policy.executionMode === "live"
+                    ? root.t("KIS live execution · expiring authorization · serial reconciliation")
+                    : (root.automationState.policy && root.automationState.policy.executionMode === "paper"
+                    ? root.t("KIS paper execution · serial reconciliation")
+                    : root.t("Paper-only · capital preservation gates · no broker execution"))
+                    )
+                : root.t("Watchlist · completed daily closes · local technical ranking"))))))
             color: root.secondaryColor
             font.family: "SF Pro Display"
             font.pixelSize: 11
@@ -76,19 +83,22 @@ Item {
             width: 72
             height: 32
             radius: 10
-            visible: root.quantTab === "forecasts" || root.quantTab === "ai_eval" || root.quantTab === "usage" || root.quantTab === "screener"
+            visible: root.quantTab === "forecasts" || root.quantTab === "ai_eval" || root.quantTab === "usage"
+                || root.quantTab === "screener" || root.quantTab === "automation"
             color: refreshForecastHover.hovered ? root.raisedColor : root.separatorColor
-            opacity: (root.quantTab === "screener" ? root.screenerBusy
+            opacity: (root.quantTab === "automation" ? root.automationBusy
+                : (root.quantTab === "screener" ? root.screenerBusy
                 : (root.quantTab === "usage" ? root.aiUsageBusy
-                : (root.quantTab === "ai_eval" ? root.aiValidationBusy : forecastProcess.running))) ? 0.46 : 1
+                : (root.quantTab === "ai_eval" ? root.aiValidationBusy : root.forecastRunning)))) ? 0.46 : 1
             scale: refreshForecastArea.pressed ? ThemeService.pressScale : 1
             Behavior on opacity { AppleSpring { spring: 22 } }
             Behavior on scale { AppleSpring { spring: 22 } }
             Text {
                 anchors.centerIn: parent
-                text: (root.quantTab === "screener" ? root.screenerBusy
+                text: (root.quantTab === "automation" ? root.automationBusy
+                    : (root.quantTab === "screener" ? root.screenerBusy
                     : (root.quantTab === "usage" ? root.aiUsageBusy
-                    : (root.quantTab === "ai_eval" ? root.aiValidationBusy : forecastProcess.running)))
+                    : (root.quantTab === "ai_eval" ? root.aiValidationBusy : root.forecastRunning))))
                     ? root.t("Updating…") : root.t("Refresh")
                 color: root.foregroundColor
                 font.family: "SF Pro Display"
@@ -99,13 +109,15 @@ Item {
             MouseArea {
                 id: refreshForecastArea
                 anchors.fill: parent
-                enabled: !(root.quantTab === "screener" ? root.screenerBusy
+                enabled: !(root.quantTab === "automation" ? root.automationBusy
+                    : (root.quantTab === "screener" ? root.screenerBusy
                     : (root.quantTab === "usage" ? root.aiUsageBusy
-                    : (root.quantTab === "ai_eval" ? root.aiValidationBusy : forecastProcess.running)))
+                    : (root.quantTab === "ai_eval" ? root.aiValidationBusy : root.forecastRunning))))
                 cursorShape: Qt.PointingHandCursor
-                onPressed: root.quantTab === "screener" ? root.refreshScreener()
+                onPressed: root.quantTab === "automation" ? root.refreshAutomation()
+                    : (root.quantTab === "screener" ? root.refreshScreener()
                     : (root.quantTab === "usage" ? root.refreshAiUsage()
-                    : (root.quantTab === "ai_eval" ? root.refreshAiValidation() : root.refreshForecasts(true)))
+                    : (root.quantTab === "ai_eval" ? root.refreshAiValidation() : root.refreshForecasts(true))))
             }
         }
         Rectangle {
@@ -147,46 +159,53 @@ Item {
             Row {
                 anchors.fill: parent
                 QuantChoice {
-                    width: parent.width / 6
+                    width: parent.width / 7
                     height: parent.height
                     label: root.t("Forecasts")
                     selected: root.quantTab === "forecasts"
                     onChosen: root.chooseQuantTab("forecasts")
                 }
                 QuantChoice {
-                    width: parent.width / 6
+                    width: parent.width / 7
                     height: parent.height
                     label: root.t("Backtest")
                     selected: root.quantTab === "backtest"
                     onChosen: root.chooseQuantTab("backtest")
                 }
                 QuantChoice {
-                    width: parent.width / 6
+                    width: parent.width / 7
                     height: parent.height
                     label: root.t("Compare")
                     selected: root.quantTab === "compare"
                     onChosen: root.chooseQuantTab("compare")
                 }
                 QuantChoice {
-                    width: parent.width / 6
+                    width: parent.width / 7
                     height: parent.height
                     label: root.t("AI Eval")
                     selected: root.quantTab === "ai_eval"
                     onChosen: root.chooseQuantTab("ai_eval")
                 }
                 QuantChoice {
-                    width: parent.width / 6
+                    width: parent.width / 7
                     height: parent.height
                     label: root.t("Usage")
                     selected: root.quantTab === "usage"
                     onChosen: root.chooseQuantTab("usage")
                 }
                 QuantChoice {
-                    width: parent.width / 6
+                    width: parent.width / 7
                     height: parent.height
                     label: root.t("Screener")
                     selected: root.quantTab === "screener"
                     onChosen: root.chooseQuantTab("screener")
+                }
+                QuantChoice {
+                    width: parent.width / 7
+                    height: parent.height
+                    label: root.t("Automation")
+                    selected: root.quantTab === "automation"
+                    onChosen: root.chooseQuantTab("automation")
                 }
             }
         }
@@ -431,7 +450,7 @@ Item {
                 visible: forecastList.count === 0
                 width: parent.width - 40
                 text: root.forecastError !== "" ? root.t(root.forecastError)
-                    : (forecastProcess.running ? root.t("Loading forecast journal…")
+                    : (root.forecastRunning ? root.t("Loading forecast journal…")
                     : root.t("Run a fresh AI analysis to start measuring forecasts."))
                 color: root.forecastError !== "" ? root.negativeColor : root.secondaryColor
                 font.family: "SF Pro Display"
@@ -478,6 +497,11 @@ Item {
         }
 
         Stock.StockScreenerView {
+            root: sheet.root
+            anchors { left: parent.left; right: parent.right; top: quantTabs.bottom; bottom: parent.bottom }
+        }
+
+        Stock.StockAutomationView {
             root: sheet.root
             anchors { left: parent.left; right: parent.right; top: quantTabs.bottom; bottom: parent.bottom }
         }

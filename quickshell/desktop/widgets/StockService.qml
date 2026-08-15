@@ -5,6 +5,7 @@ import QtQuick
 Singleton {
     signal credentialsChanged()
     signal riskPolicyChanged()
+    signal automationPolicyChanged()
     property var modelCatalog: ({})
 
     readonly property var analysisProfileOptions: [
@@ -27,6 +28,7 @@ Singleton {
         { id: "NYSE", label: "NYSE" }
     ]
     readonly property var rangeOptions: [
+        { id: "30M", label: "30m" },
         { id: "1D", label: "1D" },
         { id: "1W", label: "1W" },
         { id: "1M", label: "1M" },

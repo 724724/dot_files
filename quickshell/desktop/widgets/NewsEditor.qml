@@ -20,7 +20,7 @@ Item {
     Component.onCompleted: ed.loadModels()
 
     function reload() {
-        if (index < 0) return
+        if (index === -1) return
         let d = WidgetsService.getData(index)
         layout = d.layout || 2
         sources = (d.sources && d.sources.length) ? d.sources.slice() : NewsService.defaultSources()
@@ -56,8 +56,8 @@ Item {
     }
 
     function setLayout(n) {
-        layout = n
         WidgetsService.setNewsLayout(index, n)
+        ed.reload()
     }
 
     function toggleCategory(id) {

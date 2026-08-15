@@ -8,12 +8,16 @@ import time
 from contextlib import contextmanager
 
 from .core import StockServiceError, numeric, state_directory
+from .automation_scheduler import run_automation_scheduler
+from .automation_notifications import process_automation_notification
 from .forecasting import evaluate_all_forecasts
 from .quant import watchlist_quotes
+from .trading import kis_reconcile_activity
 
 
 BACKGROUND_SERVICE = "quickshell-stock-worker.service"
 BACKGROUND_TIMER = "quickshell-stock-worker.timer"
+RECONCILIATION_INTERVAL_SECONDS = 10 * 60
 
 
 def alert_runtime_path():
@@ -22,6 +26,88 @@ def alert_runtime_path():
 
 def background_status_path():
     return os.path.join(state_directory(), "background-worker.json")
+
+
+def reconciliation_runtime_path():
+    return os.path.join(state_directory(), "trade-reconciliation-runtime.json")
+
+
+def background_cycle_lock_path():
+    return os.path.join(state_directory(), "background-worker-cycle.lock")
+
+
+@contextmanager
+def background_cycle_lock():
+    descriptor = os.open(background_cycle_lock_path(), os.O_RDWR | os.O_CREAT, 0o600)
+    acquired = False
+    try:
+        try:
+            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            acquired = True
+        except BlockingIOError:
+            acquired = False
+        yield acquired
+    finally:
+        if acquired:
+            fcntl.flock(descriptor, fcntl.LOCK_UN)
+        os.close(descriptor)
+
+
+def load_reconciliation_runtime():
+    try:
+        with open(reconciliation_runtime_path(), encoding="utf-8") as handle:
+            result = json.load(handle)
+        return result if isinstance(result, dict) else {}
+    except (OSError, ValueError, TypeError, json.JSONDecodeError):
+        return {}
+
+
+def save_reconciliation_runtime(runtime):
+    path = reconciliation_runtime_path()
+    temporary = path + ".tmp"
+    with open(temporary, "w", encoding="utf-8") as handle:
+        json.dump(runtime, handle, ensure_ascii=False, separators=(",", ":"))
+        handle.flush()
+        os.fsync(handle.fileno())
+    os.chmod(temporary, 0o600)
+    os.replace(temporary, path)
+
+
+def reconcile_widget_activity(configs, now=None, interval=RECONCILIATION_INTERVAL_SECONDS):
+    now = int(now if now is not None else time.time())
+    environments = sorted({
+        str(config.get("environment", "paper"))
+        for config in configs
+        if config.get("mode") == "kis" and config.get("environment") in ("paper", "prod")
+    })
+    if not environments:
+        return {"status": "unavailable", "environments": [], "updatedAt": now}
+    runtime = load_reconciliation_runtime()
+    results = []
+    changed = False
+    for environment in environments:
+        previous = runtime.get(environment, {}) if isinstance(runtime.get(environment), dict) else {}
+        last_attempt = int(numeric(previous.get("attemptedAt")))
+        if now - last_attempt < interval:
+            cached = dict(previous.get("result", {})) if isinstance(previous.get("result"), dict) else {}
+            cached.update({"environment": environment, "cached": True})
+            results.append(cached)
+            continue
+        try:
+            result = kis_reconcile_activity(environment)
+        except Exception as error:
+            result = {"status": "error", "environment": environment, "message": str(error)[:240]}
+        runtime[environment] = {"attemptedAt": now, "result": result}
+        results.append(result)
+        changed = True
+    if changed:
+        save_reconciliation_runtime(runtime)
+    failures = sum(1 for result in results if result.get("status") == "error")
+    return {
+        "status": "ok" if failures == 0 else ("error" if failures == len(results) else "partial"),
+        "environments": results,
+        "updatedAt": now,
+    }
 
 
 @contextmanager
@@ -64,6 +150,8 @@ def save_background_status(result):
     temporary = path + ".tmp"
     with open(temporary, "w", encoding="utf-8") as handle:
         json.dump(result, handle, ensure_ascii=False, separators=(",", ":"))
+        handle.flush()
+        os.fsync(handle.fileno())
     os.chmod(temporary, 0o600)
     os.replace(temporary, path)
 
@@ -79,7 +167,10 @@ def background_status():
     age = max(0, now - updated_at)
     return {
         "status": "ok",
-        "workerStatus": "active" if age <= 150 else "stale",
+        "workerStatus": (
+            "running" if last.get("status") == "running" and age <= 150
+            else ("active" if age <= 150 else "stale")
+        ),
         "ageSeconds": age,
         "last": last,
     }
@@ -156,7 +247,7 @@ def background_control(action):
             raise StockServiceError(message[:240])
     status = background_control_status()
     status["message"] = (
-        "Background forecasts and alerts are running"
+        "Background monitoring and quant observer are running"
         if action == "enable"
         else "Background work stopped · no periodic CPU or network wake-ups"
     )
@@ -207,6 +298,16 @@ def stock_widget_configs(path=""):
                 "sourceId": f"{board}:{row.get('wid', 'stock')}",
                 "mode": str(config.get("dataMode", "demo")).lower(),
                 "environment": str(config.get("kisEnvironment", "paper")).lower(),
+                "symbol": str(config.get("symbol", "005930")).upper(),
+                "market": str(config.get("market", "KRX")).upper(),
+                "language": str(config.get("language", "ko")).lower(),
+                "aiProvider": str(config.get("aiProvider", "none")).lower(),
+                "analysisProfile": str(config.get("analysisProfile", "balanced")).lower(),
+                "backtestStrategy": str(config.get("backtestStrategy", "trend")).lower(),
+                "tradingMode": "automatic"
+                    if str(config.get("tradingMode", "manual")).lower() == "automatic"
+                    else "manual",
+                "automationTargetEnabled": config.get("automationTargetEnabled") is True,
                 "alerts": alerts[:16],
             })
     return {"found": True, "path": state_path, "items": items}
@@ -443,12 +544,42 @@ def evaluate_alert_payload(payload):
 
 
 def run_background_cycle(widgets_path=""):
+    with background_cycle_lock() as acquired:
+        if not acquired:
+            return {
+                "status": "ok",
+                "state": "already_running",
+                "message": "A stock worker cycle is already running",
+                "updatedAt": int(time.time()),
+            }
+        return run_background_cycle_locked(widgets_path)
+
+
+def run_background_cycle_locked(widgets_path=""):
     started_at = time.monotonic()
+    started_timestamp = int(time.time())
+    save_background_status({
+        "status": "running",
+        "startedAt": started_timestamp,
+        "updatedAt": started_timestamp,
+    })
+    widget_state = stock_widget_configs(widgets_path)
+    try:
+        automation = run_automation_scheduler(widget_state["items"] if widget_state["found"] else [])
+    except Exception as error:
+        automation = {"status": "error", "state": "error", "message": str(error)[:240]}
     try:
         forecasts = evaluate_all_forecasts()
     except Exception as error:
         forecasts = {"status": "error", "message": str(error)[:240]}
-    widget_state = stock_widget_configs(widgets_path)
+    try:
+        automation_notification = process_automation_notification(automation)
+    except Exception as error:
+        automation_notification = {"status": "error", "triggered": 0, "delivered": 0, "message": str(error)[:240]}
+    automation["notification"] = automation_notification
+    reconciliation = reconcile_widget_activity(widget_state["items"]) if widget_state["found"] else {
+        "status": "unavailable", "environments": [], "updatedAt": int(time.time()),
+    }
     if widget_state["found"]:
         quotes, quote_errors = fetch_alert_quotes(widget_state["items"])
         try:
@@ -458,15 +589,66 @@ def run_background_cycle(widgets_path=""):
     else:
         quote_errors = []
         alerts = {"status": "unavailable", "checked": 0, "triggered": 0, "delivered": 0}
-    failures = int(forecasts.get("status") == "error") + int(alerts.get("status") == "error")
+    failures = (
+        int(forecasts.get("status") == "error")
+        + int(alerts.get("status") == "error")
+        + int(reconciliation.get("status") in ("error", "partial"))
+        + int(automation.get("status") == "error")
+    )
     result = {
         "status": "ok" if failures == 0 and not quote_errors else "partial",
         "forecasts": forecasts,
         "alerts": {key: value for key, value in alerts.items() if key != "states"},
+        "reconciliation": reconciliation,
+        "automation": automation,
         "quoteErrors": quote_errors[:8],
         "widgetsState": widget_state.get("path", ""),
         "durationMs": max(0, int((time.monotonic() - started_at) * 1000)),
+        "startedAt": started_timestamp,
         "updatedAt": int(time.time()),
     }
+    try:
+        from .automation_operations import operations_part1_status
+        result["operationsPart1"] = operations_part1_status(result["updatedAt"], record=True)
+    except Exception as error:
+        result["operationsPart1"] = {"status": "error", "eligible": False, "message": str(error)[:240]}
+    try:
+        from .automation_soak import halt_soak_automation, record_soak_cycle
+        result["operationsPart2"] = record_soak_cycle(result)
+        if result["operationsPart2"].get("killSwitchEngaged"):
+            try:
+                result["operationsPart2"]["notification"] = process_automation_notification({
+                    "state": "halted",
+                    "updatedAt": result["updatedAt"],
+                    "message": "Online-validation failure budget engaged the kill switch",
+                    "consecutiveFailures": (result["operationsPart2"].get("metrics") or {}).get(
+                        "consecutiveFailures", 0,
+                    ),
+                })
+            except Exception as notification_error:
+                result["operationsPart2"]["notification"] = {
+                    "status": "error", "message": str(notification_error)[:240],
+                }
+    except Exception as error:
+        try:
+            halt_soak_automation("online_validation_integrity_failure")
+        except Exception:
+            pass
+        result["operationsPart2"] = {
+            "status": "error",
+            "enabled": False,
+            "message": str(error)[:240],
+            "killSwitchEngaged": True,
+        }
+        try:
+            result["operationsPart2"]["notification"] = process_automation_notification({
+                "state": "halted",
+                "updatedAt": result["updatedAt"],
+                "message": "Online-validation evidence integrity failed; the kill switch engaged",
+            })
+        except Exception as notification_error:
+            result["operationsPart2"]["notification"] = {
+                "status": "error", "message": str(notification_error)[:240],
+            }
     save_background_status(result)
     return result

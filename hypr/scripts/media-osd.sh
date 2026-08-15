@@ -37,7 +37,7 @@ track_key() {
 # single-track player (key never changes) still shows something.
 wait_for_change() {
     local before="$1" now i
-    for i in $(seq 1 25); do
+    for i in {1..25}; do
         now=$(track_key)
         [ -n "$now" ] && [ "$now" != "$before" ] && return 0
         sleep 0.04

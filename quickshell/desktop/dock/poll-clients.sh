@@ -8,18 +8,26 @@
 #           REAL fullscreen window (fullscreen 2 or 3; excludes maximize-only 1), so
 #           the dock can auto-hide there even while pinned/always-visible.
 
-FOCUSED=$(hyprctl activewindow -j 2>/dev/null \
-    | jq -r '(.class // "") | ascii_downcase' 2>/dev/null)
-FOCUSED="${FOCUSED:-}"
+ACTIVE_JSON=$(hyprctl activewindow -j 2>/dev/null)
+[ -n "$ACTIVE_JSON" ] || ACTIVE_JSON='{}'
 
-ACTIVE_WS=$(hyprctl activeworkspace -j 2>/dev/null | jq -r '.id // -1' 2>/dev/null)
-[ -n "$ACTIVE_WS" ] || ACTIVE_WS=-1
+WORKSPACE_JSON=$(hyprctl activeworkspace -j 2>/dev/null)
+[ -n "$WORKSPACE_JSON" ] || WORKSPACE_JSON='{}'
 
 CLIENTS_JSON=$(hyprctl clients -j 2>/dev/null)
 [ -n "$CLIENTS_JSON" ] || CLIENTS_JSON='[]'
 
-BY_CLASS=$(printf '%s' "$CLIENTS_JSON" | jq -rc '
-        map(select(.class | length > 0))
+MONITORS_JSON=$(hyprctl monitors -j 2>/dev/null)
+[ -n "$MONITORS_JSON" ] || MONITORS_JSON='[]'
+
+jq -cn --argjson active "$ACTIVE_JSON" --argjson workspace "$WORKSPACE_JSON" \
+    --argjson clients "$CLIENTS_JSON" --argjson mons "$MONITORS_JSON" '
+    {
+      focused: (($active.class // "") | ascii_downcase),
+      activeWs: ($workspace.id // -1),
+      byClass: (
+        $clients
+        | map(select(.class | length > 0))
         | group_by(.class | ascii_downcase)
         | map({
             key: (.[0].class | ascii_downcase),
@@ -35,24 +43,15 @@ BY_CLASS=$(printf '%s' "$CLIENTS_JSON" | jq -rc '
             })
           })
         | from_entries
-    ' 2>/dev/null)
-# Bash mis-parses `${BY_CLASS:-{}}` (matches the first `}` and appends the second
-# as a literal), corrupting the JSON. Use an explicit empty-check instead.
-[ -n "$BY_CLASS" ] || BY_CLASS='{}'
-
-MONITORS_JSON=$(hyprctl monitors -j 2>/dev/null)
-[ -n "$MONITORS_JSON" ] || MONITORS_JSON='[]'
-
-FULLSCREEN_MONS=$(jq -cn --argjson mons "$MONITORS_JSON" --argjson clients "$CLIENTS_JSON" '
-        [ $mons[] | . as $m
-          | select($clients | any(
-              .monitor == $m.id
-              and .workspace.id == $m.activeWorkspace.id
-              and ((.fullscreen // 0) >= 2)
-            ))
-          | $m.name
-        ]
-    ' 2>/dev/null)
-[ -n "$FULLSCREEN_MONS" ] || FULLSCREEN_MONS='[]'
-
-printf '{"focused":"%s","activeWs":%s,"byClass":%s,"fullscreenMonitors":%s}\n' "$FOCUSED" "$ACTIVE_WS" "$BY_CLASS" "$FULLSCREEN_MONS"
+      ),
+      fullscreenMonitors: [
+        $mons[] | . as $m
+        | select($clients | any(
+            .monitor == $m.id
+            and .workspace.id == $m.activeWorkspace.id
+            and ((.fullscreen // 0) >= 2)
+          ))
+        | $m.name
+      ]
+    }
+' 2>/dev/null || printf '{"focused":"","activeWs":-1,"byClass":{},"fullscreenMonitors":[]}\n'

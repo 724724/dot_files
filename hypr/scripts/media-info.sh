@@ -9,28 +9,34 @@
 
 PC="playerctl --player=playerctld"
 
-STATUS=$($PC status 2>/dev/null)
+META=$($PC metadata --format $'{{status}}\x1f{{title}}\x1f{{artist}}\x1f{{mpris:artUrl}}' 2>/dev/null)
+STATUS=${META%%$'\x1f'*}
+META=${META#*$'\x1f'}
+TITLE=${META%%$'\x1f'*}
+META=${META#*$'\x1f'}
+ARTIST=${META%%$'\x1f'*}
+ART=${META#*$'\x1f'}
 if [ -z "$STATUS" ] || [ "$STATUS" = "Stopped" ]; then
     printf '{"status":"none","title":"","artist":"","artUrl":"","artDark":true}\n'
     exit 0
 fi
 
-TITLE=$($PC metadata --format '{{title}}'         2>/dev/null)
-ARTIST=$($PC metadata --format '{{artist}}'       2>/dev/null)
-ART=$($PC metadata --format '{{mpris:artUrl}}'    2>/dev/null)
-
 # ── Album-art brightness probe (cached by URL) ───────────────────────────────
 # Default to "dark" so unknown art shows white text (the safer default).
 ARTDARK=true
-CACHE="/tmp/qs-media-art.cache"   # line1: art URL   line2: true|false
+ARTACCENT=""
+CACHE="/tmp/qs-media-art.cache"   # line1: art URL  line2: true|false  line3: #accent
 IMG="/tmp/qs-media-art.img"       # downloaded copy for remote art
 
 if [ -n "$ART" ]; then
-    CACHED_URL=$(sed -n '1p' "$CACHE" 2>/dev/null)
+    CACHED=()
+    [[ -r "$CACHE" ]] && mapfile -t CACHED < "$CACHE"
+    CACHED_URL="${CACHED[0]:-}"
     if [ "$CACHED_URL" = "$ART" ]; then
         # Same track as last probe — reuse the cached result.
-        CACHED_DARK=$(sed -n '2p' "$CACHE" 2>/dev/null)
+        CACHED_DARK="${CACHED[1]:-}"
         [ -n "$CACHED_DARK" ] && ARTDARK="$CACHED_DARK"
+        ARTACCENT="${CACHED[2]:-}"
     else
         # Resolve the art to a local path (download remote art once).
         SRC=""
@@ -63,12 +69,18 @@ if [ -n "$ART" ]; then
                     ARTDARK=false
                 fi
             fi
+            # Most vivid colour in the cover, for the bar's EQ bars. Quantize to
+            # 8 colours, then pick the one with the best saturation/among
+            # mid-brightness candidates (avoids near-black/near-white picks).
+            ARTACCENT=$(magick "$SRC" -resize 64x64 -colors 8 -depth 8 \
+                        -format %c histogram:info:- 2>/dev/null \
+                | python3 "$HOME/.config/quickshell/scripts/album-accent.py" 2>/dev/null)
         fi
-        printf '%s\n%s\n' "$ART" "$ARTDARK" > "$CACHE"
+        printf '%s\n%s\n%s\n' "$ART" "$ARTDARK" "$ARTACCENT" > "$CACHE"
     fi
 fi
 
 # Use jq to JSON-encode safely (handles quotes, backslashes, unicode).
 jq -nc --arg s "$STATUS" --arg t "$TITLE" --arg a "$ARTIST" --arg u "$ART" \
-       --argjson d "$ARTDARK" \
-    '{status:$s, title:$t, artist:$a, artUrl:$u, artDark:$d}'
+       --arg c "$ARTACCENT" --argjson d "$ARTDARK" \
+    '{status:$s, title:$t, artist:$a, artUrl:$u, artDark:$d, artAccent:$c}'

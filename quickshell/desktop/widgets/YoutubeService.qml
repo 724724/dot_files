@@ -6,6 +6,8 @@ import QtQuick
 Singleton {
     id: root
 
+    readonly property bool sessionLockPassive: Quickshell.env("QS_LOCK_MODE") === "1"
+
     readonly property string helper: {
         let base = Quickshell.env("XDG_CONFIG_HOME")
         if (!base || base === "") base = Quickshell.env("HOME") + "/.config"
@@ -99,11 +101,13 @@ Singleton {
     }
 
     function refresh() {
+        if (root.sessionLockPassive) return
         if (statusProcess.running) return
         statusProcess.running = true
     }
 
     function inspect(input, browser) {
+        if (root.sessionLockPassive) return
         input = (input || "").trim()
         if (!input || inspectProcess.running) return
         root.inspecting = true
@@ -116,6 +120,7 @@ Singleton {
     }
 
     function start(input, kind, outputOption, browser) {
+        if (root.sessionLockPassive) return
         input = (input || "").trim()
         if (!root.available || root.busy || !input) return
         root.busy = true
@@ -150,10 +155,12 @@ Singleton {
     }
 
     function openOutput() {
+        if (root.sessionLockPassive) return
         if (root.outputDir) Quickshell.execDetached(["xdg-open", root.outputDir])
     }
 
     function setOutputDirectory(path) {
+        if (root.sessionLockPassive) return
         path = (path || "").trim()
         if (!path || outputProcess.running) return
         outputProcess.command = ["python3", root.helper, "set-output", "--path", path]
@@ -253,7 +260,10 @@ Singleton {
         } catch (e) {}
     }
 
-    Component.onCompleted: root.refresh()
+    Component.onCompleted: {
+        if (!root.sessionLockPassive)
+            root.refresh()
+    }
 
     Process {
         id: statusProcess

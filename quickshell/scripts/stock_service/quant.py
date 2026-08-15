@@ -23,13 +23,13 @@ def demo_snapshot(symbol, market, period):
     bucket = int(time.time() // 3600)
     seed = int(hashlib.sha256(f"{market}:{symbol}:{period}:{bucket}".encode()).hexdigest()[:16], 16)
     rng = random.Random(seed)
-    count = {"1D": 78, "1W": 70, "1M": 76, "3M": 90}.get(period, 78)
-    volatility = {"1D": 0.0025, "1W": 0.004, "1M": 0.006, "3M": 0.009}.get(period, 0.003)
+    count = {"30M": 30, "1D": 78, "1W": 70, "1M": 76, "3M": 90}.get(period, 78)
+    volatility = {"30M": 0.0015, "1D": 0.0025, "1W": 0.004, "1M": 0.006, "3M": 0.009}.get(period, 0.003)
     direction = rng.uniform(-0.035, 0.055)
     value = base * (1.0 - direction)
     points = []
     now = int(time.time())
-    step = {"1D": 300, "1W": 3600, "1M": 14400, "3M": 86400}.get(period, 300)
+    step = {"30M": 60, "1D": 300, "1W": 3600, "1M": 14400, "3M": 86400}.get(period, 300)
     for i in range(count):
         progress = i / max(1, count - 1)
         drift = direction / count
@@ -42,6 +42,7 @@ def demo_snapshot(symbol, market, period):
     return {
         "status": "ok",
         "mode": "demo",
+        "range": period,
         "symbol": symbol,
         "market": market,
         "name": name,
@@ -88,12 +89,37 @@ def demo_history_points(symbol, market, count=260):
         cycle = math.sin(index / 18.0) * daily_volatility * 0.12
         value *= max(0.72, 1 + daily_drift + cycle + rng.gauss(0, daily_volatility))
         stamp = int(datetime.combine(session, datetime.min.time(), tzinfo=timezone).timestamp())
-        raw.append({"t": stamp, "v": value})
+        raw.append({"t": stamp, "v": value, "volume": rng.randint(850000, 18500000)})
     scale = base / raw[-1]["v"]
-    return [{"t": point["t"], "v": round(point["v"] * scale, 2)} for point in raw]
+    return [{
+        "t": point["t"],
+        "v": round(point["v"] * scale, 2),
+        "volume": point["volume"],
+    } for point in raw]
 
 
-def kis_history_points(environment, symbol, count=260):
+def kis_history_points(environment, symbol, count=260, market="KRX"):
+    market = str(market or "KRX").strip().upper()
+    if market != "KRX":
+        now = datetime.now(MARKET_TIMEZONES.get(market, KRX_TIMEZONE))
+        cache_ttl = 15 * 60 if now.weekday() < 5 else 4 * 60 * 60
+        cache_path = os.path.join(state_directory(), f"history-{environment}-{market}-{symbol}.json")
+        try:
+            if time.time() - os.path.getmtime(cache_path) < cache_ttl:
+                with open(cache_path, encoding="utf-8") as handle:
+                    cached = json.load(handle)
+                cached_points = cached.get("points") if isinstance(cached, dict) else None
+                if isinstance(cached_points, list) and len(cached_points) >= min(160, count):
+                    return cached_points[-count:]
+        except (OSError, ValueError, TypeError, json.JSONDecodeError):
+            pass
+        result = overseas_history_points(environment, symbol, market, count)
+        if len(result) >= min(160, count):
+            temporary = cache_path + ".tmp"
+            with open(temporary, "w", encoding="utf-8") as handle:
+                json.dump({"updatedAt": int(time.time()), "adjusted": True, "adjustmentMode": "1", "points": result}, handle, separators=(",", ":"))
+            os.replace(temporary, cache_path)
+        return result
     if not symbol.isdigit() or len(symbol) != 6:
         raise StockServiceError("KRX symbols must contain six digits")
     now = datetime.now(KRX_TIMEZONE)
@@ -106,6 +132,7 @@ def kis_history_points(environment, symbol, count=260):
                 cached = json.load(handle)
             cached_points = cached.get("points") if isinstance(cached, dict) else None
             cached_at = numeric(cached.get("updatedAt"), cache_modified_at) if isinstance(cached, dict) else cache_modified_at
+            adjustment_mode = cached.get("adjustmentMode") if isinstance(cached, dict) else ""
             close_ready_at = now.replace(hour=15, minute=40, second=0, microsecond=0).timestamp()
             needs_completed_close_refresh = (
                 now.weekday() < 5
@@ -117,9 +144,11 @@ def kis_history_points(environment, symbol, count=260):
                 )
             )
             if (
-                not needs_completed_close_refresh
+                adjustment_mode == "1"
+                and not needs_completed_close_refresh
                 and isinstance(cached_points, list)
                 and len(cached_points) >= min(160, count)
+                and all(numeric(point.get("volume")) > 0 for point in cached_points[-min(20, len(cached_points)):])
             ):
                 return cached_points[-count:]
     except (OSError, ValueError, TypeError, json.JSONDecodeError):
@@ -138,18 +167,19 @@ def kis_history_points(environment, symbol, count=260):
                 "FID_INPUT_DATE_1": start.strftime("%Y%m%d"),
                 "FID_INPUT_DATE_2": end.strftime("%Y%m%d"),
                 "FID_PERIOD_DIV_CODE": "D",
-                "FID_ORG_ADJ_PRC": "0",
+                "FID_ORG_ADJ_PRC": "1",
             },
         )
         dates = []
         for row in response.get("output2") or []:
             date_text = str(row.get("stck_bsop_date", ""))
             value = numeric(row.get("stck_clpr"))
+            volume = int(numeric(row.get("acml_vol")))
             if date_text == now.strftime("%Y%m%d") and now.weekday() < 5 and int(now.strftime("%H%M")) < 1540:
                 continue
-            if len(date_text) == 8 and value > 0:
+            if len(date_text) == 8 and value > 0 and volume > 0:
                 dates.append(date_text)
-                points[date_text] = value
+                points[date_text] = {"value": value, "volume": volume}
         if len(points) >= count or not dates:
             break
         next_end = datetime.strptime(min(dates), "%Y%m%d").replace(tzinfo=KRX_TIMEZONE) - timedelta(days=1)
@@ -161,15 +191,21 @@ def kis_history_points(environment, symbol, count=260):
     result = [
         {
             "t": int(datetime.strptime(date_text, "%Y%m%d").replace(tzinfo=KRX_TIMEZONE).timestamp()),
-            "v": value,
+            "v": item["value"],
+            "volume": item["volume"],
         }
-        for date_text, value in ordered
+        for date_text, item in ordered
     ]
     if len(result) >= min(160, count):
         temporary = cache_path + ".tmp"
         with open(temporary, "w", encoding="utf-8") as handle:
             json.dump(
-                {"updatedAt": int(time.time()), "adjusted": True, "points": result},
+                {
+                    "updatedAt": int(time.time()),
+                    "adjusted": True,
+                    "adjustmentMode": "1",
+                    "points": result,
+                },
                 handle,
                 separators=(",", ":"),
             )
@@ -466,8 +502,6 @@ def run_backtest(symbol, market, mode, environment, strategy, commission_bps=1.5
         raise StockServiceError("Unsupported backtest strategy")
     if mode not in ("demo", "kis") or environment not in ("paper", "prod"):
         raise StockServiceError("Unsupported backtest data source")
-    if mode == "kis" and market != "KRX":
-        raise StockServiceError("KIS backtests currently support KRX symbols only")
     costs = {
         "commissionBps": numeric(commission_bps, 1.5),
         "slippageBps": numeric(slippage_bps, 5),
@@ -475,7 +509,7 @@ def run_backtest(symbol, market, mode, environment, strategy, commission_bps=1.5
     }
     if any(value < 0 or value > 100 for value in costs.values()):
         raise StockServiceError("Each execution cost must be between 0 and 100 bps")
-    points = kis_history_points(environment, symbol) if mode == "kis" else demo_history_points(symbol, market)
+    points = kis_history_points(environment, symbol, market=market) if mode == "kis" else demo_history_points(symbol, market)
     points = normalized_history_points(points)
     if len(points) < 160:
         raise StockServiceError("At least 160 completed daily closes are required for walk-forward validation")
@@ -525,8 +559,6 @@ def strategy_comparison(symbol, market, mode, environment, commission_bps=1.5, s
     market = market.strip().upper()
     if mode not in ("demo", "kis") or environment not in ("paper", "prod"):
         raise StockServiceError("Unsupported comparison data source")
-    if mode == "kis" and market != "KRX":
-        raise StockServiceError("KIS comparisons currently support KRX symbols only")
     costs = {
         "commissionBps": numeric(commission_bps, 1.5),
         "slippageBps": numeric(slippage_bps, 5),
@@ -534,7 +566,7 @@ def strategy_comparison(symbol, market, mode, environment, commission_bps=1.5, s
     }
     if any(value < 0 or value > 100 for value in costs.values()):
         raise StockServiceError("Each execution cost must be between 0 and 100 bps")
-    points = kis_history_points(environment, symbol) if mode == "kis" else demo_history_points(symbol, market)
+    points = kis_history_points(environment, symbol, market=market) if mode == "kis" else demo_history_points(symbol, market)
     points = normalized_history_points(points)
     if len(points) < 160:
         raise StockServiceError("At least 160 completed daily closes are required for strategy comparison")
@@ -661,7 +693,7 @@ def watchlist_quotes(items, mode="demo", environment="paper"):
         raise StockServiceError("Watchlist must be an array")
     normalized = []
     seen = set()
-    for item in items[:8]:
+    for item in items:
         if not isinstance(item, dict):
             continue
         symbol = str(item.get("symbol", "")).strip().upper()
@@ -703,7 +735,7 @@ def screen_watchlist(items, mode="demo", environment="paper"):
         raise StockServiceError("Watchlist must be an array")
     normalized = []
     seen = set()
-    for item in items[:8]:
+    for item in items:
         if not isinstance(item, dict):
             continue
         symbol = str(item.get("symbol", "")).strip().upper()
@@ -716,10 +748,8 @@ def screen_watchlist(items, mode="demo", environment="paper"):
     results = []
     for market, symbol in normalized:
         try:
-            if mode == "kis" and market != "KRX":
-                raise StockServiceError("KIS screening currently supports KRX symbols only")
             quote = kis_quote(symbol, market, environment) if mode == "kis" else demo_snapshot(symbol, market, "1D")
-            history = kis_history_points(environment, symbol, 120) if mode == "kis" else demo_history_points(symbol, market, 120)
+            history = kis_history_points(environment, symbol, 120, market) if mode == "kis" else demo_history_points(symbol, market, 120)
             metrics = technical_screen_metrics(history)
             results.append(dict(metrics, **{
                 "status": "ok",

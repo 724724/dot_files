@@ -14,8 +14,14 @@ Item {
     property color lineColor: Qt.rgba(0, 0, 0, 0.10)
     signal pageRequested(int value)
     signal editorRequested(string mode)
+    // Emitted when a row's ⋯ button is activated; the popup renders the dropdown
+    // (Edit / Reset / Delete) at the given scene position.
+    signal menuRequested(string mode, var item, real sceneX, real sceneY)
+    // Emitted when a Pomodoro's Start is activated; the popup checks for disallowed
+    // running apps (and confirms closing them) before actually starting.
+    signal startPomodoroRequested(var item, int index)
 
-    readonly property var titles: ["Clock", "Stopwatch", "Alarm", "Timer", "Pomodoro"]
+    readonly property var titles: ["Clock", "Stopwatch", "Alarm", "Timer", "Pomodoro", "D-Day"]
     readonly property real bodyHeight: page === 0 ? 100
         : page === 1 ? (Bar.ClockService.stopwatchLaps.length === 0 ? 96
             : 102 + Math.min(5, Bar.ClockService.stopwatchLaps.length) * 34)
@@ -23,8 +29,10 @@ Item {
             : 50 + Math.min(5, Bar.ClockService.alarms.length) * 58)
         : page === 3 ? (Bar.ClockService.timers.length === 0 ? 32
             : 50 + Math.min(5, Bar.ClockService.timers.length) * 58)
-        : (Bar.ClockService.pomodoros.length === 0 ? 32
+        : page === 4 ? (Bar.ClockService.pomodoros.length === 0 ? 32
             : 50 + Math.min(5, Bar.ClockService.pomodoros.length) * 64)
+        : (Bar.ClockService.ddays.length === 0 ? 32
+            : 50 + Math.min(5, Bar.ClockService.ddays.length) * 64)
 
     implicitWidth: 294
     implicitHeight: header.height + 10 + bodyViewport.height
@@ -38,7 +46,7 @@ Item {
         id: button
         property string glyph: ""
         property bool enabled: true
-        signal pressed
+        signal activated
         width: 30
         height: 30
         radius: 15
@@ -58,7 +66,7 @@ Item {
         TapHandler {
             id: buttonTap
             enabled: button.enabled
-            onPressedChanged: if (pressed) button.pressed()
+            onTapped: button.activated()
         }
     }
 
@@ -67,7 +75,7 @@ Item {
         property string label: ""
         property bool filled: false
         property bool enabled: true
-        signal pressed
+        signal activated
         height: 32
         width: pillText.implicitWidth + 24
         radius: 16
@@ -90,7 +98,7 @@ Item {
         TapHandler {
             id: pillTap
             enabled: pill.enabled
-            onPressedChanged: if (pressed) pill.pressed()
+            onTapped: pill.activated()
         }
     }
 
@@ -103,7 +111,7 @@ Item {
             anchors.left: parent.left
             anchors.verticalCenter: parent.verticalCenter
             glyph: "‹"
-            onPressed: root.movePage(-1)
+            onActivated: root.movePage(-1)
         }
 
         Text {
@@ -120,7 +128,7 @@ Item {
             anchors.right: parent.right
             anchors.verticalCenter: parent.verticalCenter
             glyph: "›"
-            onPressed: root.movePage(1)
+            onActivated: root.movePage(1)
         }
     }
 
@@ -136,7 +144,7 @@ Item {
             id: pages
             x: -root.page * bodyViewport.width
             height: bodyViewport.height
-            Behavior on x { Bar.AppleSpring { spring: 30; damping: Bar.ThemeService.momentumDamping; epsilon: 0.1 } }
+            Behavior on x { Bar.AppleSpring { spring: 30; damping: Bar.ThemeService.criticalDamping; epsilon: 0.1 } }
 
             Item {
                 width: bodyViewport.width
@@ -205,12 +213,12 @@ Item {
                     PillButton {
                         label: Bar.ClockService.stopwatchRunning ? "Pause" : "Start"
                         filled: true
-                        onPressed: Bar.ClockService.toggleStopwatch()
+                        onActivated: Bar.ClockService.toggleStopwatch()
                     }
                     PillButton {
                         label: Bar.ClockService.stopwatchRunning ? "Lap" : "Reset"
                         enabled: Bar.ClockService.stopwatchRunning || Bar.ClockService.stopwatchElapsedMs > 0
-                        onPressed: {
+                        onActivated: {
                             if (Bar.ClockService.stopwatchRunning) Bar.ClockService.addLap()
                             else Bar.ClockService.resetStopwatch()
                         }
@@ -264,7 +272,7 @@ Item {
                     anchors.horizontalCenter: parent.horizontalCenter
                     label: "+ Add Alarm"
                     filled: true
-                    onPressed: root.editorRequested("alarm")
+                    onActivated: root.editorRequested("alarm")
                 }
                 ClockKineticList {
                     anchors.left: parent.left
@@ -306,19 +314,22 @@ Item {
                             font.pixelSize: 11
                         }
                         PillButton {
-                            anchors.right: deleteAlarm.left
+                            anchors.right: alarmMenu.left
                             anchors.rightMargin: 5
                             anchors.verticalCenter: parent.verticalCenter
                             label: modelData.enabled ? "On" : "Off"
                             filled: modelData.enabled
-                            onPressed: Bar.ClockService.toggleAlarm(index)
+                            onActivated: Bar.ClockService.toggleAlarm(index)
                         }
                         CircleButton {
-                            id: deleteAlarm
+                            id: alarmMenu
                             anchors.right: parent.right
                             anchors.verticalCenter: parent.verticalCenter
-                            glyph: "×"
-                            onPressed: Bar.ClockService.removeAlarm(index)
+                            glyph: "⋯"
+                            onActivated: {
+                                let p = alarmMenu.mapToItem(null, alarmMenu.width, alarmMenu.height)
+                                root.menuRequested("alarm", modelData, p.x, p.y)
+                            }
                         }
                         Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: root.lineColor }
                     }
@@ -333,7 +344,7 @@ Item {
                     anchors.horizontalCenter: parent.horizontalCenter
                     label: "+ Add Timer"
                     filled: true
-                    onPressed: root.editorRequested("timer")
+                    onActivated: root.editorRequested("timer")
                 }
                 ClockKineticList {
                     anchors.left: parent.left
@@ -374,26 +385,22 @@ Item {
                             font.pixelSize: 11
                         }
                         PillButton {
-                            anchors.right: resetTimer.left
+                            anchors.right: timerMenu.left
                             anchors.rightMargin: 5
                             anchors.verticalCenter: parent.verticalCenter
                             label: modelData.running ? "Pause" : "Start"
                             filled: modelData.running
-                            onPressed: Bar.ClockService.toggleTimer(index)
+                            onActivated: Bar.ClockService.toggleTimer(index)
                         }
                         CircleButton {
-                            id: resetTimer
-                            anchors.right: deleteTimer.left
-                            anchors.verticalCenter: parent.verticalCenter
-                            glyph: "↺"
-                            onPressed: Bar.ClockService.resetTimer(index)
-                        }
-                        CircleButton {
-                            id: deleteTimer
+                            id: timerMenu
                             anchors.right: parent.right
                             anchors.verticalCenter: parent.verticalCenter
-                            glyph: "×"
-                            onPressed: Bar.ClockService.removeTimer(index)
+                            glyph: "⋯"
+                            onActivated: {
+                                let p = timerMenu.mapToItem(null, timerMenu.width, timerMenu.height)
+                                root.menuRequested("timer", modelData, p.x, p.y)
+                            }
                         }
                         Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: root.lineColor }
                     }
@@ -408,7 +415,7 @@ Item {
                     anchors.horizontalCenter: parent.horizontalCenter
                     label: "+ Add Focus"
                     filled: true
-                    onPressed: root.editorRequested("pomodoro")
+                    onActivated: root.editorRequested("pomodoro")
                 }
                 ClockKineticList {
                     anchors.left: parent.left
@@ -441,38 +448,135 @@ Item {
                         }
                         Text {
                             anchors.left: parent.left
+                            anchors.right: pomoPill.left
+                            anchors.rightMargin: 8
                             anchors.bottom: parent.bottom
                             anchors.bottomMargin: 8
+                            elide: Text.ElideRight
                             text: (modelData.label || "Focus") + " · "
                                 + (modelData.phase === "break" ? "Break" : "Focus") + " · "
                                 + modelData.currentRound + "/" + modelData.rounds
+                                + ((modelData.pauseCount || 0) > 0
+                                    ? " · " + modelData.pauseCount + "/"
+                                        + Bar.ClockService.maxPomodoroPauses + " pauses"
+                                    : "")
                             color: root.secondaryText
                             font.family: "SF Pro Display"
                             font.pixelSize: 11
                         }
                         PillButton {
-                            anchors.right: resetPomo.left
+                            id: pomoPill
+                            anchors.right: pomoMenu.left
                             anchors.rightMargin: 5
                             anchors.verticalCenter: parent.verticalCenter
                             label: modelData.running ? "Pause" : "Start"
                             filled: modelData.running
-                            onPressed: Bar.ClockService.togglePomodoro(index)
+                            // Out of pauses → the Pause button is disabled so the
+                            // session must keep running.
+                            enabled: !(modelData.running
+                                && (modelData.pauseCount || 0) >= Bar.ClockService.maxPomodoroPauses)
+                            onActivated: {
+                                if (modelData.running) Bar.ClockService.pausePomodoro(index)
+                                else root.startPomodoroRequested(modelData, index)
+                            }
                         }
                         CircleButton {
-                            id: resetPomo
-                            anchors.right: deletePomo.left
-                            anchors.verticalCenter: parent.verticalCenter
-                            glyph: "↺"
-                            onPressed: Bar.ClockService.resetPomodoro(index)
-                        }
-                        CircleButton {
-                            id: deletePomo
+                            id: pomoMenu
                             anchors.right: parent.right
                             anchors.verticalCenter: parent.verticalCenter
-                            glyph: "×"
-                            onPressed: Bar.ClockService.removePomodoro(index)
+                            glyph: "⋯"
+                            onActivated: {
+                                let p = pomoMenu.mapToItem(null, pomoMenu.width, pomoMenu.height)
+                                root.menuRequested("pomodoro", modelData, p.x, p.y)
+                            }
                         }
                         Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: root.lineColor }
+                    }
+                }
+            }
+
+            Item {
+                width: bodyViewport.width
+                height: bodyViewport.height
+                PillButton {
+                    anchors.top: parent.top
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    label: "+ Add D-Day"
+                    filled: true
+                    onActivated: root.editorRequested("dday")
+                }
+                ClockKineticList {
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.top: parent.top
+                    anchors.topMargin: 42
+                    height: Math.min(5, Bar.ClockService.ddays.length) * 64
+                    visible: Bar.ClockService.ddays.length > 0
+                    wheelGain: 64
+                    clip: true
+                    model: Bar.ClockService.ddays
+                    boundsBehavior: Flickable.DragAndOvershootBounds
+                    rebound: Transition { SpringAnimation { properties: "x,y"; spring: 22; damping: 0.8; epsilon: 0.2 } }
+                    ScrollBar.vertical: ScrollBar { policy: Bar.ClockService.ddays.length > 5 ? ScrollBar.AsNeeded : ScrollBar.AlwaysOff }
+                    delegate: Item {
+                        required property int index
+                        required property var modelData
+                        width: ListView.view.width
+                        height: 64
+
+                        Text {
+                            anchors.left: parent.left
+                            anchors.top: parent.top
+                            anchors.topMargin: 7
+                            text: Bar.ClockService.ddayLabel(modelData)
+                            color: modelData.pinned ? root.accent : root.primaryText
+                            font.family: "SF Pro Display"
+                            font.pixelSize: 18
+                            font.weight: Font.DemiBold
+                            font.features: { "tnum": 1 }
+                        }
+
+                        Text {
+                            anchors.left: parent.left
+                            anchors.right: ddayPin.left
+                            anchors.rightMargin: 8
+                            anchors.bottom: parent.bottom
+                            anchors.bottomMargin: 8
+                            text: (modelData.label || "D-Day") + " · "
+                                + Bar.ClockService.ddayDateLabel(modelData)
+                            color: root.secondaryText
+                            font.family: "SF Pro Display"
+                            font.pixelSize: 11
+                            elide: Text.ElideRight
+                        }
+
+                        PillButton {
+                            id: ddayPin
+                            anchors.right: ddayMenu.left
+                            anchors.rightMargin: 5
+                            anchors.verticalCenter: parent.verticalCenter
+                            label: modelData.pinned ? "On Bar" : "Set"
+                            filled: modelData.pinned
+                            onActivated: Bar.ClockService.togglePinnedDday(index)
+                        }
+
+                        CircleButton {
+                            id: ddayMenu
+                            anchors.right: parent.right
+                            anchors.verticalCenter: parent.verticalCenter
+                            glyph: "⋯"
+                            onActivated: {
+                                let p = ddayMenu.mapToItem(null, ddayMenu.width, ddayMenu.height)
+                                root.menuRequested("dday", modelData, p.x, p.y)
+                            }
+                        }
+
+                        Rectangle {
+                            anchors.bottom: parent.bottom
+                            width: parent.width
+                            height: 1
+                            color: root.lineColor
+                        }
                     }
                 }
             }

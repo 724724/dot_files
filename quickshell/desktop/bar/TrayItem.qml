@@ -2,11 +2,14 @@ import Quickshell
 import Quickshell.Services.SystemTray
 import QtQuick
 import Qt5Compat.GraphicalEffects
+import "../icons" as Icons
 
 Rectangle {
     id: trayItem
     required property SystemTrayItem item
     required property var window  // kept for API compat with TrayWidget caller
+    property real iconSize: 14
+    property real cornerRadius: 4
 
     implicitWidth: 22
     implicitHeight: 33
@@ -15,7 +18,7 @@ Rectangle {
     color: mouseArea.containsMouse
         ? (ThemeService.isDark ? Qt.rgba(1, 1, 1, 0.12) : Qt.rgba(0, 0, 0, 0.10))
         : "transparent"
-    radius: 4
+    radius: cornerRadius
     Behavior on scale { AppleSpring { spring: 13 } }
 
     readonly property string iconSource: {
@@ -34,23 +37,18 @@ Rectangle {
     }
     readonly property bool recolor: monochrome && !ThemeService.isDark
 
-    Image {
+    Icons.AppIcon {
         id: iconImg
         anchors.centerIn: parent
-        width: 14
-        height: 14
-        sourceSize.width: 14
-        sourceSize.height: 14
+        width: trayItem.iconSize
+        height: trayItem.iconSize
+        sourceSize.width: trayItem.iconSize
+        sourceSize.height: trayItem.iconSize
         smooth: true
         mipmap: true
         fillMode: Image.PreserveAspectFit
         visible: !trayItem.recolor   // hidden only while the recoloured copy shows
-        source: trayItem.iconSource
-
-        onStatusChanged: {
-            if (status === Image.Error)
-                source = "image://icon/application-x-executable"
-        }
+        iconName: trayItem.item.icon || ""
     }
 
     // Dark recolour of the monochrome glyphs, shown only in light mode.

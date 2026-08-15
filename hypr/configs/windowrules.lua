@@ -240,33 +240,58 @@ hl.layer_rule({ match = { namespace = "qs-dock-menu" }, no_anim = true, blur = t
 hl.layer_rule({ match = { namespace = "qs-osd" }, no_anim = true, blur = true, ignore_alpha = 0.5 })
 
 -- Quickshell Spotlight — fade animation via QML; blur for the macOS look.
-hl.layer_rule({ match = { namespace = "qs-spotlight" }, blur = true, ignore_alpha = 0.5 })
+hl.layer_rule({ match = { namespace = "qs-spotlight" }, no_anim = true, blur = true, ignore_alpha = 0.5 })
 
 -- Quickshell Launchpad — fullscreen overlay, fade via QML.
 -- Lowered ignore_alpha so the very-translucent backdrop (~0.45) still triggers
 -- the blur (Hyprland skips blur for pixels with alpha below the threshold).
 hl.layer_rule({ match = { namespace = "qs-launchpad" }, no_anim = true, blur = true, ignore_alpha = 0.1 })
 
--- Quickshell Mission Control (macOS overview) — opaque wallpaper, no slide-in.
-hl.layer_rule({ match = { namespace = "qs-missioncontrol" }, no_anim = true, blur = true, ignore_alpha = 0.1 })
+-- Quickshell Mission Control owns its wallpaper/dimming transition in QML.
+-- Full-layer blur only repeats that work and can expose a gray shader frame while
+-- the transparent layer maps, so keep the compositor path animation/blur-free.
+-- Hyprland sorts equal-layer surfaces by descending order, then paints front to
+-- back. Mission Control's 10 is therefore painted before the default-order Dock,
+-- keeping the real Dock above it without a remap while Overlay still covers Bar.
+hl.layer_rule({ match = { namespace = "qs-missioncontrol" }, no_anim = true, order = 10 })
 
 -- Quickshell App Switcher (macOS Cmd+Tab style)
 hl.layer_rule({ match = { namespace = "qs-switcher" }, no_anim = true, blur = true, ignore_alpha = 0.4 })
 hl.layer_rule({ match = { namespace = "qs-emoji" }, no_anim = true, blur = true, ignore_alpha = 0.1 })
+
+-- Screenshot selection and toolbar motion is owned by QML. Compositor-side
+-- fades would leave controls in the captured frame during the short unmap
+-- grace period, so both surfaces map/unmap without a second animation.
+hl.layer_rule({ match = { namespace = "qs-capture-overlay" }, no_anim = true })
+hl.layer_rule({ match = { namespace = "qs-capture-toolbar" }, no_anim = true })
 
 -- Quickshell Widgets board (macOS-style notes/clock/weather/reminders) —
 -- fullscreen overlay, fade via QML. Low ignore_alpha so the ~0.5 dark veil
 -- still blurs the workspace windows behind.
 hl.layer_rule({ match = { namespace = "qs-widgets" }, no_anim = true, blur = true, ignore_alpha = 0.1 })
 
-hl.layer_rule({ match = { namespace = "qs-cc" }, blur = true, ignore_alpha = 0.5 })
+hl.layer_rule({ match = { namespace = "qs-cc" }, no_anim = true, blur = true, ignore_alpha = 0.5 })
 
 -- Clock + calendar popup that drops from the bar clock pill.
-hl.layer_rule({ match = { namespace = "qs-clock" }, blur = true, ignore_alpha = 0.5 })
-hl.layer_rule({ match = { namespace = "qs-shazam" }, blur = true, ignore_alpha = 0.1 })
+hl.layer_rule({ match = { namespace = "qs-clock" }, no_anim = true, blur = true, ignore_alpha = 0.5 })
+hl.layer_rule({ match = { namespace = "qs-shazam" }, no_anim = true, blur = true, ignore_alpha = 0.1 })
 
 -- Notification popups (transient toasts at top-right when CC closed)
-hl.layer_rule({ match = { namespace = "qs-notif" }, blur = true, ignore_alpha = 0.5 })
+hl.layer_rule({ match = { namespace = "qs-notif" }, no_anim = true, blur = true, ignore_alpha = 0.5 })
+
+-- These surfaces animate their visible content in QML. Disable the compositor's
+-- second layer animation so response starts on the first frame and motion has one owner.
+for _, namespace in ipairs({
+    "qs-camera-status",
+    "qs-dock-preview-dismiss",
+    "qs-media-popup",
+    "qs-micmode",
+    "qs-privacy-indicators",
+    "qs-stems",
+    "qs-tray-popup",
+}) do
+    hl.layer_rule({ match = { namespace = namespace }, no_anim = true })
+end
 
 -- nwg-dock
 hl.layer_rule({ match = { namespace = "nwg-dock" }, blur = true, ignore_alpha = 0.5 })

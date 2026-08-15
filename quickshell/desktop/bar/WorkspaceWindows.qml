@@ -27,6 +27,8 @@ Singleton {
         let name
         if (lc === "explorer.exe") name = "ableton"
         else if (lc === "code") name = "visual-studio-code"
+        else if (lc === "ida" || lc === "ida64") name = "/opt/ida-free/appico64.png"
+        else if (lc === "arduino ide") name = "arduino-ide"
         else if (lc === "com.transmissionbt.transmission") name = "transmission"
         else {
             let de = DesktopEntries.heuristicLookup(base)

@@ -15,10 +15,13 @@ Item {
     property real mscale: 1
     property bool draggable: false
     property bool live: true
+    property bool placeholderVisible: true
     property bool captureEnabled: false
     property bool dim: false              // dragged elsewhere / inactive look
     property bool flat: false
-    property string iconUrl: ""
+    property bool motionActive: false
+    property bool selectedForExit: false
+    property real stackZ: 0
 
     readonly property string address: windowData ? windowData.address : ""
     readonly property bool dragging: draggable && overview && overview.dragActive && overview.dragAddress === address
@@ -59,17 +62,23 @@ Item {
 
     visible: !dragging
     clip: false
+    z: thumb.selectedForExit ? 100000 : thumb.stackZ
     scale: thumbTap.pressed && !dragging ? ThemeService.pressScale : 1.0
-    Behavior on scale { AppleSpring { spring: 18 } }
+    Behavior on scale {
+        enabled: !(thumb.overview && thumb.overview.reducedMotion)
+        AppleSpring { spring: 4.4 }
+    }
 
     // Smoothly settle when the layout reflows (window count changes) — but stay out
     // of the way while the open/close spread is animating, which drives x/y directly
     // via the binding above.
-    readonly property bool _settled: thumb.slotMode && thumb.overview && !thumb.overview.spreadAnimating
-    Behavior on x { enabled: thumb._settled; AppleSpring { spring: 18; epsilon: 0.15 } }
-    Behavior on y { enabled: thumb._settled; AppleSpring { spring: 18; epsilon: 0.15 } }
-    Behavior on width { enabled: thumb._settled; AppleSpring { spring: 18; epsilon: 0.15 } }
-    Behavior on height { enabled: thumb._settled; AppleSpring { spring: 18; epsilon: 0.15 } }
+    readonly property bool _settled: thumb.slotMode && thumb.overview
+        && !thumb.overview.reducedMotion
+        && !thumb.motionActive && thumb.spread >= 0.999
+    Behavior on x { enabled: thumb._settled; AppleSpring { spring: 4.4; epsilon: 0.15 } }
+    Behavior on y { enabled: thumb._settled; AppleSpring { spring: 4.4; epsilon: 0.15 } }
+    Behavior on width { enabled: thumb._settled; AppleSpring { spring: 4.4; epsilon: 0.15 } }
+    Behavior on height { enabled: thumb._settled; AppleSpring { spring: 4.4; epsilon: 0.15 } }
 
     // Resolve the Wayland capture handle via Hyprland's own toplevel list, matched
     // by address — the same source the bar's workspace icons use. (Matching Wayland
@@ -84,7 +93,20 @@ Item {
         return null
     }
 
+    function _requestOneShot() {
+        if (!thumb.captureEnabled || thumb.live || !thumb.toplevel) return
+        Qt.callLater(() => {
+            if (thumb.captureEnabled && !thumb.live && capture.captureSource)
+                capture.captureFrame()
+        })
+    }
+    onCaptureEnabledChanged: _requestOneShot()
+    onLiveChanged: _requestOneShot()
+    onToplevelChanged: _requestOneShot()
+    Component.onCompleted: _requestOneShot()
+
     readonly property bool interactive: overview !== null
+        && overview.overviewInteractive
     readonly property bool hovered: hoverH.hovered
     readonly property bool isDropTarget: overview && overview.dropWindowAddress === thumb.address
 
@@ -101,33 +123,25 @@ Item {
         border.width: 5
         visible: opacity > 0.002
         opacity: thumb._highlighted ? 1 : 0
-        Behavior on opacity { AppleSpring { spring: 18 } }
+        Behavior on opacity { AppleSpring { spring: 4.4 } }
     }
 
     ClippingRectangle {
         id: card
         anchors.fill: parent
         radius: thumb.flat ? 0 : Math.min(10, parent.height * 0.12)
-        color: thumb.flat ? "transparent" : ThemeService.previewBg
+        // A live stage capture may need a frame after the layer surface maps.
+        // Leaving this transparent preserves the identical real window below;
+        // an opaque gray placeholder caused the first-frame overview flash.
+        color: (thumb.flat || !thumb.placeholderVisible || !capture.hasContent)
+            ? "transparent" : ThemeService.previewBg
 
         ScreencopyView {
             id: capture
             anchors.fill: parent
-            captureSource: thumb.captureEnabled ? thumb.toplevel : null
-            live: thumb.captureEnabled && thumb.live
+            captureSource: thumb.captureEnabled && !thumb.dragging ? thumb.toplevel : null
+            live: thumb.captureEnabled && thumb.live && !thumb.dragging
             paintCursor: false
-        }
-
-        // Fallback icon when there's no captured frame yet (e.g. a window on an
-        // inactive workspace that hasn't been rendered since opening).
-        Image {
-            anchors.centerIn: parent
-            width: Math.min(parent.width, parent.height) * 0.4
-            height: width
-            source: thumb.iconUrl
-            visible: thumb.iconUrl !== "" && (!capture.hasContent)
-            fillMode: Image.PreserveAspectFit
-            smooth: true
         }
 
         // Rounded dim overlay (used while dragging elsewhere).
@@ -145,8 +159,8 @@ Item {
         visible: opacity > 0.002
         opacity: thumb.hovered && thumb.interactive ? 1 : 0
         scale: thumb.hovered && thumb.interactive ? 1 : 0.96
-        Behavior on opacity { AppleSpring { spring: 18 } }
-        Behavior on scale { AppleSpring { spring: 18 } }
+        Behavior on opacity { AppleSpring { spring: 4.4 } }
+        Behavior on scale { AppleSpring { spring: 4.4 } }
         anchors.centerIn: parent
         width: Math.min(pillText.implicitWidth + 22, thumb.width + 40)
         height: pillText.implicitHeight + 10
@@ -178,7 +192,7 @@ Item {
     // focuses + dismisses, a drag past threshold reorders.
     TapHandler {
         id: thumbTap
-        enabled: thumb.overview !== null
+        enabled: thumb.interactive
         onTapped: thumb.overview.activateWindow(thumb.address)
     }
 

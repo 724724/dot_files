@@ -158,7 +158,8 @@ Rectangle {
                             }
                             Text {
                                 width: parent.width
-                                text: "#" + modelData.orderNumber + (Number(modelData.price) > 0 ? "  ·  " + StockService.money(modelData.price, "KRW") : "")
+                                text: "#" + modelData.orderNumber + (Number(modelData.price) > 0 ? "  ·  "
+                                    + StockService.money(modelData.price, modelData.currency || root.snapshot.currency || "KRW") : "")
                                 color: root.secondaryColor
                                 font.family: "SF Pro Display"
                                 font.pixelSize: 9

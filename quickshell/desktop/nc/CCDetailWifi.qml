@@ -10,6 +10,8 @@ Item {
     // duplicate nmcli call would otherwise be in flight.
     property bool wifiOn: false
     property string activeSsid: ""
+    property string activeNetworkType: "none"
+    property bool ethernetAvailable: false
 
     signal back()
     signal pollRequest()  // ask parent to refresh its own wifiOn/wifiSsid
@@ -21,6 +23,21 @@ Item {
     // closing/re-opening the detail panel.
     readonly property var networks: WifiService.networks
     readonly property bool scanning: WifiService.scanning
+    readonly property var visibleNetworks: networks.filter(n => !(root.activeNetworkType === "wifi" && n.active))
+    readonly property var myNetworks: visibleNetworks.filter(n => WifiService.knownSsids[n.ssid] === true)
+    readonly property var otherNetworks: visibleNetworks.filter(n => WifiService.knownSsids[n.ssid] !== true)
+    readonly property var groupedNetworkRows: {
+        let rows = []
+        if (myNetworks.length > 0) {
+            rows.push({ section: true, title: "My Networks" })
+            rows = rows.concat(myNetworks)
+        }
+        if (otherNetworks.length > 0) {
+            rows.push({ section: true, title: "Other Networks" })
+            rows = rows.concat(otherNetworks)
+        }
+        return rows
+    }
 
     // Inline password prompt state (transient, lives on this panel)
     property string passwordSsid: ""   // expanded password row (after auth fail or secured click)
@@ -111,6 +128,9 @@ Item {
                 }
             }
         }
+        function onNetworkStateChanged() {
+            root.pollRequest()
+        }
     }
 
     // On entry: show cached results immediately. Auto-refresh only if stale
@@ -149,7 +169,8 @@ Item {
             height: 48
             radius: 10
             color: ThemeService.tileBg
-            visible: root.wifiOn && root.activeSsid !== ""
+            visible: root.activeNetworkType === "ethernet"
+                || (root.activeNetworkType === "wifi" && root.activeSsid !== "")
 
             Rectangle {
                 id: activeIcon
@@ -162,7 +183,7 @@ Item {
                 color: "#0A84FF"
                 Text {
                     anchors.centerIn: parent
-                    text: "󰖩"
+                    text: root.activeNetworkType === "ethernet" ? "󰈀" : "󰖩"
                     color: "#ffffff"
                     font.family: "JetBrainsMono Nerd Font Propo"
                     font.pixelSize: 14
@@ -176,7 +197,9 @@ Item {
                     verticalCenter: parent.verticalCenter
                 }
                 Text {
-                    text: root.activeSsid
+                    text: root.activeNetworkType === "ethernet"
+                        ? "Ethernet"
+                        : root.activeSsid
                     color: ThemeService.textPrimary
                     font.family: "SF Pro Display"
                     font.pixelSize: 12
@@ -195,6 +218,7 @@ Item {
                 id: activeMa
                 anchors.fill: parent
                 acceptedButtons: Qt.RightButton
+                enabled: root.activeNetworkType === "wifi"
                 cursorShape: Qt.PointingHandCursor
                 onClicked: function(mouse) {
                     let pt = activeMa.mapToItem(root, mouse.x, mouse.y)
@@ -210,6 +234,7 @@ Item {
                     rightMargin: 8
                     verticalCenter: parent.verticalCenter
                 }
+                visible: root.activeNetworkType === "wifi"
                 onClicked: {
                     let pt = wifiKebab.mapToItem(root, wifiKebab.width, wifiKebab.height)
                     ctxMenu.openAt(pt.x, pt.y, root._wifiMenuItems(
@@ -219,12 +244,12 @@ Item {
         }
 
         Text {
-            text: root.scanning ? "Scanning…" : "Other Networks"
+            text: "Scanning…"
             color: ThemeService.textSecondary
             font.family: "SF Pro Display"
             font.pixelSize: 11
             font.weight: Font.DemiBold
-            visible: root.wifiOn
+            visible: root.scanning
         }
 
         // Network list (scrollable, capped height)
@@ -234,7 +259,8 @@ Item {
             height: Math.min(listCol.implicitHeight, 280)
             contentHeight: listCol.implicitHeight
             clip: true
-            visible: root.wifiOn && root.networks.length > 0
+            visible: (root.wifiOn && root.groupedNetworkRows.length > 0)
+                || (root.ethernetAvailable && root.activeNetworkType !== "ethernet")
             interactive: contentHeight > height
             boundsBehavior: Flickable.DragAndOvershootBounds
             boundsMovement: Flickable.FollowBoundsBehavior
@@ -280,29 +306,110 @@ Item {
                 width: parent.width
                 spacing: 2
 
+                Item {
+                    id: ethernetRow
+                    width: parent.width
+                    height: visible ? 40 : 0
+                    visible: root.ethernetAvailable
+                        && root.activeNetworkType !== "ethernet"
+                    scale: ethernetMa.pressed ? 0.985 : 1
+                    Behavior on scale { AppleSpring { spring: 13 } }
+
+                    Rectangle {
+                        anchors.fill: parent
+                        radius: 6
+                        color: ethernetMa.containsMouse
+                            ? ThemeService.rowBgHover
+                            : ThemeService.rowBgHoverClear
+                    }
+
+                    Text {
+                        anchors {
+                            left: parent.left
+                            leftMargin: 8
+                            verticalCenter: parent.verticalCenter
+                        }
+                        text: "󰈀"
+                        color: dark ? "#0A84FF" : "#007AFF"
+                        font.family: "JetBrainsMono Nerd Font Propo"
+                        font.pixelSize: 14
+                    }
+
+                    Text {
+                        anchors {
+                            left: parent.left
+                            leftMargin: 32
+                            verticalCenter: parent.verticalCenter
+                        }
+                        text: "Use Ethernet"
+                        color: ThemeService.textPrimary
+                        font.family: "SF Pro Display"
+                        font.pixelSize: 12
+                    }
+
+                    MouseArea {
+                        id: ethernetMa
+                        anchors.fill: parent
+                        enabled: !WifiService.routeSwitching
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: WifiService.selectEthernet()
+                    }
+                }
+
                 Repeater {
-                    model: root.wifiOn ? root.networks : []
+                    model: root.wifiOn ? root.groupedNetworkRows : []
                     delegate: Column {
                         id: rowWrap
                         required property var modelData
                         width: listCol.width
                         spacing: 0
-                        visible: !modelData.active
+                        visible: true
 
-                        readonly property bool expanded: root.passwordSsid === modelData.ssid
-                        readonly property bool connecting: root.pendingSsid === modelData.ssid
+                        readonly property bool section: modelData.section === true
+                        readonly property bool expanded: !section && root.passwordSsid === modelData.ssid
+                        readonly property bool connecting: !section && root.pendingSsid === modelData.ssid
+
+                        // Eye toggle: reveals the whole password. Always back to
+                        // masked when the row reopens, so a stale reveal never
+                        // leaks the previous entry.
+                        property bool revealPw: false
 
                         // Grab keyboard focus the moment the password row opens so
                         // the user can type immediately — no extra click needed
                         // (the layer is keyboardFocus: OnDemand, so forcing focus
                         // on the field is what makes the compositor route keys here).
-                        onExpandedChanged: if (expanded) Qt.callLater(pwField.forceActiveFocus)
+                        onExpandedChanged: {
+                            revealPw = false
+                            if (expanded) Qt.callLater(pwField.forceActiveFocus)
+                        }
+
+                        Item {
+                            width: parent.width
+                            height: rowWrap.section ? 30 : 0
+                            visible: rowWrap.section
+
+                            Text {
+                                anchors {
+                                    left: parent.left
+                                    leftMargin: 8
+                                    bottom: parent.bottom
+                                    bottomMargin: 5
+                                }
+                                text: rowWrap.modelData.title || ""
+                                color: ThemeService.textSecondary
+                                font.family: "SF Pro Display"
+                                font.pixelSize: 11
+                                font.weight: Font.DemiBold
+                            }
+                        }
 
                         // Main row
                         Item {
                             id: networkRow
                             width: parent.width
-                            height: 40
+                            height: rowWrap.section ? 0 : 40
+                            visible: !rowWrap.section
                             scale: rowMa.pressed ? 0.985 : 1
                             Behavior on scale { AppleSpring { spring: 13 } }
 
@@ -336,7 +443,7 @@ Item {
                                     rightMargin: 6
                                     verticalCenter: parent.verticalCenter
                                 }
-                                text: rowWrap.modelData.ssid
+                                text: rowWrap.modelData.ssid || ""
                                 color: ThemeService.textPrimary
                                 font.family: "SF Pro Display"
                                 font.pixelSize: 12
@@ -404,7 +511,7 @@ Item {
                         // Password input row (collapses smoothly)
                         Item {
                             width: parent.width
-                            height: rowWrap.expanded ? 56 : 0
+                            height: !rowWrap.section && rowWrap.expanded ? 56 : 0
                             clip: true
                             Behavior on height { AppleSpring { spring: 11; epsilon: 0.25 } }
                             opacity: rowWrap.expanded ? 1 : 0
@@ -422,10 +529,10 @@ Item {
                                     id: pwField
                                     anchors {
                                         left: parent.left
-                                        right: connectBtn.left
+                                        right: eyeBtn.left
                                         verticalCenter: parent.verticalCenter
                                         leftMargin: 10
-                                        rightMargin: 8
+                                        rightMargin: 2
                                     }
                                     placeholderText: root.passwordError !== ""
                                         ? root.passwordError
@@ -436,7 +543,12 @@ Item {
                                     color: ThemeService.textPrimary
                                     font.family: "SF Pro Display"
                                     font.pixelSize: 12
-                                    echoMode: TextInput.Password
+                                    echoMode: rowWrap.revealPw
+                                        ? TextInput.Normal
+                                        : TextInput.Password
+                                    // iOS-style: the character just typed stays
+                                    // legible for a beat before it turns into a dot.
+                                    passwordMaskDelay: 1200
                                     background: null
                                     selectByMouse: true
                                     onAccepted: WifiService.tryConnect(rowWrap.modelData.ssid, text)
@@ -445,6 +557,43 @@ Item {
                                         root.passwordError = ""
                                     }
                                     Component.onCompleted: if (rowWrap.expanded) forceActiveFocus()
+                                }
+
+                                // Reveal toggle, at the right edge of the input area
+                                Item {
+                                    id: eyeBtn
+                                    anchors {
+                                        right: connectBtn.left
+                                        verticalCenter: parent.verticalCenter
+                                        rightMargin: 2
+                                    }
+                                    width: 26; height: 26
+                                    scale: eyeMa.pressed ? ThemeService.pressScale : 1
+                                    Behavior on scale { AppleSpring { spring: 13 } }
+
+                                    Text {
+                                        anchors.centerIn: parent
+                                        text: rowWrap.revealPw ? "󰈉" : "󰈈"
+                                        color: eyeMa.containsMouse || rowWrap.revealPw
+                                            ? ThemeService.textPrimary
+                                            : ThemeService.textTertiary
+                                        font.family: "JetBrainsMono Nerd Font Propo"
+                                        font.pixelSize: 13
+                                    }
+
+                                    MouseArea {
+                                        id: eyeMa
+                                        anchors.fill: parent
+                                        hoverEnabled: true
+                                        cursorShape: Qt.PointingHandCursor
+                                        onClicked: {
+                                            rowWrap.revealPw = !rowWrap.revealPw
+                                            // Keep typing where it was — toggling
+                                            // echoMode must not steal the caret.
+                                            pwField.forceActiveFocus()
+                                            pwField.cursorPosition = pwField.text.length
+                                        }
+                                    }
                                 }
 
                                 Rectangle {
@@ -486,6 +635,8 @@ Item {
         // Empty state
         Text {
             visible: root.wifiOn && root.networks.length === 0
+                && !(root.ethernetAvailable
+                    && root.activeNetworkType !== "ethernet")
             text: root.scanning ? "Searching…" : "No networks found"
             color: ThemeService.textTertiary
             font.family: "SF Pro Display"

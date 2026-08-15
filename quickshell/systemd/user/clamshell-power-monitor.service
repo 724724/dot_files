@@ -1,0 +1,14 @@
+[Unit]
+Description=Apple-style clamshell power-source event monitor
+Documentation=https://github.com/apple-oss-distributions/xnu/blob/main/iokit/Kernel/IOPMrootDomain.cpp
+PartOf=hyprland-session.target
+After=hyprland-session.target
+ConditionEnvironment=WAYLAND_DISPLAY
+StartLimitIntervalSec=30s
+StartLimitBurst=5
+
+[Service]
+Type=exec
+ExecStart=%h/.config/hypr/scripts/clamshell.sh watch-power
+Restart=always
+RestartSec=1s

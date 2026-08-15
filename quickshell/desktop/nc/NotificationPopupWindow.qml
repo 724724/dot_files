@@ -1,118 +1,124 @@
+import QtQuick
 import Quickshell
 import Quickshell.Wayland
-import Quickshell.Services.Notifications
-import QtQuick
 
 PanelWindow {
     id: win
-    required property var modelData
-    screen: modelData
 
-    // Set from shell.qml = BarState.contentTop (gap centralized there), so
-    // toasts track the bar and rise with it when the bar is hidden.
+    required property var modelData
     property int barContentTop: 53
 
-    anchors { top: true; right: true }
-    margins { top: barContentTop; right: 10 }
-    implicitWidth: 400
-    implicitHeight: Math.max(popupCol.implicitHeight + 16, 1)
-
+    screen: modelData
+    implicitHeight: Math.max(1, modelData.height - barContentTop - 8)
     color: "transparent"
     exclusionMode: ExclusionMode.Ignore
-
+    visible: !NcServer.controlCenterVisible && NcServer.popupActive.length > 0
+    mask: toastRegion
     WlrLayershell.namespace: "qs-notif"
     WlrLayershell.layer: WlrLayer.Overlay
     WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
 
-    // While the control center is open the notifications are already shown
-    // inside it, so suppress the duplicate transient popups. Also unmap the
-    // surface entirely when there are no active popups — otherwise an empty
-    // overlay strip stays mapped (and composited) on every screen forever.
-    // Cards leave popupActive only after their exit spring reaches rest, so
-    // unmapping on empty never cuts motion short.
-    visible: !NcServer.controlCenterVisible && NcServer.popupActive.length > 0
+    anchors {
+        top: true
+        left: true
+        right: true
+    }
 
-    // ScriptModel diffs popupActive against its previous contents and emits
-    // granular row inserts/removes, so removing one popup destroys only that
-    // delegate. Binding the Repeater straight to the JS array made every
-    // change a full model reset — every surviving card was torn down and
-    // recreated, replaying its slide-in and flickering the whole stack.
+    margins {
+        top: barContentTop
+    }
+
+    Region {
+        id: toastRegion
+
+        item: inputArea
+    }
+
     ScriptModel {
         id: popupModel
+
         objectProp: "id"
         values: NcServer.popupActive
     }
 
-    Column {
-        id: popupCol
-        anchors { top: parent.top; right: parent.right; topMargin: 4; rightMargin: 4 }
-        width: 390
-        spacing: 8
+    Item {
+        id: inputArea
 
-        Repeater {
-            // Only notifications that haven't yet finished their popup window
-            model: popupModel
-
-            delegate: Item {
-                id: wrap
-                required property var modelData
-                width: popupCol.width
-                height: card.implicitHeight
-                Behavior on height { AppleSpring { spring: 11; epsilon: 0.25 } }
-
-                // Slide-in + fade-out lifecycle
-                property real slideX: 24
-                property real fade: 0
-                property bool expiring: false
-
-                NotificationCard {
-                    id: card
-                    notification: wrap.modelData
-                    width: popupCol.width
-                    inControlCenter: false
-                    opacity: wrap.fade
-                    transform: Translate { x: wrap.slideX }
-                }
-
-                Component.onCompleted: { fade = 1; slideX = 0 }
-
-                // The Repeater rebuilds delegates whenever popupActive
-                // returns a fresh array (every notification arrival or
-                // popup-seen mark). A fixed `interval: 3000` would restart
-                // the countdown for every existing card on every rebuild,
-                // producing the visual cascade where only the top one
-                // disappeared and the rest "waited another 3 seconds."
-                //
-                // Anchor to the wall-clock arrival time instead: each card's
-                // own deadline is `receivedAt + 3000`. A card recreated
-                // mid-life simply gets the *remaining* time.
-                Timer {
-                    id: expireTimer
-                    interval: {
-                        if (wrap.modelData.urgency === NotificationUrgency.Critical) return 0
-                        // honour notify-send -t when explicitly set
-                        let t = wrap.modelData.expireTimeout
-                        let total = t > 0 ? t : 3000
-                        let recv = NcServer.receivedAt[wrap.modelData.id]
-                        if (!recv) return total
-                        let remaining = (recv + total) - Date.now()
-                        return Math.max(50, remaining)
-                    }
-                    running: interval > 0
-                    onTriggered: { wrap.expiring = true; wrap.fade = 0 }
-                }
-
-                onFadeChanged: {
-                    if (expiring && fade <= 0.002) {
-                        expiring = false
-                        if (wrap.modelData.transient) wrap.modelData.dismiss()
-                        else NcServer.markPopupSeen(wrap.modelData.id)
-                    }
-                }
-
-                Behavior on fade { AppleSpring { spring: 13 } }
-                Behavior on slideX { AppleSpring { spring: 11; epsilon: 0.25 } }
-            }
-        }
+        x: toastList.x
+        y: toastList.y
+        width: toastList.width
+        height: Math.min(toastList.height, Math.max(0, Math.ceil(toastList.contentHeight)))
     }
+
+    ListView {
+        id: toastList
+
+        width: 390
+        spacing: 9
+        clip: false
+        interactive: false
+        reuseItems: false
+        currentIndex: -1
+        cacheBuffer: Math.max(0, height)
+        model: popupModel
+
+        anchors {
+            top: parent.top
+            bottom: parent.bottom
+            right: parent.right
+            topMargin: 4
+            rightMargin: 14
+        }
+
+        addDisplaced: Transition {
+            AppleSpring {
+                properties: "y"
+                spring: 10
+                epsilon: 0.1
+            }
+
+        }
+
+        removeDisplaced: Transition {
+            AppleSpring {
+                properties: "y"
+                spring: 10
+                epsilon: 0.1
+            }
+
+        }
+
+        delegate: Item {
+            id: row
+
+            required property var modelData
+
+            width: toastList.width
+            height: toast.implicitHeight
+
+            NotificationToast {
+                id: toast
+
+                notification: row.modelData
+                width: row.width
+                lifetimeMs: {
+                    let received = NcServer.receivedAt[row.modelData.id];
+                    return received ? Math.max(50, 5000 - (Date.now() - received)) : 5000;
+                }
+                onFinished: {
+                    let current = row.modelData;
+                    if (!current)
+                        return ;
+
+                    if (current.transient)
+                        current.dismiss();
+                    else
+                        NcServer.markPopupSeen(current.id);
+                }
+            }
+
+        }
+
+    }
+
 }

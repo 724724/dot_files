@@ -1,4 +1,5 @@
 import Quickshell
+import Quickshell.Hyprland
 import Quickshell.Io
 
 // Self-contained controller: IPC + visibility state + the LaunchpadWindow.
@@ -9,6 +10,13 @@ import Quickshell.Io
 Scope {
     id: scope
     property bool padVisible: false
+
+    GlobalShortcut {
+        appid: "launchpad"
+        name: "toggle"
+        description: "Launchpad: toggle"
+        onPressed: scope.padVisible = !scope.padVisible
+    }
 
     IpcHandler {
         target: "launchpad"

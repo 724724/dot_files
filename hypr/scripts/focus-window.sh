@@ -11,17 +11,15 @@ ADDR="$1"
 [ -z "$ADDR" ] && exit 1
 
 INFO=$(hyprctl clients -j 2>/dev/null \
-    | jq -c --arg a "$ADDR" '.[] | select(.address==$a) | {at, size}')
+    | jq -r --arg a "$ADDR" \
+        '.[] | select(.address==$a) | [.at[0], .at[1], .size[0], .size[1]] | @tsv')
 
 if [ -z "$INFO" ] || [ "$INFO" = "null" ]; then
     # Window not found — fall back to focus + raise (no geometry for cursor).
     exec hyprctl eval "hl.dispatch(hl.dsp.focus({ window = \"address:$ADDR\" })); hl.dispatch(hl.dsp.window.bring_to_top({ window = \"address:$ADDR\" }))"
 fi
 
-X=$(echo "$INFO" | jq -r '.at[0]')
-Y=$(echo "$INFO" | jq -r '.at[1]')
-W=$(echo "$INFO" | jq -r '.size[0]')
-H=$(echo "$INFO" | jq -r '.size[1]')
+IFS=$'\t' read -r X Y W H <<< "$INFO"
 
 CX=$((X + W / 2))
 CY=$((Y + H / 2))

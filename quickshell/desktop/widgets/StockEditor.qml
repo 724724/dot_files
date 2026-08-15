@@ -5,6 +5,7 @@ import Quickshell.Io
 Item {
     id: ed
     property int index: -1
+    property int layout: 1
     property string language: "ko"
     property string symbol: "005930"
     property string market: "KRX"
@@ -23,6 +24,11 @@ Item {
     property string pendingRisk: ""
     property bool riskWritePending: false
     property var queuedRiskPatch: ({})
+    property var automationPolicy: ({ maxOrderValueKrw: 100000, maxDailyNewExposureKrw: 200000, maxOrdersPerDay: 2, maxPositionPercent: 5, cashReservePercent: 70, maxPositionLossPercent: 3, trailingActivationPercent: 5, trailingStopPercent: 2, maxRiskPerTradePercent: 0.25, volatilityRiskMultiplier: 2, maxSectorExposurePercent: 15, maxCorrelationCoefficient: 0.85, maxPortfolioVar95Percent: 2, maxPortfolioCvar95Percent: 3, maxStressLossPercent: 8, maxSingleDayLossPercent: 5, maxMarketParticipationPercent: 0.1, maxBidAskSpreadBps: 20, maxPriceDriftPercent: 0.5, maxPendingOrderSeconds: 120, maxMarketDataAgeSeconds: 30, maxPlanAgeSeconds: 90, krxCommissionBps: 1.5, krxSellTaxBps: 15, usCommissionBps: 25, usSellFeeBps: 1, assumedSlippageBps: 5, notificationsEnabled: true })
+    property string pendingAutomationPolicy: ""
+    property bool automationPolicyWritePending: false
+    property var queuedAutomationPolicyPatch: ({})
+    property string automationPolicyMessage: ""
     property bool backgroundEnabled: false
     property bool backgroundTargetEnabled: false
     property bool backgroundInstalled: false
@@ -43,6 +49,7 @@ Item {
         reload()
         refreshCredentialState()
         refreshRiskPolicy()
+        refreshAutomationPolicy()
         refreshBackgroundStatus()
     }
 
@@ -53,6 +60,7 @@ Item {
             ed.refreshModelCatalog(true)
         }
         function onRiskPolicyChanged() { ed.refreshRiskPolicy() }
+        function onAutomationPolicyChanged() { ed.refreshAutomationPolicy() }
     }
 
     Process {
@@ -153,6 +161,39 @@ Item {
     }
 
     Process {
+        id: automationPolicyProcess
+        stdinEnabled: true
+        stdout: StdioCollector {
+            onStreamFinished: {
+                try {
+                    let result = JSON.parse(text || "{}")
+                    if (result.status !== "ok") throw new Error(result.message || "Automation policy unavailable")
+                    ed.automationPolicy = result.policy || ({})
+                    ed.automationPolicyMessage = ed.automationPolicyWritePending
+                        ? "Paper protection settings saved" : ""
+                    if (ed.automationPolicyWritePending) StockService.automationPolicyChanged()
+                } catch (error) {
+                    ed.automationPolicyMessage = error.message || "Automation policy unavailable"
+                }
+                ed.automationPolicyWritePending = false
+            }
+        }
+        onStarted: {
+            if (ed.pendingAutomationPolicy !== "") {
+                automationPolicyProcess.write(ed.pendingAutomationPolicy + "\n")
+                ed.pendingAutomationPolicy = ""
+            }
+        }
+        onExited: {
+            if (Object.keys(ed.queuedAutomationPolicyPatch).length > 0) {
+                let patch = ed.queuedAutomationPolicyPatch
+                ed.queuedAutomationPolicyPatch = ({})
+                ed.updateAutomationPolicy(patch)
+            }
+        }
+    }
+
+    Process {
         id: backgroundProcess
         stdout: StdioCollector {
             onStreamFinished: {
@@ -184,8 +225,9 @@ Item {
     }
 
     function reload() {
-        if (index < 0) return
+        if (index === -1) return
         let data = WidgetsService.getData(index)
+        layout = Number(data.layout || 1)
         language = data.language === "en" ? "en" : "ko"
         symbol = data.symbol || "005930"
         market = data.market || "KRX"
@@ -198,7 +240,7 @@ Item {
     }
 
     function save(patch) {
-        if (index >= 0) WidgetsService.setData(index, patch)
+        if (index !== -1) WidgetsService.setData(index, patch)
     }
 
     function t(source, values) { return StockStrings.text(language, source, values) }
@@ -242,6 +284,25 @@ Item {
         credentialMessage = "Saving risk policy…"
         riskProcess.command = ["python3", StockService.stockScript, "risk", "set"]
         riskProcess.running = true
+    }
+
+    function refreshAutomationPolicy() {
+        if (automationPolicyProcess.running) return
+        automationPolicyWritePending = false
+        automationPolicyProcess.command = ["python3", StockService.stockScript, "automation", "status"]
+        automationPolicyProcess.running = true
+    }
+
+    function updateAutomationPolicy(patch) {
+        if (automationPolicyProcess.running) {
+            queuedAutomationPolicyPatch = Object.assign({}, queuedAutomationPolicyPatch, patch)
+            return
+        }
+        automationPolicyWritePending = true
+        automationPolicyMessage = "Saving paper protection settings…"
+        pendingAutomationPolicy = JSON.stringify(patch)
+        automationPolicyProcess.command = ["python3", StockService.stockScript, "automation", "configure"]
+        automationPolicyProcess.running = true
     }
 
     function refreshBackgroundStatus() {
@@ -289,6 +350,20 @@ Item {
                 anchors.verticalCenter: parent.verticalCenter
                 label: ed.t(ed.credentialState.keychain ? "Keychain Ready" : "Keychain")
                 ready: !!ed.credentialState.keychain
+            }
+        }
+
+        OptionGroup {
+            width: parent.width
+            title: ed.t("Layout")
+            options: [
+                { id: "1", label: ed.t("Large") },
+                { id: "2", label: "XXL" }
+            ]
+            selectedId: String(ed.layout)
+            onSelected: id => {
+                WidgetsService.setStockLayout(ed.index, Number(id))
+                ed.reload()
             }
         }
 
@@ -476,15 +551,587 @@ Item {
 
         Rectangle {
             width: parent.width
-            height: kisCredentials.implicitHeight + 20
+            height: paperProtection.implicitHeight + 20
+            radius: 12
+            color: Qt.rgba(0.04, 0.52, 1.0, 0.09)
+            border.color: Qt.rgba(0.04, 0.52, 1.0, 0.18)
+            border.width: 1
+
+            Column {
+                id: paperProtection
+                anchors { left: parent.left; right: parent.right; top: parent.top; margins: 10 }
+                spacing: 8
+
+                Row {
+                    width: parent.width
+                    height: 22
+                    Text {
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: ed.t("Paper Position Protection")
+                        color: "#ffffff"
+                        font.family: "SF Pro Display"
+                        font.pixelSize: 13
+                        font.weight: Font.DemiBold
+                    }
+                    Item { width: parent.width - parent.children[0].width - paperOnlyBadge.width; height: 1 }
+                    StatusBadge {
+                        id: paperOnlyBadge
+                        anchors.verticalCenter: parent.verticalCenter
+                        label: ed.automationPolicy.executionMode === "live" ? ed.t("Live Armed · Gated")
+                            : (ed.automationPolicy.liveConsent === true ? ed.t("Live Consent · Gated") : ed.t("Paper Only · Global"))
+                        ready: ed.automationPolicy.executionMode !== "live"
+                    }
+                }
+
+                Text {
+                    width: parent.width
+                    text: ed.t("A hard stop protects open positions. New positions are sized from a per-trade loss budget and recent volatility.")
+                    color: Qt.rgba(1, 1, 1, 0.58)
+                    font.family: "SF Pro Display"
+                    font.pixelSize: 10
+                    wrapMode: Text.WordWrap
+                }
+
+                Rectangle {
+                    width: parent.width
+                    height: 48
+                    radius: 10
+                    color: Qt.rgba(1, 1, 1, 0.055)
+                    border.color: Qt.rgba(1, 1, 1, 0.09)
+                    border.width: 1
+                    scale: operationalAlertsArea.pressed ? ThemeService.pressScale : 1
+                    Behavior on scale { AppleSpring { spring: 22 } }
+                    Column {
+                        anchors.left: parent.left
+                        anchors.right: operationalAlertsSwitch.left
+                        anchors.leftMargin: 11
+                        anchors.rightMargin: 12
+                        anchors.verticalCenter: parent.verticalCenter
+                        spacing: 2
+                        Text {
+                            text: ed.t("Operational Alerts")
+                            color: "#ffffff"
+                            font.family: "SF Pro Display"
+                            font.pixelSize: 11
+                            font.weight: Font.DemiBold
+                        }
+                        Text {
+                            width: parent.width
+                            text: ed.t("Paper orders, protective exits, and safety failures")
+                            color: Qt.rgba(1, 1, 1, 0.46)
+                            font.family: "SF Pro Display"
+                            font.pixelSize: 9
+                            elide: Text.ElideRight
+                        }
+                    }
+                    Rectangle {
+                        id: operationalAlertsSwitch
+                        anchors.right: parent.right
+                        anchors.rightMargin: 10
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: 42
+                        height: 24
+                        radius: 12
+                        color: ed.automationPolicy.notificationsEnabled !== false ? "#30d158" : Qt.rgba(1, 1, 1, 0.16)
+                        Rectangle {
+                            width: 20
+                            height: 20
+                            radius: 10
+                            y: 2
+                            x: ed.automationPolicy.notificationsEnabled !== false ? parent.width - width - 2 : 2
+                            color: "#ffffff"
+                            Behavior on x { AppleSpring { spring: 22 } }
+                        }
+                    }
+                    MouseArea {
+                        id: operationalAlertsArea
+                        anchors.fill: parent
+                        enabled: !automationPolicyProcess.running
+                        cursorShape: Qt.PointingHandCursor
+                        onPressed: ed.updateAutomationPolicy({
+                            notificationsEnabled: ed.automationPolicy.notificationsEnabled === false
+                        })
+                    }
+                }
+
+                Rectangle {
+                    width: parent.width
+                    height: 48
+                    radius: 10
+                    color: Qt.rgba(1, 0.27, 0.23, ed.automationPolicy.liveConsent === true ? 0.14 : 0.055)
+                    border.color: Qt.rgba(1, 0.27, 0.23, 0.22)
+                    border.width: 1
+                    scale: liveConsentArea.pressed ? ThemeService.pressScale : 1
+                    Behavior on scale { AppleSpring { spring: 22 } }
+                    Column {
+                        anchors.left: parent.left
+                        anchors.right: liveConsentSwitch.left
+                        anchors.leftMargin: 11
+                        anchors.rightMargin: 12
+                        anchors.verticalCenter: parent.verticalCenter
+                        spacing: 2
+                        Text {
+                            text: ed.t("Live Automation Consent")
+                            color: "#ffffff"
+                            font.family: "SF Pro Display"
+                            font.pixelSize: 11
+                            font.weight: Font.DemiBold
+                        }
+                        Text {
+                            width: parent.width
+                            text: ed.t("Real-money automation can lose capital. Arming still requires every verification gate.")
+                            color: Qt.rgba(1, 1, 1, 0.46)
+                            font.family: "SF Pro Display"
+                            font.pixelSize: 9
+                            elide: Text.ElideRight
+                        }
+                    }
+                    Rectangle {
+                        id: liveConsentSwitch
+                        anchors.right: parent.right
+                        anchors.rightMargin: 10
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: 42
+                        height: 24
+                        radius: 12
+                        color: ed.automationPolicy.liveConsent === true ? "#ff453a" : Qt.rgba(1, 1, 1, 0.16)
+                        Rectangle {
+                            width: 20
+                            height: 20
+                            radius: 10
+                            y: 2
+                            x: ed.automationPolicy.liveConsent === true ? parent.width - width - 2 : 2
+                            color: "#ffffff"
+                            Behavior on x { AppleSpring { spring: 22 } }
+                        }
+                    }
+                    MouseArea {
+                        id: liveConsentArea
+                        anchors.fill: parent
+                        enabled: !automationPolicyProcess.running
+                        cursorShape: Qt.PointingHandCursor
+                        onPressed: ed.updateAutomationPolicy({
+                            liveConsent: ed.automationPolicy.liveConsent !== true
+                        })
+                    }
+                }
+
+                Row {
+                    width: parent.width
+                    spacing: 8
+                    AutomationPercentField {
+                        width: (parent.width - 8) / 2
+                        label: ed.t("Auto order limit")
+                        policyKey: "maxOrderValueKrw"
+                        value: Number(ed.automationPolicy.maxOrderValueKrw || 100000)
+                        minimum: 10000
+                        maximum: 10000000
+                        decimals: 0
+                        suffix: "KRW"
+                    }
+                    AutomationPercentField {
+                        width: (parent.width - 8) / 2
+                        label: ed.t("Daily auto exposure")
+                        policyKey: "maxDailyNewExposureKrw"
+                        value: Number(ed.automationPolicy.maxDailyNewExposureKrw || 200000)
+                        minimum: 10000
+                        maximum: 50000000
+                        decimals: 0
+                        suffix: "KRW"
+                    }
+                }
+
+                Row {
+                    width: parent.width
+                    spacing: 8
+                    AutomationPercentField {
+                        width: (parent.width - 16) / 3
+                        label: ed.t("Auto orders per day")
+                        policyKey: "maxOrdersPerDay"
+                        value: Number(ed.automationPolicy.maxOrdersPerDay || 2)
+                        minimum: 1
+                        maximum: 20
+                        decimals: 0
+                        suffix: ed.t("count")
+                    }
+                    AutomationPercentField {
+                        width: (parent.width - 16) / 3
+                        label: ed.t("Auto max position")
+                        policyKey: "maxPositionPercent"
+                        value: Number(ed.automationPolicy.maxPositionPercent || 5)
+                        minimum: 1
+                        maximum: 25
+                        decimals: 0
+                    }
+                    AutomationPercentField {
+                        width: (parent.width - 16) / 3
+                        label: ed.t("Cash reserve")
+                        policyKey: "cashReservePercent"
+                        value: Number(ed.automationPolicy.cashReservePercent || 70)
+                        minimum: 20
+                        maximum: 95
+                        decimals: 0
+                    }
+                }
+
+                Row {
+                    width: parent.width
+                    spacing: 8
+                    AutomationPercentField {
+                        width: (parent.width - 16) / 3
+                        label: ed.t("Hard stop")
+                        policyKey: "maxPositionLossPercent"
+                        value: Number(ed.automationPolicy.maxPositionLossPercent || 3)
+                        minimum: 0.5
+                        maximum: 15
+                    }
+                    AutomationPercentField {
+                        width: (parent.width - 16) / 3
+                        label: ed.t("Trail starts")
+                        policyKey: "trailingActivationPercent"
+                        value: Number(ed.automationPolicy.trailingActivationPercent || 5)
+                        minimum: 1
+                        maximum: 30
+                    }
+                    AutomationPercentField {
+                        width: (parent.width - 16) / 3
+                        label: ed.t("Peak drop")
+                        policyKey: "trailingStopPercent"
+                        value: Number(ed.automationPolicy.trailingStopPercent || 2)
+                        minimum: 0.5
+                        maximum: 15
+                    }
+                }
+
+                Row {
+                    width: parent.width
+                    spacing: 8
+                    AutomationPercentField {
+                        width: (parent.width - 8) / 2
+                        label: ed.t("Historical VaR 95%")
+                        policyKey: "maxPortfolioVar95Percent"
+                        value: Number(ed.automationPolicy.maxPortfolioVar95Percent || 2)
+                        minimum: 0.25
+                        maximum: 10
+                        decimals: 2
+                    }
+                    AutomationPercentField {
+                        width: (parent.width - 8) / 2
+                        label: ed.t("Expected shortfall 95%")
+                        policyKey: "maxPortfolioCvar95Percent"
+                        value: Number(ed.automationPolicy.maxPortfolioCvar95Percent || 3)
+                        minimum: 0.5
+                        maximum: 15
+                        decimals: 2
+                    }
+                }
+
+                Text {
+                    width: parent.width
+                    text: ed.t("Paper transaction cost assumptions")
+                    color: Qt.rgba(1, 1, 1, 0.72)
+                    font.family: "SF Pro Display"
+                    font.pixelSize: 11
+                    font.weight: Font.DemiBold
+                }
+
+                Row {
+                    width: parent.width
+                    spacing: 8
+                    AutomationPercentField {
+                        width: (parent.width - 8) / 2
+                        label: ed.t("KRX commission")
+                        policyKey: "krxCommissionBps"
+                        value: Number(ed.automationPolicy.krxCommissionBps !== undefined
+                            ? ed.automationPolicy.krxCommissionBps : 1.5)
+                        minimum: 0
+                        maximum: 100
+                        decimals: 1
+                        suffix: "bp"
+                    }
+                    AutomationPercentField {
+                        width: (parent.width - 8) / 2
+                        label: ed.t("KRX sell tax")
+                        policyKey: "krxSellTaxBps"
+                        value: Number(ed.automationPolicy.krxSellTaxBps !== undefined
+                            ? ed.automationPolicy.krxSellTaxBps : 15)
+                        minimum: 0
+                        maximum: 100
+                        decimals: 1
+                        suffix: "bp"
+                    }
+                }
+
+                Row {
+                    width: parent.width
+                    spacing: 8
+                    AutomationPercentField {
+                        width: (parent.width - 16) / 3
+                        label: ed.t("US commission")
+                        policyKey: "usCommissionBps"
+                        value: Number(ed.automationPolicy.usCommissionBps !== undefined
+                            ? ed.automationPolicy.usCommissionBps : 25)
+                        minimum: 0
+                        maximum: 100
+                        decimals: 1
+                        suffix: "bp"
+                    }
+                    AutomationPercentField {
+                        width: (parent.width - 16) / 3
+                        label: ed.t("US sell fees")
+                        policyKey: "usSellFeeBps"
+                        value: Number(ed.automationPolicy.usSellFeeBps !== undefined
+                            ? ed.automationPolicy.usSellFeeBps : 1)
+                        minimum: 0
+                        maximum: 20
+                        decimals: 1
+                        suffix: "bp"
+                    }
+                    AutomationPercentField {
+                        width: (parent.width - 16) / 3
+                        label: ed.t("Slippage")
+                        policyKey: "assumedSlippageBps"
+                        value: Number(ed.automationPolicy.assumedSlippageBps !== undefined
+                            ? ed.automationPolicy.assumedSlippageBps : 5)
+                        minimum: 0
+                        maximum: 100
+                        decimals: 1
+                        suffix: "bp"
+                    }
+                }
+
+                Row {
+                    width: parent.width
+                    spacing: 8
+                    AutomationPercentField {
+                        width: (parent.width - 8) / 2
+                        label: ed.t("Stress loss")
+                        policyKey: "maxStressLossPercent"
+                        value: Number(ed.automationPolicy.maxStressLossPercent || 8)
+                        minimum: 1
+                        maximum: 25
+                        decimals: 1
+                    }
+                    AutomationPercentField {
+                        width: (parent.width - 8) / 2
+                        label: ed.t("Single-day loss")
+                        policyKey: "maxSingleDayLossPercent"
+                        value: Number(ed.automationPolicy.maxSingleDayLossPercent || 5)
+                        minimum: 1
+                        maximum: 20
+                        decimals: 1
+                    }
+                }
+
+                Row {
+                    width: parent.width
+                    spacing: 8
+                    AutomationPercentField {
+                        width: (parent.width - 8) / 2
+                        label: ed.t("Market data age")
+                        policyKey: "maxMarketDataAgeSeconds"
+                        value: Number(ed.automationPolicy.maxMarketDataAgeSeconds || 30)
+                        minimum: 5
+                        maximum: 120
+                        decimals: 0
+                        suffix: "s"
+                    }
+                    AutomationPercentField {
+                        width: (parent.width - 8) / 2
+                        label: ed.t("Plan validity")
+                        policyKey: "maxPlanAgeSeconds"
+                        value: Number(ed.automationPolicy.maxPlanAgeSeconds || 90)
+                        minimum: 30
+                        maximum: 300
+                        decimals: 0
+                        suffix: "s"
+                    }
+                }
+
+                Row {
+                    width: parent.width
+                    spacing: 8
+                    AutomationPercentField {
+                        width: (parent.width - 8) / 2
+                        label: ed.t("Execution drift")
+                        policyKey: "maxPriceDriftPercent"
+                        value: Number(ed.automationPolicy.maxPriceDriftPercent || 0.5)
+                        minimum: 0.1
+                        maximum: 3
+                        decimals: 1
+                    }
+                    AutomationPercentField {
+                        width: (parent.width - 8) / 2
+                        label: ed.t("Limit order timeout")
+                        policyKey: "maxPendingOrderSeconds"
+                        value: Number(ed.automationPolicy.maxPendingOrderSeconds || 120)
+                        minimum: 60
+                        maximum: 600
+                        decimals: 0
+                        suffix: "s"
+                    }
+                }
+
+                Row {
+                    width: parent.width
+                    spacing: 8
+                    AutomationPercentField {
+                        width: (parent.width - 8) / 2
+                        label: ed.t("Market participation")
+                        policyKey: "maxMarketParticipationPercent"
+                        value: Number(ed.automationPolicy.maxMarketParticipationPercent || 0.1)
+                        minimum: 0.01
+                        maximum: 1
+                        decimals: 2
+                    }
+                    AutomationPercentField {
+                        width: (parent.width - 8) / 2
+                        label: ed.t("Bid-ask spread")
+                        policyKey: "maxBidAskSpreadBps"
+                        value: Number(ed.automationPolicy.maxBidAskSpreadBps || 20)
+                        minimum: 5
+                        maximum: 100
+                        decimals: 0
+                        suffix: "bp"
+                    }
+                }
+
+                Row {
+                    width: parent.width
+                    spacing: 8
+                    AutomationPercentField {
+                        width: (parent.width - 8) / 2
+                        label: ed.t("Trade loss budget")
+                        policyKey: "maxRiskPerTradePercent"
+                        value: Number(ed.automationPolicy.maxRiskPerTradePercent || 0.25)
+                        minimum: 0.05
+                        maximum: 2
+                        decimals: 2
+                    }
+                    AutomationPercentField {
+                        width: (parent.width - 8) / 2
+                        label: ed.t("Volatility cushion")
+                        policyKey: "volatilityRiskMultiplier"
+                        value: Number(ed.automationPolicy.volatilityRiskMultiplier || 2)
+                        minimum: 1
+                        maximum: 5
+                        decimals: 1
+                        suffix: "×"
+                    }
+                }
+
+                Row {
+                    width: parent.width
+                    spacing: 8
+                    AutomationPercentField {
+                        width: (parent.width - 8) / 2
+                        label: ed.t("Sector exposure")
+                        policyKey: "maxSectorExposurePercent"
+                        value: Number(ed.automationPolicy.maxSectorExposurePercent || 15)
+                        minimum: 5
+                        maximum: 50
+                        decimals: 0
+                    }
+                    AutomationPercentField {
+                        width: (parent.width - 8) / 2
+                        label: ed.t("Return correlation")
+                        policyKey: "maxCorrelationCoefficient"
+                        value: Number(ed.automationPolicy.maxCorrelationCoefficient || 0.85)
+                        minimum: 0.5
+                        maximum: 0.99
+                        decimals: 2
+                        suffix: "r"
+                    }
+                }
+
+                Row {
+                    width: parent.width
+                    height: 28
+                    Text {
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: parent.width - protectionReset.width - 8
+                        text: ed.t(ed.automationPolicyMessage)
+                        color: ed.automationPolicyMessage.indexOf("unavailable") >= 0
+                            ? "#ff453a" : Qt.rgba(1, 1, 1, 0.48)
+                        font.family: "SF Pro Display"
+                        font.pixelSize: 9
+                        elide: Text.ElideRight
+                    }
+                    Rectangle {
+                        id: protectionReset
+                        width: 88
+                        height: 28
+                        radius: 8
+                        color: protectionResetHover.hovered ? Qt.rgba(1, 1, 1, 0.15) : Qt.rgba(1, 1, 1, 0.08)
+                        opacity: automationPolicyProcess.running ? 0.42 : 1
+                        scale: protectionResetArea.pressed ? ThemeService.pressScale : 1
+                        Behavior on scale { AppleSpring { spring: 22 } }
+                        Text {
+                            anchors.centerIn: parent
+                            text: ed.t("Reset Defaults")
+                            color: "#ffffff"
+                            font.family: "SF Pro Display"
+                            font.pixelSize: 10
+                            font.weight: Font.DemiBold
+                        }
+                        HoverHandler { id: protectionResetHover }
+                        MouseArea {
+                            id: protectionResetArea
+                            anchors.fill: parent
+                            enabled: !automationPolicyProcess.running
+                            cursorShape: Qt.PointingHandCursor
+                            onPressed: ed.updateAutomationPolicy({
+                                maxOrderValueKrw: 100000,
+                                maxDailyNewExposureKrw: 200000,
+                                maxOrdersPerDay: 2,
+                                maxPositionPercent: 5,
+                                cashReservePercent: 70,
+                                maxPositionLossPercent: 3,
+                                trailingActivationPercent: 5,
+                                trailingStopPercent: 2,
+                                maxRiskPerTradePercent: 0.25,
+                                volatilityRiskMultiplier: 2,
+                                maxSectorExposurePercent: 15,
+                                maxCorrelationCoefficient: 0.85,
+                                maxPortfolioVar95Percent: 2,
+                                maxPortfolioCvar95Percent: 3,
+                                maxStressLossPercent: 8,
+                                maxSingleDayLossPercent: 5,
+                                maxMarketParticipationPercent: 0.1,
+                                maxBidAskSpreadBps: 20,
+                                maxPriceDriftPercent: 0.5,
+                                maxPendingOrderSeconds: 120,
+                                maxMarketDataAgeSeconds: 30,
+                                maxPlanAgeSeconds: 90,
+                                krxCommissionBps: 1.5,
+                                krxSellTaxBps: 15,
+                                usCommissionBps: 25,
+                                usSellFeeBps: 1,
+                                assumedSlippageBps: 5,
+                                notificationsEnabled: true
+                            })
+                        }
+                    }
+                }
+            }
+        }
+
+        Rectangle {
+            width: parent.width
+            height: kisCredentials.height + 20
             radius: 12
             color: Qt.rgba(1, 1, 1, 0.055)
             border.color: Qt.rgba(1, 1, 1, 0.10)
             border.width: 1
             Column {
                 id: kisCredentials
-                anchors.fill: parent
-                anchors.margins: 10
+                anchors {
+                    left: parent.left
+                    right: parent.right
+                    top: parent.top
+                    margins: 10
+                }
+                height: childrenRect.height
                 spacing: 8
                 Row {
                     width: parent.width
@@ -503,18 +1150,21 @@ Item {
                     }
                 }
                 CredentialField {
+                    width: parent.width
                     label: ed.t("App Key")
                     configured: ed.kisConfigured
                     onRequested: (value, field) => ed.storeCredential(
                         ed.kisEnvironment === "prod" ? "kis_prod_app_key" : "kis_paper_app_key", value, field)
                 }
                 CredentialField {
+                    width: parent.width
                     label: ed.t("App Secret")
                     configured: ed.kisConfigured
                     onRequested: (value, field) => ed.storeCredential(
                         ed.kisEnvironment === "prod" ? "kis_prod_app_secret" : "kis_paper_app_secret", value, field)
                 }
                 CredentialField {
+                    width: parent.width
                     label: ed.t("Account Number (8-2)")
                     configured: ed.kisAccountConfigured
                     onRequested: (value, field) => ed.storeCredential(
@@ -763,7 +1413,7 @@ Item {
                 id: securityText
                 anchors.fill: parent
                 anchors.margins: 10
-                text: ed.t("Secrets and account numbers are stored only in GNOME Keyring. AI cannot place orders. Production trading requires settings opt-in and LIVE confirmation for every action.")
+                text: ed.t("Secrets and account numbers stay in GNOME Keyring. AI ranks candidates, while deterministic safety gates authorize every explicitly armed paper or live order.")
                 color: Qt.rgba(1, 1, 1, 0.72)
                 font.family: "SF Pro Display"
                 font.pixelSize: 11
@@ -907,13 +1557,69 @@ Item {
         }
     }
 
+    component AutomationPercentField: Column {
+        id: automationField
+        property string label: ""
+        property string policyKey: ""
+        property real value: 0
+        property real minimum: 0.5
+        property real maximum: 30
+        property int decimals: 1
+        property string suffix: "%"
+        spacing: 5
+        onValueChanged: automationInput.text = Number(value).toFixed(decimals)
+        LabelText { text: automationField.label + " · " + automationField.suffix }
+        Rectangle {
+            width: parent.width
+            height: 32
+            radius: 8
+            color: Qt.rgba(1, 1, 1, 0.08)
+            border.color: automationInput.activeFocus ? "#0a84ff" : Qt.rgba(1, 1, 1, 0.10)
+            border.width: 1
+            TextField {
+                id: automationInput
+                anchors.fill: parent
+                anchors.leftMargin: 9
+                anchors.rightMargin: 9
+                text: Number(automationField.value).toFixed(automationField.decimals)
+                color: "#ffffff"
+                selectionColor: "#0a84ff"
+                background: null
+                font.family: "SF Pro Display"
+                font.pixelSize: 10
+                verticalAlignment: TextInput.AlignVCenter
+                horizontalAlignment: TextInput.AlignRight
+                validator: DoubleValidator {
+                    bottom: automationField.minimum
+                    top: automationField.maximum
+                    decimals: automationField.decimals
+                    notation: DoubleValidator.StandardNotation
+                }
+                onEditingFinished: {
+                    let factor = Math.pow(10, automationField.decimals)
+                    let next = Math.round(Number(text) * factor) / factor
+                    if (!isFinite(next) || next < automationField.minimum || next > automationField.maximum) {
+                        text = Number(automationField.value).toFixed(automationField.decimals)
+                        return
+                    }
+                    text = next.toFixed(automationField.decimals)
+                    let patch = ({})
+                    patch[automationField.policyKey] = next
+                    ed.updateAutomationPolicy(patch)
+                }
+            }
+        }
+    }
+
     component CredentialField: Column {
         id: credential
+        height: credentialLabel.implicitHeight + spacing + credentialInput.height
         property string label: ""
         property bool configured: false
         signal requested(string value, var field)
         spacing: 5
         Row {
+            id: credentialLabel
             width: parent.width
             LabelText { text: credential.label }
             Item { width: parent.width - parent.children[0].width - savedText.width; height: 1 }
@@ -927,6 +1633,7 @@ Item {
             }
         }
         Rectangle {
+            id: credentialInput
             width: parent.width
             height: 34
             radius: 9

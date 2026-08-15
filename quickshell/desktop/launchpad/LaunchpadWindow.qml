@@ -5,6 +5,9 @@ import Quickshell.Hyprland
 import QtQuick
 import QtQuick.Controls
 import "../dock" as Dock
+import "../bar" as Bar
+import "../missioncontrol" as MC
+import "../icons" as Icons
 
 PanelWindow {
     id: win
@@ -15,26 +18,41 @@ PanelWindow {
 
     // Stay mapped during the close animation so it can fade out before unmap.
     property bool _surfaceVisible: false
+    property bool _presented: false
     visible: _surfaceVisible
+
+    Timer {
+        id: presentTimer
+        interval: 16
+        onTriggered: if (win.show) win._presented = true
+    }
 
     onShowChanged: {
         if (show) {
+            _presented = false
             let m = Hyprland.focusedMonitor
             if (m && m.screen) win.screen = m.screen
+            _surfaceVisible = true
             // Raise the one real dock above the launchpad backdrop (it's mapped
             // after the launchpad, so it stacks on top) — no in-launchpad replica.
             Dock.DockService.launchpadScreen = win.screen ? win.screen.name : ""
             Dock.DockService.launchpadOpen = true
             queryField.text = ""
-            pages.currentIndex = 0
+            _resetToFirstPage()
             currentCellIndex = 0
             inputMode = "mouse"
             editing = false
             openFolder = -1
             _endDrag(true)
-            _surfaceVisible = true
-            Qt.callLater(() => queryField.forceActiveFocus())
+            _endFolderDrag(true)
+            Qt.callLater(() => {
+                if (!win.show) return
+                queryField.forceActiveFocus()
+                presentTimer.restart()
+            })
         } else {
+            presentTimer.stop()
+            _presented = false
             Dock.DockService.launchpadOpen = false
             Dock.DockService.launchpadDragActive = false
             editing = false
@@ -51,9 +69,13 @@ PanelWindow {
 
     // ── Layer / placement ───────────────────────────────────────────────
     WlrLayershell.namespace: "qs-launchpad"
-    // Overlay so it covers fullscreen windows. The dock (also Overlay) is created
-    // after the launchpad in shell.qml, so it stacks above the open launchpad.
-    WlrLayershell.layer: WlrLayer.Overlay
+    // A pinned dock stays continuously mapped on Overlay, so place Launchpad on
+    // Top beneath it. Otherwise use Overlay to cover fullscreen windows.
+    readonly property string activeScreenName: win.screen ? win.screen.name : ""
+    readonly property bool dockPinnedHere: Dock.DockService.pinnedVisible
+        && !Dock.DockService.fullscreenMonitors.includes(activeScreenName)
+        && !MC.MCService.splitViewActiveOn(activeScreenName)
+    WlrLayershell.layer: dockPinnedHere ? WlrLayer.Top : WlrLayer.Overlay
     WlrLayershell.keyboardFocus: WlrKeyboardFocus.OnDemand
 
     anchors { top: true; left: true; right: true; bottom: true }
@@ -69,8 +91,6 @@ PanelWindow {
             return "KakaoTalk"
         return app.icon
     }
-    function _iconUrl(app) { return "image://icon/" + _iconNameFor(app) }
-
     function launchApp(app) {
         if (!app) return
         if (app.runInTerminal) {
@@ -83,7 +103,17 @@ PanelWindow {
             Quickshell.execDetached(["gtk-launch", app.id])
         }
     }
-    function launchById(id) { launchApp(LaunchpadModel.appById(id)); win.closeRequested() }
+    function launchById(id) {
+        // Focus mode: block disallowed apps. Keep the launchpad open so the mask
+        // stays visible and the user sees why nothing launched.
+        if (!Bar.ClockService.isAppAllowed(id)) {
+            let a = LaunchpadModel.appById(id)
+            Bar.ClockService.notifyBlocked(a ? a.name : id)
+            return
+        }
+        launchApp(LaunchpadModel.appById(id))
+        win.closeRequested()
+    }
 
     // ── Entries (model items, or flat search results) ────────────────────
     readonly property string query: queryField.text
@@ -118,6 +148,16 @@ PanelWindow {
     readonly property int gridRows: 6
     readonly property int perPage: gridCols * gridRows   // 54
     readonly property int pageCount: Math.max(1, Math.ceil(entryCount / perPage))
+
+    // Programmatic resets (open, search swaps, folder open) must not slide —
+    // only user-driven page changes animate. Binding write-through is synchronous,
+    // so flipping the flag around the assignment is enough to gate the Behaviors.
+    property bool _pageSnap: false
+    function _resetToFirstPage() {
+        _pageSnap = true
+        pages.currentIndex = 0
+        _pageSnap = false
+    }
 
     component HorizontalPagerWheel: MouseArea {
         id: gesture
@@ -169,9 +209,17 @@ PanelWindow {
         }
     }
 
-    // Space kept clear at the bottom for the dock, which rises while the
-    // launchpad is open — the grid + page dots sit above it.
-    readonly property int dockReserve: 92
+    // Space kept clear on the selected edge for the Dock. Derive it from the
+    // same monitor-relative icon limits as DockWindow so a user-enlarged Dock
+    // never overlaps Launchpad content, while a compact Dock wastes less room.
+    readonly property real dockShortSide: Math.max(1, Math.min(width, height))
+    readonly property real dockMinIcon: Math.max(24,
+        Math.min(32, dockShortSide * 0.022))
+    readonly property real dockMaxIcon: Math.max(48,
+        Math.min(66, dockShortSide * 0.045))
+    readonly property real dockCurrentIcon: dockMinIcon
+        + Dock.DockService.dockSizeLevel * (dockMaxIcon - dockMinIcon)
+    readonly property int dockReserve: Math.ceil(18 + 68 * dockCurrentIcon / 42)
 
     // ── Keyboard vs mouse selection ──────────────────────────────────────
     // The selection box behind an app only shows while navigating with the
@@ -180,7 +228,7 @@ PanelWindow {
     readonly property bool kbHighlight: inputMode === "kb"
 
     property int currentCellIndex: 0
-    onEntriesChanged: { currentCellIndex = 0; pages.currentIndex = 0 }
+    onEntriesChanged: { currentCellIndex = 0; _resetToFirstPage() }
     onQueryChanged: if (searching) inputMode = "kb"
 
     function activateIndex(i) {
@@ -222,6 +270,138 @@ PanelWindow {
     function openFolderAt(idx) {
         let e = LaunchpadModel.items[idx]
         if (e && e.type === "folder") openFolder = idx
+    }
+
+    property bool folderDragActive: false
+    property int folderDragIndex: -1
+    property int folderDragHoverIndex: -1
+    property point folderDragPos: Qt.point(0, 0)
+    property point folderDragGrabOffset: Qt.point(0, 0)
+    property bool folderDragOutside: false
+    property bool folderDragEscaped: false
+    property int folderEscapeHoverIndex: -1
+    property bool folderEscapeMergeEligible: false
+    property string folderDragAppId: ""
+    property point folderDragPointerPos: Qt.point(0, 0)
+
+    Timer {
+        id: folderEscapeTimer
+        interval: 420
+        onTriggered: win._escapeFolderDrag()
+    }
+
+    function _beginFolderDrag(idx, pointerPos, pressPos, bodyCenter) {
+        if (!folderView.folder || idx < 0 || idx >= folderView.appCount) return
+        folderDragActive = true
+        folderDragIndex = idx
+        folderDragHoverIndex = idx
+        folderDragOutside = false
+        folderDragEscaped = false
+        folderEscapeHoverIndex = -1
+        folderEscapeMergeEligible = false
+        folderDragAppId = folderView.folder.apps[idx]
+        folderDragPointerPos = pointerPos
+        folderDragGrabOffset = Qt.point(bodyCenter.x - pressPos.x, bodyCenter.y - pressPos.y)
+        folderDragPos = rubberBandPoint(Qt.point(
+            pointerPos.x + folderDragGrabOffset.x,
+            pointerPos.y + folderDragGrabOffset.y
+        ))
+    }
+
+    function _updateFolderDrag(scenePos) {
+        folderDragPointerPos = scenePos
+        folderDragPos = rubberBandPoint(Qt.point(
+            scenePos.x + folderDragGrabOffset.x,
+            scenePos.y + folderDragGrabOffset.y
+        ))
+        if (folderDragEscaped) {
+            folderEscapeHoverIndex = cellIndexAtScene(scenePos)
+            folderEscapeMergeEligible = cursorInCellCenter(scenePos, folderEscapeHoverIndex)
+            return
+        }
+        let outside = !pointInsideFolderPanel(scenePos)
+        if (outside !== folderDragOutside) {
+            folderDragOutside = outside
+            if (outside) folderEscapeTimer.restart()
+            else folderEscapeTimer.stop()
+        }
+        folderDragHoverIndex = outside ? -1 : folderCellIndexAtScene(scenePos)
+    }
+
+    function _escapeFolderDrag() {
+        if (!folderDragActive || !folderDragOutside || folderDragEscaped) return
+        folderDragEscaped = true
+        folderEscapeHoverIndex = cellIndexAtScene(folderDragPointerPos)
+        folderEscapeMergeEligible = cursorInCellCenter(
+            folderDragPointerPos, folderEscapeHoverIndex)
+    }
+
+    function _endFolderDrag(silent) {
+        let folderIdx = openFolder
+        let from = folderDragIndex
+        let to = folderDragHoverIndex
+        let outside = folderDragOutside
+        let escaped = folderDragEscaped
+        let escapeTo = folderEscapeHoverIndex
+        let escapeMerge = folderEscapeMergeEligible
+        let appId = folderDragAppId
+        folderEscapeTimer.stop()
+        folderDragActive = false
+        folderDragIndex = -1
+        folderDragHoverIndex = -1
+        folderDragOutside = false
+        folderDragEscaped = false
+        folderEscapeHoverIndex = -1
+        folderEscapeMergeEligible = false
+        folderDragAppId = ""
+        if (silent || folderIdx < 0 || from < 0) return
+        if (escaped && appId !== "") {
+            LaunchpadModel.dropExtractedFolderApp(
+                folderIdx, appId, escapeTo, escapeMerge)
+            openFolder = -1
+        } else if (outside && appId !== "") {
+            LaunchpadModel.extractFromFolderToEnd(folderIdx, appId)
+            let current = LaunchpadModel.items[folderIdx]
+            if (!current || current.type !== "folder") openFolder = -1
+        } else if (to >= 0 && from !== to) {
+            LaunchpadModel.reorderInFolder(folderIdx, from, to)
+        }
+    }
+
+    function pointInsideFolderPanel(pt) {
+        let p = folderPanel.mapFromItem(null, pt.x, pt.y)
+        return p.x >= 0 && p.x <= folderPanel.width
+            && p.y >= 0 && p.y <= folderPanel.height
+    }
+
+    function folderCellIndexAtScene(pt) {
+        if (!folderView.folder) return -1
+        let p = folderSwipe.mapFromItem(null, pt.x, pt.y)
+        if (p.y < 0 || p.y >= folderSwipe.height) return -1
+        let pageStart = folderSwipe.currentIndex * folderView.perPage
+        let count = Math.min(folderView.perPage, folderView.appCount - pageStart)
+        if (count <= 0) return -1
+        let columns = Math.min(7, count)
+        let gridLeft = (folderSwipe.width - columns * folderPanel.cellW) / 2
+        let col = Math.floor((p.x - gridLeft) / folderPanel.cellW)
+        let row = Math.floor(p.y / folderPanel.cellH)
+        if (col < 0 || col >= 7 || row < 0 || row >= 5) return -1
+        let local = row * 7 + col
+        return local < count ? pageStart + local : -1
+    }
+
+    function folderDragDisplaySlot(appIndex, pageStart) {
+        let slot = appIndex - pageStart
+        if (!folderDragActive) return slot
+        let from = folderDragIndex
+        let to = folderDragHoverIndex
+        let pageEnd = pageStart + folderView.perPage
+        if (from < pageStart || from >= pageEnd || to < pageStart || to >= pageEnd || from === to)
+            return slot
+        if (appIndex === from) return slot
+        if (from < to && appIndex > from && appIndex <= to) return slot - 1
+        if (from > to && appIndex >= to && appIndex < from) return slot + 1
+        return slot
     }
 
     // ── Drag state ───────────────────────────────────────────────────────
@@ -266,10 +446,13 @@ PanelWindow {
 
     property bool _dragOverDock: false   // cursor over the dock (bottom strip) → drop pins
     // Tell the real dock the drag state + cursor X so it opens a gap at the slot.
-    function _setDragOverDock(over, sceneX) {
+    function _setDragOverDock(over, scenePos) {
         win._dragOverDock = over
         Dock.DockService.launchpadDragActive = over
-        if (over) Dock.DockService.launchpadDragX = sceneX
+        if (over) {
+            Dock.DockService.launchpadDragX = scenePos.x
+            Dock.DockService.launchpadDragY = scenePos.y
+        }
     }
 
     function _beginDrag(idx, pointerPos, pressPos, bodyCenter) {
@@ -283,14 +466,14 @@ PanelWindow {
             pointerPos.x + win.dragGrabOffset.x,
             pointerPos.y + win.dragGrabOffset.y
         ))
-        win._setDragOverDock(false, 0)
+        win._setDragOverDock(false, Qt.point(0, 0))
     }
     function _updateDrag(scenePos) {
         win.dragPos = win.rubberBandPoint(Qt.point(
             scenePos.x + win.dragGrabOffset.x,
             scenePos.y + win.dragGrabOffset.y
         ))
-        win._setDragOverDock(win._dragPosOverDock(scenePos), scenePos.x)
+        win._setDragOverDock(win._dragPosOverDock(scenePos), scenePos)
         // Over the dock → it's a pin, not a grid move; stop any reorder/folder preview.
         if (win._dragOverDock) {
             win.dragHoverIndex = -1
@@ -325,7 +508,7 @@ PanelWindow {
         win.dragIndex = -1
         win.folderCandidate = -1
         win.dragHoverIndex = -1
-        win._setDragOverDock(false, 0)
+        win._setDragOverDock(false, Qt.point(0, 0))
         if (silent || src < 0 || win.searching) return
         let item = LaunchpadModel.items[src]
         // Dropped on the dock → pin it at the opened gap (stays in the launchpad too).
@@ -354,6 +537,8 @@ PanelWindow {
     // (same screen, so launchpad scene coords == screen coords). Treat the bottom
     // strip — the band kept clear for it (dockReserve) — as the pin drop zone.
     function _dragPosOverDock(pt) {
+        if (Dock.DockService.dockEdge === "left") return pt.x <= win.dockReserve
+        if (Dock.DockService.dockEdge === "right") return pt.x >= win.width - win.dockReserve
         return pt.y >= win.height - win.dockReserve
     }
 
@@ -409,8 +594,8 @@ PanelWindow {
         id: backdrop
         anchors.fill: parent
         color: Qt.rgba(0, 0, 0, 0.55)
-        opacity: win.show ? 1.0 : 0.0
-        Behavior on opacity { AppleSpring { spring: 13 } }
+        opacity: win._presented ? 1.0 : 0.0
+        Behavior on opacity { AppleSpring { spring: 18 } }
         onOpacityChanged: if (!win.show && opacity <= 0.002) win._surfaceVisible = false
 
         MouseArea {
@@ -431,8 +616,8 @@ PanelWindow {
         anchors.fill: parent
         // Hidden while a folder is open so the folder view reads as full-screen
         // with nothing of the grid showing behind it.
-        opacity: (win.show && win.openFolder < 0) ? 1.0 : 0.0
-        scale: win.show ? 1.0 : 0.97
+        opacity: (win._presented && (win.openFolder < 0 || win.folderDragEscaped)) ? 1.0 : 0.0
+        scale: win._presented ? 1.0 : 0.92
         transformOrigin: Item.Center
         Behavior on opacity { AppleSpring { spring: 13 } }
         Behavior on scale { AppleSpring { spring: 13 } }
@@ -564,15 +749,19 @@ PanelWindow {
                     id: pagesFlick
                     model: pages.contentModel
                     interactive: pages.interactive
-                    currentIndex: pages.currentIndex
                     focus: pages.focus
                     orientation: pages.orientation
+                    // No currentIndex binding or highlight range: ListView reacts to
+                    // those by writing contentX directly (bypassing the Behavior), which
+                    // snapped pages instantly. The binding below is the sole driver, so
+                    // every page change goes through the spring; drags sync back on settle.
                     contentX: pages.currentIndex * width
+                    onMovementEnded: pages.currentIndex =
+                        Math.max(0, Math.min(pages.count - 1, Math.round(contentX / width)))
                     snapMode: ListView.SnapOneItem
                     boundsBehavior: Flickable.DragAndOvershootBounds
                     boundsMovement: Flickable.FollowBoundsBehavior
-                    highlightRangeMode: ListView.NoHighlightRange
-                    highlightMoveDuration: 0
+                    cacheBuffer: width   // keep the neighbouring page alive for the slide
                     maximumFlickVelocity: 4 * width
                     rebound: Transition {
                         SpringAnimation {
@@ -583,8 +772,8 @@ PanelWindow {
                         }
                     }
                     Behavior on contentX {
-                        enabled: !pagesFlick.dragging && !pagesFlick.flicking
-                        AppleSpring { spring: 30; epsilon: 0.1 }
+                        enabled: !win._pageSnap && !pagesFlick.dragging && !pagesFlick.flicking
+                        AppleSpring { spring: 18; epsilon: 0.1 }
                     }
                 }
 
@@ -631,6 +820,9 @@ PanelWindow {
                                     readonly property bool selected: win.currentCellIndex === absIndex
                                     readonly property bool isDragSrc: win.dragActive && win.dragIndex === absIndex && !win.searching
                                     readonly property bool isFolderCand: win.folderCandidate === absIndex && !win.searching
+                                    readonly property bool isEscapeMergeTarget:
+                                        win.folderDragEscaped && win.folderEscapeMergeEligible
+                                        && win.folderEscapeHoverIndex === absIndex
 
                                     // Keyboard selection box (mouse never shows it).
                                     Rectangle {
@@ -652,11 +844,12 @@ PanelWindow {
                                         width: Math.min(parent.width - 16, 104)
                                         height: Math.min(parent.height - 12, 96)
                                         opacity: cell.isDragSrc ? 0 : 1
-                                        scale: cell.isFolderCand ? 1.12
+                                        scale: (cell.isFolderCand || cell.isEscapeMergeTarget) ? 1.12
                                             : ((tileTap.pressed || tileDrag.active) ? ThemeService.pressScale : 1.0)
                                         Behavior on scale { AppleSpring { spring: 13 } }
 
-                                        readonly property bool jigEnabled: win.editing && !win.searching
+                                        readonly property bool jigEnabled: win.editing && win.openFolder < 0
+                                            && !win.searching
                                             && cell.entry !== null && !cell.isDragSrc && !tileDrag.active
                                         readonly property real jigAmp: 1.35 + (cell.index % 5) * 0.08
                                         property real jigTarget: 0
@@ -686,14 +879,30 @@ PanelWindow {
                                                 anchors.horizontalCenter: parent.horizontalCenter
                                                 width: 56; height: 56
 
-                                                Image {
+                                                Icons.AppIcon {
                                                     anchors.fill: parent
                                                     visible: cell.isApp
                                                     sourceSize.width: 56; sourceSize.height: 56
-                                                    source: cell.isApp ? win._iconUrl(cell.app) : ""
+                                                    iconName: cell.isApp ? win._iconNameFor(cell.app) : ""
+                                                    desktopId: cell.isApp && cell.entry ? cell.entry.id : ""
                                                     smooth: true; mipmap: true
                                                     fillMode: Image.PreserveAspectFit
-                                                    onStatusChanged: if (status === Image.Error) source = "image://icon/application-x-executable"
+
+                                                    // Dark-grey mask over apps blocked during a focus phase.
+                                                    Rectangle {
+                                                        anchors.fill: parent
+                                                        visible: cell.isApp && cell.entry
+                                                            && !Bar.ClockService.isAppAllowed(cell.entry.id)
+                                                        radius: 13
+                                                        color: Qt.rgba(0.10, 0.10, 0.11, 0.60)
+                                                        Text {
+                                                            anchors.centerIn: parent
+                                                            text: "󰌾"
+                                                            color: Qt.rgba(1, 1, 1, 0.85)
+                                                            font.family: "JetBrainsMono Nerd Font Propo"
+                                                            font.pixelSize: 22
+                                                        }
+                                                    }
                                                 }
 
                                                 Rectangle {
@@ -709,11 +918,14 @@ PanelWindow {
                                                         rowSpacing: 3; columnSpacing: 3
                                                         Repeater {
                                                             model: cell.isFolder ? Math.min(9, cell.entry.apps.length) : 0
-                                                            delegate: Image {
+                                                            delegate: Icons.AppIcon {
                                                                 required property int index
+                                                                readonly property var miniApp:
+                                                                    LaunchpadModel.appById(cell.entry.apps[index])
                                                                 width: 13; height: 13
                                                                 sourceSize.width: 26; sourceSize.height: 26
-                                                                source: win._iconUrl(LaunchpadModel.appById(cell.entry.apps[index]))
+                                                                iconName: win._iconNameFor(miniApp)
+                                                                desktopId: miniApp ? miniApp.id : ""
                                                                 smooth: true; mipmap: true
                                                                 fillMode: Image.PreserveAspectFit
                                                             }
@@ -796,8 +1008,12 @@ PanelWindow {
         Row {
             id: pageDots
             anchors.bottom: parent.bottom
-            anchors.bottomMargin: 36 + win.dockReserve
+            anchors.bottomMargin: 36
+                + (Dock.DockService.dockEdge === "bottom" ? win.dockReserve : 0)
             anchors.horizontalCenter: parent.horizontalCenter
+            anchors.horizontalCenterOffset: Dock.DockService.dockEdge === "left"
+                ? win.dockReserve / 2
+                : Dock.DockService.dockEdge === "right" ? -win.dockReserve / 2 : 0
             spacing: 8
             visible: win.pageCount > 1
 
@@ -847,12 +1063,14 @@ PanelWindow {
         readonly property var ent: (win.dragIndex >= 0 && win.dragIndex < LaunchpadModel.items.length)
             ? LaunchpadModel.items[win.dragIndex] : null
 
-        Image {
+        Icons.AppIcon {
             anchors.fill: parent
             visible: dragProxy.ent && dragProxy.ent.type === "app"
             sourceSize.width: 56; sourceSize.height: 56
-            source: (dragProxy.ent && dragProxy.ent.type === "app")
-                ? win._iconUrl(LaunchpadModel.appById(dragProxy.ent.id)) : ""
+            readonly property var dragApp: (dragProxy.ent && dragProxy.ent.type === "app")
+                ? LaunchpadModel.appById(dragProxy.ent.id) : null
+            iconName: dragApp ? win._iconNameFor(dragApp) : ""
+            desktopId: dragApp ? dragApp.id : ""
             smooth: true; mipmap: true
             fillMode: Image.PreserveAspectFit
         }
@@ -867,10 +1085,13 @@ PanelWindow {
                 Repeater {
                     model: (dragProxy.ent && dragProxy.ent.type === "folder")
                         ? Math.min(9, dragProxy.ent.apps.length) : 0
-                    delegate: Image {
+                    delegate: Icons.AppIcon {
                         required property int index
+                        readonly property var miniApp:
+                            LaunchpadModel.appById(dragProxy.ent.apps[index])
                         width: 13; height: 13
-                        source: win._iconUrl(LaunchpadModel.appById(dragProxy.ent.apps[index]))
+                        iconName: win._iconNameFor(miniApp)
+                        desktopId: miniApp ? miniApp.id : ""
                         smooth: true; mipmap: true; fillMode: Image.PreserveAspectFit
                     }
                 }
@@ -896,7 +1117,15 @@ PanelWindow {
         // SwipeView already exists — avoids a construction-time reference error).
         Connections {
             target: win
-            function onOpenFolderChanged() { if (win.openFolder >= 0) folderSwipe.currentIndex = 0 }
+            function onOpenFolderChanged() {
+                if (win.openFolder < 0) {
+                    win._endFolderDrag(true)
+                    return
+                }
+                win._pageSnap = true
+                folderSwipe.currentIndex = 0
+                win._pageSnap = false
+            }
         }
 
         // Click anywhere outside the panel closes the folder.
@@ -906,11 +1135,15 @@ PanelWindow {
             id: folderStack
             anchors.horizontalCenter: parent.horizontalCenter
             anchors.verticalCenter: parent.verticalCenter
-            anchors.verticalCenterOffset: -win.dockReserve / 2
+            anchors.horizontalCenterOffset: Dock.DockService.dockEdge === "left"
+                ? win.dockReserve / 2
+                : Dock.DockService.dockEdge === "right" ? -win.dockReserve / 2 : 0
+            anchors.verticalCenterOffset: Dock.DockService.dockEdge === "bottom"
+                ? -win.dockReserve / 2 : 0
             width: parent.width
             spacing: 20
-            opacity: win.openFolder >= 0 ? 1 : 0
-            scale: win.openFolder >= 0 ? 1 : 0.96
+            opacity: win.openFolder >= 0 && !win.folderDragEscaped ? 1 : 0
+            scale: win.openFolder >= 0 && !win.folderDragEscaped ? 1 : 0.96
             transformOrigin: Item.Center
             Behavior on opacity { AppleSpring { spring: 13 } }
             Behavior on scale { AppleSpring { spring: 13 } }
@@ -945,7 +1178,8 @@ PanelWindow {
                 height: folderView.rowsShown * cellH + pad * 2 + (folderView.pageCount > 1 ? 26 : 0)
                 radius: 34
                 color: ThemeService.bg
-                border.color: ThemeService.stroke
+                border.color: win.folderDragOutside
+                    ? Qt.rgba(1, 1, 1, 0.44) : ThemeService.stroke
                 border.width: 1
 
                 MouseArea { anchors.fill: parent }   // swallow clicks inside the panel
@@ -964,22 +1198,24 @@ PanelWindow {
                     }
                     height: folderView.rowsShown * folderPanel.cellH
                     clip: false
-                    interactive: true
+                    interactive: !win.folderDragActive
 
                     contentItem: ListView {
                         id: folderFlick
                         model: folderSwipe.contentModel
                         interactive: folderSwipe.interactive
-                        currentIndex: folderSwipe.currentIndex
                         focus: folderSwipe.focus
                         orientation: Qt.Horizontal
+                        // Same treatment as the main pager: the contentX binding is the
+                        // sole programmatic driver (highlight-range scrolling bypassed the
+                        // Behavior and jumped); real drags sync the index back on settle.
+                        contentX: folderSwipe.currentIndex * width
+                        onMovementEnded: folderSwipe.currentIndex =
+                            Math.max(0, Math.min(folderSwipe.count - 1, Math.round(contentX / width)))
                         snapMode: ListView.SnapOneItem
                         boundsBehavior: Flickable.DragAndOvershootBounds
                         boundsMovement: Flickable.FollowBoundsBehavior
-                        highlightRangeMode: ListView.StrictlyEnforceRange
-                        preferredHighlightBegin: 0
-                        preferredHighlightEnd: 0
-                        highlightMoveDuration: 0
+                        cacheBuffer: width
                         maximumFlickVelocity: 4 * width
                         rebound: Transition {
                             SpringAnimation {
@@ -990,7 +1226,7 @@ PanelWindow {
                             }
                         }
                         Behavior on contentX {
-                            enabled: !folderFlick.dragging && !folderFlick.flicking
+                            enabled: !win._pageSnap && !folderFlick.dragging && !folderFlick.flicking
                             AppleSpring { spring: 18; epsilon: 0.25 }
                         }
                     }
@@ -1019,25 +1255,72 @@ PanelWindow {
                                         readonly property int appIndex: fpage.pageStart + index
                                         readonly property string appId: folderView.folder ? folderView.folder.apps[appIndex] : ""
                                         readonly property var fapp: LaunchpadModel.appById(fcell.appId)
+                                        readonly property int displaySlot:
+                                            win.folderDragDisplaySlot(appIndex, fpage.pageStart)
+                                        opacity: win.folderDragActive && win.folderDragIndex === appIndex ? 0 : 1
+                                        transform: Translate {
+                                            x: ((fcell.displaySlot % 7) - (fcell.index % 7)) * folderPanel.cellW
+                                            y: (Math.floor(fcell.displaySlot / 7)
+                                                - Math.floor(fcell.index / 7)) * folderPanel.cellH
+                                            Behavior on x { AppleSpring { spring: 16; epsilon: 0.15 } }
+                                            Behavior on y { AppleSpring { spring: 16; epsilon: 0.15 } }
+                                        }
 
                                         Item {
                                             id: ftile
                                             anchors.centerIn: parent
                                             width: 104; height: 112
-                                            scale: folderAppMa.pressed ? ThemeService.pressScale : 1.0
+                                            scale: (folderTap.pressed || folderDragHandler.active)
+                                                ? ThemeService.pressScale : 1.0
                                             Behavior on scale { AppleSpring { spring: 13 } }
+
+                                            readonly property bool jigEnabled: win.editing && win.openFolder >= 0
+                                                && !(win.folderDragActive
+                                                    && win.folderDragIndex === fcell.appIndex)
+                                                && !folderDragHandler.active
+                                            readonly property real jigAmp: 1.35 + (fcell.index % 5) * 0.08
+                                            property real jigTarget: 0
+                                            rotation: jigEnabled ? jigTarget : 0
+                                            onJigEnabledChanged: jigTarget = jigEnabled
+                                                ? ((fcell.index % 2 === 0) ? jigAmp : -jigAmp) : 0
+                                            Behavior on rotation {
+                                                AppleSpring {
+                                                    spring: 22
+                                                    damping: ThemeService.momentumDamping
+                                                    epsilon: 0.04
+                                                    onRunningChanged: if (!running && ftile.jigEnabled)
+                                                        Qt.callLater(() => ftile.jigTarget = ftile.jigTarget > 0
+                                                            ? -ftile.jigAmp : ftile.jigAmp)
+                                                }
+                                            }
 
                                             Column {
                                                 anchors.centerIn: parent
                                                 spacing: 7
                                                 width: parent.width
-                                                Image {
+                                                Icons.AppIcon {
                                                     anchors.horizontalCenter: parent.horizontalCenter
                                                     width: 72; height: 72
                                                     sourceSize.width: 72; sourceSize.height: 72
-                                                    source: win._iconUrl(fcell.fapp)
+                                                    iconName: win._iconNameFor(fcell.fapp)
+                                                    desktopId: fcell.appId
                                                     smooth: true; mipmap: true; fillMode: Image.PreserveAspectFit
-                                                    onStatusChanged: if (status === Image.Error) source = "image://icon/application-x-executable"
+
+                                                    // Dark-grey mask over apps blocked during a focus phase.
+                                                    Rectangle {
+                                                        anchors.fill: parent
+                                                        visible: fcell.fapp && fcell.appId
+                                                            && !Bar.ClockService.isAppAllowed(fcell.appId)
+                                                        radius: 16
+                                                        color: Qt.rgba(0.10, 0.10, 0.11, 0.60)
+                                                        Text {
+                                                            anchors.centerIn: parent
+                                                            text: "󰌾"
+                                                            color: Qt.rgba(1, 1, 1, 0.85)
+                                                            font.family: "JetBrainsMono Nerd Font Propo"
+                                                            font.pixelSize: 28
+                                                        }
+                                                    }
                                                 }
                                                 Text {
                                                     anchors.horizontalCenter: parent.horizontalCenter
@@ -1054,10 +1337,41 @@ PanelWindow {
                                             }
 
                                             MouseArea {
-                                                id: folderAppMa
                                                 anchors.fill: parent
+                                                enabled: fcell.fapp !== null
+                                                acceptedButtons: Qt.NoButton
+                                                hoverEnabled: true
                                                 cursorShape: Qt.PointingHandCursor
-                                                onClicked: if (!win.editing && fcell.fapp) win.launchById(fcell.appId)
+                                            }
+
+                                            TapHandler {
+                                                id: folderTap
+                                                enabled: fcell.fapp !== null
+                                                longPressThreshold: 0.4
+                                                onTapped: if (!win.editing && fcell.fapp)
+                                                    win.launchById(fcell.appId)
+                                                onLongPressed: if (!win.editing) win.editing = true
+                                            }
+
+                                            DragHandler {
+                                                id: folderDragHandler
+                                                target: null
+                                                dragThreshold: 8
+                                                enabled: fcell.fapp !== null
+                                                onActiveChanged: {
+                                                    if (active) {
+                                                        let centre = ftile.mapToItem(null,
+                                                            ftile.width / 2, ftile.height / 2)
+                                                        win._beginFolderDrag(fcell.appIndex,
+                                                            centroid.scenePosition,
+                                                            centroid.scenePressPosition, centre)
+                                                    } else if (win.folderDragActive
+                                                            && win.folderDragIndex === fcell.appIndex) {
+                                                        win._endFolderDrag(false)
+                                                    }
+                                                }
+                                                onCentroidChanged: if (active)
+                                                    win._updateFolderDrag(centroid.scenePosition)
                                             }
 
                                             // Remove-from-folder badge (edit mode).
@@ -1121,13 +1435,32 @@ PanelWindow {
                 }
             }
 
-            Text {
-                anchors.horizontalCenter: parent.horizontalCenter
-                visible: win.editing
-                text: "Tap × to remove an app from this folder"
-                color: Qt.rgba(1, 1, 1, 0.5)
-                font.family: "SF Pro Display"
-                font.pixelSize: 12
+        }
+
+        Item {
+            id: folderDragProxy
+            visible: win.folderDragActive && folderView.folder && win.folderDragIndex >= 0
+            z: 3000
+            width: 72
+            height: 72
+            x: win.folderDragPos.x - width / 2
+            y: win.folderDragPos.y - height / 2
+            scale: win.folderDragOutside ? 1.18 : 1.12
+            opacity: 0.94
+            Behavior on scale { AppleSpring { spring: 18 } }
+            readonly property string appId: win.folderDragAppId
+
+            Icons.AppIcon {
+                anchors.fill: parent
+                sourceSize.width: 72
+                sourceSize.height: 72
+                readonly property var dragApp: folderDragProxy.appId !== ""
+                    ? LaunchpadModel.appById(folderDragProxy.appId) : null
+                iconName: dragApp ? win._iconNameFor(dragApp) : ""
+                desktopId: dragApp ? dragApp.id : ""
+                smooth: true
+                mipmap: true
+                fillMode: Image.PreserveAspectFit
             }
         }
     }

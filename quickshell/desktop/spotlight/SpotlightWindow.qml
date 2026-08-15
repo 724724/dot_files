@@ -4,6 +4,9 @@ import Quickshell.Wayland
 import Quickshell.Hyprland
 import QtQuick
 import QtQuick.Controls
+import "../bar" as Bar
+import "../icons" as Icons
+import "units.js" as Units
 
 PanelWindow {
     id: win
@@ -75,6 +78,32 @@ PanelWindow {
         } catch (e) { return "" }
     }
 
+    // ── Unit conversion ──────────────────────────────────────────────────
+    // "26.5 inch to cm", "72 f to c", "100 km/h in mph", "3 gb to mib".
+    // Purely local (no network), so this is checked before currency: `_fxCode`
+    // promotes *any* three-letter token to an ISO code, which meant unit tokens
+    // like mph/psi/rad/btu were being sent off to the exchange-rate API and sat
+    // on "Fetching exchange rate…" forever.
+    readonly property var unitParsed: Units.parse(query)
+    readonly property bool isUnit: unitParsed.ok === true
+    // Both sides are real units but of different kinds ("10 kg to cm") — worth a
+    // row saying so rather than silently falling through to a Google search.
+    readonly property bool isUnitMismatch: unitParsed.reason === "mismatch"
+
+    readonly property string unitResult: {
+        let p = unitParsed
+        if (!p.ok) return ""
+        let v = Units.convert(p.amount, p.from, p.to)
+        let s = Units.format(v)
+        return s === "" ? "" : Units.group(s) + " " + p.toRaw
+    }
+    // Bare value (no separators) for copying to the clipboard.
+    readonly property string unitValue: {
+        let p = unitParsed
+        if (!p.ok) return ""
+        return Units.format(Units.convert(p.amount, p.from, p.to))
+    }
+
     // ── Currency conversion ──────────────────────────────────────────────
     // Live rates from open.er-api.com (free, no API key), cached as code → rate
     // per 1 USD and refreshed at most once an hour. Recognises e.g.
@@ -126,7 +155,8 @@ PanelWindow {
         if (!from || !to || !Number.isFinite(amt)) return { ok: false }
         return { ok: true, amount: amt, from: from, to: to }
     }
-    readonly property bool isCurrency: curParsed.ok
+    // Units win ties: see the note on isUnit above.
+    readonly property bool isCurrency: curParsed.ok && !isUnit && !isUnitMismatch
 
     // Pretty result, e.g. "312,398 KRW" ("" until rates for both codes load).
     readonly property string currencyResult: {
@@ -186,7 +216,8 @@ PanelWindow {
 
     // ── Google search fallback ──────────────────────────────────────────
     readonly property bool showGoogleFallback:
-        query.trim() !== "" && !isCalc && !isCurrency && filtered.length === 0
+        query.trim() !== "" && !isCalc && !isCurrency && !isUnit && !isUnitMismatch
+        && filtered.length === 0
 
     function activateGoogleSearch() {
         let q = query.trim()
@@ -204,7 +235,7 @@ PanelWindow {
     // ── App search ───────────────────────────────────────────────────────
     readonly property var filtered: {
         let q = query.trim().toLowerCase()
-        if (!q || isCalc || isCurrency) return []
+        if (!q || isCalc || isCurrency || isUnit || isUnitMismatch) return []
         let apps = DesktopEntries.applications.values
         let out = []
         for (let i = 0; i < apps.length; i++) {
@@ -235,6 +266,7 @@ PanelWindow {
     // so the result area's top and bottom paddings match.
     readonly property int bodyTopPad: 11
     readonly property int bodyHeight: {
+        if (isUnit || isUnitMismatch) return rowH + 8 + bodyTopPad
         if (isCurrency) return rowH + 8 + bodyTopPad
         if (isCalc && calcResult !== "") return rowH + 8 + bodyTopPad
         if (filtered.length > 0) return Math.min(filtered.length, 8) * rowH + 8 + bodyTopPad
@@ -262,6 +294,13 @@ PanelWindow {
     }
 
     function activateSelected() {
+        if (isUnit) {
+            if (unitValue === "") return
+            Quickshell.execDetached(["bash", "-c", "printf %s '" + unitValue.replace(/'/g, "'\\''") + "' | wl-copy"])
+            win.closeRequested()
+            return
+        }
+        if (isUnitMismatch) return
         if (isCurrency) {
             if (currencyValue === "") return
             Quickshell.execDetached(["bash", "-c", "printf %s '" + currencyValue.replace(/'/g, "'\\''") + "' | wl-copy"])
@@ -282,6 +321,12 @@ PanelWindow {
         let idx = Math.max(0, Math.min(selectedIndex, filtered.length - 1))
         let app = filtered[idx]
         if (app) {
+            // Focus mode: block disallowed apps. Keep spotlight open so the mask
+            // stays visible; just fire the "blocked" notification.
+            if (!Bar.ClockService.isAppAllowed(app.id)) {
+                Bar.ClockService.notifyBlocked(app.name)
+                return
+            }
             // Quickshell's app.execute() runs into trouble with .desktop
             // entries that have complex escapes — kakaotalk.exe.desktop's
             // Exec line has \\\\ and escaped spaces for a Wine path and
@@ -445,6 +490,73 @@ PanelWindow {
                     font.family: "SF Pro Display"
                     font.pixelSize: 11
                 }
+            }
+        }
+
+        // ── Unit conversion row ──────────────────────────────────────────
+        Rectangle {
+            visible: win.isUnit || win.isUnitMismatch
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.leftMargin: 8
+            anchors.rightMargin: 8
+            anchors.top: inputRow.bottom
+            anchors.topMargin: 10 + win.bodyTopPad
+            height: win.rowH - 4
+            radius: 12
+            scale: unitMa.pressed ? ThemeService.pressScale : 1
+            Behavior on scale { AppleSpring { spring: 13 } }
+            color: win.isUnitMismatch
+                ? (dark ? "#4a3324" : "#fbe6d4")
+                : (unitHover.hovered ? (dark ? "#413166" : "#e6ddfa")
+                                     : (dark ? "#332853" : "#ece5fb"))
+            HoverHandler { id: unitHover }
+
+            Row {
+                anchors.fill: parent
+                anchors.leftMargin: 14
+                anchors.rightMargin: 14
+                spacing: 14
+
+                Text {
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: "⇄"
+                    color: dark ? "#ffffff" : "#222222"
+                    font.family: "JetBrainsMono Nerd Font Propo"
+                    font.pixelSize: 22
+                }
+
+                Text {
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: win.isUnitMismatch
+                        ? ("Can't convert " + Units.dimLabel(win.unitParsed.fromDim)
+                           + " to " + Units.dimLabel(win.unitParsed.toDim))
+                        : (Units.group(Units.format(win.unitParsed.amount)) + " " + win.unitParsed.fromRaw
+                           + "  =  " + win.unitResult)
+                    color: dark ? "#ffffff" : "#222222"
+                    font.family: "SF Pro Display"
+                    font.pixelSize: 16
+                    font.weight: Font.DemiBold
+                }
+
+                Item { width: 6; height: 1 }
+
+                Text {
+                    anchors.verticalCenter: parent.verticalCenter
+                    visible: win.isUnit && win.unitResult !== ""
+                    text: "Enter to copy"
+                    color: dark ? Qt.rgba(1, 1, 1, 0.45) : Qt.rgba(0, 0, 0, 0.40)
+                    font.family: "SF Pro Display"
+                    font.pixelSize: 11
+                }
+            }
+
+            MouseArea {
+                id: unitMa
+                anchors.fill: parent
+                enabled: win.isUnit && win.unitResult !== ""
+                cursorShape: Qt.PointingHandCursor
+                onClicked: win.activateSelected()
             }
         }
 
@@ -621,18 +733,30 @@ PanelWindow {
                     anchors.rightMargin: 14
                     spacing: 12
 
-                    Image {
+                    Icons.AppIcon {
                         anchors.verticalCenter: parent.verticalCenter
                         width: 32
                         height: 32
-                        source: modelData.icon ? "image://icon/" + modelData.icon : "image://icon/application-x-executable"
+                        iconName: modelData.icon || ""
+                        desktopId: modelData.id || ""
                         smooth: true
                         mipmap: true
                         sourceSize.width: 32
                         sourceSize.height: 32
-                        onStatusChanged: {
-                            if (status === Image.Error)
-                                source = "image://icon/application-x-executable"
+
+                        // Dark-grey mask over apps blocked during a focus phase.
+                        Rectangle {
+                            anchors.fill: parent
+                            visible: !Bar.ClockService.isAppAllowed(modelData.id)
+                            radius: 7
+                            color: Qt.rgba(0.10, 0.10, 0.11, 0.60)
+                            Text {
+                                anchors.centerIn: parent
+                                text: "󰌾"
+                                color: Qt.rgba(1, 1, 1, 0.85)
+                                font.family: "JetBrainsMono Nerd Font Propo"
+                                font.pixelSize: 14
+                            }
                         }
                     }
 

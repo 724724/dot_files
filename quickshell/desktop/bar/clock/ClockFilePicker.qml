@@ -86,7 +86,7 @@ Item {
                 scale: cancelTap.pressed ? Bar.ThemeService.pressScale : 1
                 Behavior on scale { Bar.AppleSpring { spring: 20 } }
                 HoverHandler { cursorShape: Qt.PointingHandCursor }
-                TapHandler { id: cancelTap; onPressedChanged: if (pressed) root.cancel() }
+                TapHandler { id: cancelTap; onTapped: root.cancel() }
             }
             Text {
                 anchors.centerIn: parent
@@ -112,7 +112,7 @@ Item {
                 TapHandler {
                     id: chooseTap
                     enabled: root.selectedPath !== ""
-                    onPressedChanged: if (pressed) root.choose()
+                    onTapped: root.choose()
                 }
             }
         }
@@ -156,7 +156,7 @@ Item {
                 }
                 HoverHandler { id: upHover; cursorShape: Qt.PointingHandCursor }
                 TapHandler {
-                    onPressedChanged: if (pressed && String(folderModel.parentFolder) !== "") {
+                    onTapped: if (String(folderModel.parentFolder) !== "") {
                         root.stopPreview()
                         root.selectedPath = ""
                         root.currentFolder = folderModel.parentFolder
@@ -219,7 +219,7 @@ Item {
                     HoverHandler { id: rowHover; cursorShape: Qt.PointingHandCursor }
                     TapHandler {
                         id: rowTap
-                        onPressedChanged: if (pressed) {
+                        onTapped: {
                             if (fileRow.fileIsDir) {
                                 root.stopPreview()
                                 root.selectedPath = ""

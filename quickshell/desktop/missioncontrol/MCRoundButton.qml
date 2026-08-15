@@ -11,7 +11,7 @@ Rectangle {
     border.color: Qt.rgba(1, 1, 1, 0.75)
     border.width: 1
     scale: ma.pressed ? ThemeService.pressScale : 1.0
-    Behavior on scale { AppleSpring { spring: 18 } }
+    Behavior on scale { AppleSpring { spring: 4.4 } }
 
     Text {
         anchors.centerIn: parent

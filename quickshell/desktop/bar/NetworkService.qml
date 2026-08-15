@@ -12,8 +12,7 @@ Singleton {
 
     Process {
         id: netProc
-        command: ["bash", "-c",
-            "nmcli -t -f TYPE,STATE,CONNECTION,DEVICE device 2>/dev/null | grep ':connected:' | head -1 || true"]
+        command: ["bash", Quickshell.shellDir + "/../scripts/network-route.sh", "bar-status"]
         running: true
 
         stdout: StdioCollector {
@@ -26,11 +25,11 @@ Singleton {
                     root.ifname = ""
                     return
                 }
-                let parts = line.split(":")
-                root.isConnected = true
+                let parts = line.split("|")
+                root.isConnected = parts[0] !== "none" && parts[0] !== ""
                 root.isWifi = parts[0] === "wifi"
-                root.ssid = parts[2] || ""
-                root.ifname = parts[3] || ""
+                root.ssid = parts[1] || ""
+                root.ifname = parts[2] || ""
             }
         }
     }

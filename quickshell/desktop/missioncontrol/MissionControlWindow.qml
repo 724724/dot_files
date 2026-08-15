@@ -3,6 +3,7 @@ import Quickshell.Wayland
 import Quickshell.Hyprland
 import QtQuick
 import "../dock" as Dock
+import "SpatialLayout.js" as SpatialLayout
 
 // macOS Mission Control: full-screen overlay with a top workspace strip (names that
 // expand to live thumbnails on hover) and, below, the active workspace's windows
@@ -15,12 +16,25 @@ PanelWindow {
     required property var modelData
     screen: modelData
 
-    property bool show: false
-    signal closeRequested
+    property bool active: false
+    property real overviewProgress: 0
+    property real spatialProgress: overviewProgress
+    property bool transitionRunning: false
+    property bool overviewInteractive: false
+    property bool reducedMotion: false
+    property string exitKind: ""
+    property string selectedAddress: ""
+    property bool holdBackdrop: false
 
-    property bool _surfaceVisible: false
-    visible: _surfaceVisible
-    readonly property bool captureEnabled: win.show && win._surfaceVisible
+    signal cancelRequested
+    signal windowRequested(string address)
+    signal workspaceRequested(int wsId)
+
+    // Keep the transparent, input-empty layer surface mapped. shell.qml creates
+    // this before DockWindow, so the Dock remains above it without an unmap/remap
+    // transaction on every overview open. Rendering and capture stay gated below.
+    visible: true
+    readonly property bool captureEnabled: win.active
 
     // ── Drag state (shared with WindowThumb / WorkspaceTile children) ─────────
     property bool dragActive: false
@@ -70,6 +84,11 @@ PanelWindow {
     Component.onCompleted: stageModel = _stageSig === "" ? [] : _stageSig.split(",")
     // Snapshot of the previous stage while the workspace-switch slide plays.
     property var outgoingModel: []
+    property var outgoingLayout: ({})
+    property var entryStack: ({})
+    readonly property var stageLayout: SpatialLayout.pack(
+        win.stageModel, MCService.windows, win.monitorData,
+        Math.max(1, stageArea.width), Math.max(1, stageArea.height), 22)
 
     property int currentStageWsId: activeWorkspaceId
     property int outgoingStageWsId: -1
@@ -78,23 +97,36 @@ PanelWindow {
     property bool _workspaceSlideImmediate: false
     readonly property bool workspaceSliding: workspaceSlideMotion.running
     Behavior on workspaceSlide {
-        enabled: !win._workspaceSlideImmediate
-        AppleSpring {
+        enabled: !win._workspaceSlideImmediate && !win.reducedMotion
+        NumberAnimation {
             id: workspaceSlideMotion
-            spring: 13
-            epsilon: 0.25
+            duration: 125
+            easing.type: Easing.OutCubic
             onRunningChanged: if (!running && Math.abs(win.workspaceSlide) <= 0.25)
                 win.outgoingStageWsId = -1
         }
     }
 
     readonly property int stripHeight: 220
-    readonly property int dockReserve: 92
+    // Match DockWindow's per-monitor size mapping so overview content clears the
+    // actual Dock thickness at every persisted size level and edge.
+    readonly property real dockShortSide: Math.max(1, Math.min(width, height))
+    readonly property real dockMinIcon: Math.max(24,
+        Math.min(32, dockShortSide * 0.022))
+    readonly property real dockMaxIcon: Math.max(48,
+        Math.min(66, dockShortSide * 0.045))
+    readonly property real dockCurrentIcon: dockMinIcon
+        + Dock.DockService.dockSizeLevel * (dockMaxIcon - dockMinIcon)
+    readonly property int dockReserve: Math.ceil(18 + 68 * dockCurrentIcon / 42)
     // Desktop wallpaper — tracks the live awww wallpaper via WallpaperService
     // (re-queried on every open; also follows Nautilus "Set as Background").
     readonly property string wallpaperPath: WallpaperService.current
     readonly property int wallpaperFillMode: WallpaperService.fillMode
     readonly property string wallpaperPaddingColor: WallpaperService.paddingColor
+    // Fit/pad don't cover the full screen, so the uncovered margins need an
+    // opaque plane behind them (see the backdrop below).
+    readonly property bool wallpaperNeedsPadding:
+        wallpaperFillMode === Image.PreserveAspectFit || wallpaperFillMode === Image.Pad
     // Wallpaper sources stay set while the overlay is hidden and are decoded at a
     // bounded sourceSize. Without this, huge originals (e.g. 24MP phone photos)
     // were synchronously re-decoded on the GUI thread at every map, freezing the
@@ -141,85 +173,65 @@ PanelWindow {
         visible: false
     }
 
-    // Stage spread: 0 = windows at their real (overlapping) positions, 1 = spread
-    // out into the grid. Animated 0→1 on open and 1→0 on close (the previews then
-    // collapse back onto the real windows as the wallpaper fades away).
-    property real spread: 1
-    property bool _spreadImmediate: false
-    readonly property bool spreadAnimating: spreadMotion.running
-    Behavior on spread {
-        enabled: !win._spreadImmediate
-        AppleSpring { id: spreadMotion; spring: 13 }
+    // The strip and all window rects derive from the same progress transaction.
+    // Reduced Motion keeps the overview geometry static and cross-fades instead.
+    // A constant off-screen endpoint prevents the expanding strip's live height
+    // from briefly moving the hidden target into view on the first frame.
+    readonly property real stripHiddenY: -win.stripHeight
+    readonly property real stripSlide: win.reducedMotion ? 0
+        : win.stripHiddenY * (1 - win.spatialProgress)
+    function _captureEntryStack() {
+        let stack = ({})
+        for (let windowData of MCService.windows)
+            if (windowData && windowData.address)
+                stack[windowData.address] = MCService.windowStackZ(windowData)
+        win.entryStack = stack
     }
 
-    // Top workspace strip slide: tucked above the screen, drops down on open and
-    // slides back up on close.
-    property real stripSlide: 0
-    readonly property real stripHiddenY: -(stripBg.height + 24)
-    property bool _stripImmediate: false
-    Behavior on stripSlide {
-        enabled: !win._stripImmediate
-        AppleSpring { spring: 13; epsilon: 0.25 }
-    }
-
-    onShowChanged: {
-        if (show) {
+    onActiveChanged: {
+        if (active) {
             // Refresh before mapping the overlay. The current cached wallpaper
             // remains available immediately while awww/gsettings reconcile.
             WallpaperService.refresh()
             _resetDrag()
             _resetWorkspaceSlide()
-            win._spreadImmediate = true
-            win.spread = 0
-            win._spreadImmediate = false
-            _surfaceVisible = true
-            Qt.callLater(() => keyCatcher.forceActiveFocus())
-            win._stripImmediate = true
-            win.stripSlide = win.stripHiddenY
-            win._stripImmediate = false
+            _captureEntryStack()
             Qt.callLater(() => {
-                if (!win.show) return
-                win.spread = 1
-                win.stripSlide = 0
+                if (!win.active) return
+                keyCatcher.forceActiveFocus()
             })
-            Dock.DockService.overviewScreen = ""
-            Dock.DockService.overviewOpen = true
-            MCService.open = true
         } else {
-            Dock.DockService.overviewOpen = false
-            MCService.open = false
             _resetDrag()
             win._workspaceSlideImmediate = true
             win.workspaceSlide = 0
             win._workspaceSlideImmediate = false
             win.outgoingStageWsId = -1
-            win.stripSlide = win.stripHiddenY
         }
     }
 
     Connections {
         target: Dock.DockService
-        function onLaunchpadCloseRequested() { if (win.show) win.closeRequested() }
+        function onLaunchpadCloseRequested() { if (win.active) win.cancelRequested() }
     }
 
     WlrLayershell.namespace: "qs-missioncontrol"
+    // Overlay keeps Mission Control above fullscreen clients and the Top-layer
+    // menu bar. Its compositor order is intentionally higher than the Dock's:
+    // Hyprland draws that surface first, then the real Dock above it.
     WlrLayershell.layer: WlrLayer.Overlay
-    WlrLayershell.keyboardFocus: WlrKeyboardFocus.OnDemand
+    WlrLayershell.keyboardFocus: win.active
+        ? WlrKeyboardFocus.OnDemand : WlrKeyboardFocus.None
     anchors { top: true; left: true; right: true; bottom: true }
     color: "transparent"
     exclusionMode: ExclusionMode.Ignore
-    mask: show ? null : closedRegion
+    mask: active ? null : closedRegion
     Region { id: closedRegion }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
-    function iconUrlForClass(cls) {
-        if (!cls) return "image://icon/application-x-executable"
-        let de = DesktopEntries.heuristicLookup(cls)
-        let icon = (de && de.icon) ? de.icon : "application-x-executable"
-        return "image://icon/" + icon
-    }
     function appNameForClass(cls) {
         if (!cls) return ""
+        if (cls.toLowerCase() === "ida" || cls.toLowerCase() === "ida64") return "IDA"
+        if (cls.toLowerCase() === "arduino ide") return "Arduino IDE"
         let de = DesktopEntries.heuristicLookup(cls)
         return (de && de.name) ? de.name : cls
     }
@@ -282,34 +294,41 @@ PanelWindow {
 
     function _slideToWorkspace(wsId) {
         if (wsId === win.currentStageWsId) return
-        if (!win.show || !win._surfaceVisible) {
-            win.currentStageWsId = wsId
-            win.outgoingStageWsId = -1
-            win.workspaceSlide = 0
-            return
-        }
+        // Keep the already-captured stage intact through close. Replacing it after
+        // the selected workspace becomes active creates fresh ScreencopyViews with
+        // no frame yet and discards the final live thumbnail.
+        if (!win.active) return
         let oldIdx = _workspaceIndex(win.currentStageWsId)
         let newIdx = _workspaceIndex(wsId)
         win.workspaceSlideDirection = newIdx >= oldIdx ? 1 : -1
         win.outgoingModel = win.stageModel.slice()
+        win.outgoingLayout = win.stageLayout
         win.outgoingStageWsId = win.currentStageWsId
         win.currentStageWsId = wsId
         win._workspaceSlideImmediate = true
-        win.workspaceSlide = win.workspaceSlideDirection * Math.max(1, stageArea.fitW)
+        win.workspaceSlide = win.workspaceSlideDirection * Math.max(1, win.width)
         win._workspaceSlideImmediate = false
         Qt.callLater(() => {
             if (win.currentStageWsId === wsId) win.workspaceSlide = 0
         })
     }
 
-    onActiveWorkspaceIdChanged: _slideToWorkspace(activeWorkspaceId)
+    // External workspace changes can still slide while the overview is open.
+    // A tile selection commits immediately but keeps the captured source stage
+    // stable during exit; replacing it mid-close causes a blank/new-frame flash.
+    onActiveWorkspaceIdChanged: {
+        if (win.active && win.exitKind === "")
+            _slideToWorkspace(activeWorkspaceId)
+    }
+    onExitKindChanged: {
+        if (win.active && win.exitKind === ""
+                && win.currentStageWsId !== win.activeWorkspaceId)
+            _slideToWorkspace(win.activeWorkspaceId)
+    }
 
     // ── Actions invoked by children ───────────────────────────────────────────
-    function activateWindow(address) { MCService.focusWindow(address); win.closeRequested() }
-    function activateWorkspace(wsId) {
-        MCService.focusWorkspace(wsId)
-        win.closeRequested()
-    }
+    function activateWindow(address) { win.windowRequested(address) }
+    function activateWorkspace(wsId) { win.workspaceRequested(wsId) }
     // Exit-fullscreen button: turn off fullscreen AND bring that window to the
     // current workspace as a normal (restored) window.
     function requestExitFullscreen(wsId) {
@@ -495,7 +514,11 @@ PanelWindow {
     // hover zone) so real windows near the top can't peek through the gap.
     Item {
         id: wallpaper
-        readonly property real stripBottom: Math.max(0, stripBg.height - 1 + win.stripSlide)
+        // Share the exact physical-pixel-snapped edge with the strip. Using a
+        // separately rounded clip edge produced a broken half-pixel seam at
+        // fractional output scales such as 1.5x.
+        readonly property real stripBottom: Math.max(0,
+            topBand.renderedStripExtent + topBand.renderedStripSlide)
         // Never paint the padding-color placeholder while the asynchronous
         // wallpaper image is still attaching to the remapped scene graph. Until
         // it is ready the transparent overlay leaves the identical live awww
@@ -503,6 +526,8 @@ PanelWindow {
         readonly property bool imageReady: wallpaperImage.status === Image.Ready
         readonly property bool colorOnly: win.wallpaperUrl === ""
             || wallpaperImage.status === Image.Error
+        readonly property real coverOpacity: !win.active ? 0
+            : (win.holdBackdrop ? 1 : win.overviewProgress)
         anchors {
             top: parent.top
             left: parent.left
@@ -511,8 +536,12 @@ PanelWindow {
             topMargin: stripBottom
         }
         clip: true
-        opacity: win.show && (imageReady || colorOnly) ? 1 : 0
-        Behavior on opacity { AppleSpring { spring: 18 } }
+        // Entry keeps its capture-friendly progressive reveal. Once closing
+        // starts, hold the background fully opaque so only the live proxies are
+        // seen returning to their source rects; the real windows appear exactly
+        // when the overlay reaches its endpoint.
+        opacity: (imageReady || colorOnly || win.holdBackdrop)
+            ? coverOpacity : 0
 
         Rectangle {
             x: 0
@@ -520,11 +549,13 @@ PanelWindow {
             width: win.width
             height: win.height
             color: win.wallpaperPaddingColor
-            // Never place a full-screen padding-colour plane behind a valid
-            // wallpaper. Crop/stretch do not need it; fit/pad can reveal the
-            // identical live awww padding through the transparent margins.
-            // This makes a late texture frame transparent instead of blue.
-            visible: wallpaper.colorOnly
+            // Crop/stretch cover the whole screen, so no plane is needed and
+            // leaving it out keeps a late texture frame transparent rather than
+            // flashing blue. Fit/pad genuinely leave margins though, and the
+            // overview sits ABOVE the live windows — without an opaque plane
+            // those margins show the real windows through the overview.
+            visible: wallpaper.colorOnly || win.wallpaperNeedsPadding
+                || (win.holdBackdrop && !wallpaper.imageReady)
         }
 
         Image {
@@ -543,38 +574,62 @@ PanelWindow {
             retainWhileLoading: true
         }
 
+        // A cheap dim plane gives the live previews depth without a full-screen
+        // shader blur. It follows the same progress as the spatial transition.
+        Rectangle {
+            anchors.fill: parent
+            color: "#000000"
+            opacity: 0.12 * win.overviewProgress
+        }
+
         // Empty-area click dismisses.
-        MouseArea { anchors.fill: parent; enabled: win.show; onPressed: win.closeRequested() }
+        MouseArea {
+            anchors.fill: parent
+            enabled: win.active
+            onPressed: win.cancelRequested()
+        }
     }
 
     Item {
         id: content
         anchors.fill: parent
-        // Fade the whole overview in/out (open spread stays; close just dissolves).
-        opacity: win.show ? 1 : 0
-        Behavior on opacity { AppleSpring { spring: 18 } }
-        onOpacityChanged: if (!win.show && opacity <= 0.002) win._surfaceVisible = false
+        visible: win.active
+        // Window previews remain fully opaque through the complete reverse
+        // interpolation. They disappear only after reaching their source rects.
+        opacity: 1
 
         // Escape to close (window takes keyboard focus on open).
         Item {
             id: keyCatcher
             focus: true
-            Keys.onEscapePressed: win.closeRequested()
+            Keys.onEscapePressed: win.cancelRequested()
         }
 
         // ── Top workspace strip ───────────────────────────────────────────────
         Item {
             id: topBand
+            z: 3000
             anchors { top: parent.top; left: parent.left; right: parent.right }
             height: win.stripHeight        // generous hover zone at the top
-            readonly property bool expanded: stripHover.hovered || win.dragActive
-                || win.tileDragActive || win.workspaceDragTarget
+            readonly property bool expanded: win.active
             readonly property int workspaceCount: Math.max(1, win.workspaceIds.length)
             readonly property real stripSideMargin: 44
             readonly property real addReserve: 0
             readonly property real wsDefaultThumbW: 176
             readonly property real wsDefaultThumbH: wsDefaultThumbW * (win.monLogH / win.monLogW)
             readonly property real wsNameH: 24
+            readonly property real deviceScale: Math.max(1,
+                Number(win.devicePixelRatio) || 1)
+            readonly property real physicalPixel: 1 / deviceScale
+            readonly property real expandedStripExtent:
+                wsDefaultThumbH + 6 + wsNameH + 28
+            readonly property real collapsedStripExtent: wsNameH + 28
+            property real stripExtent: expanded
+                ? expandedStripExtent : collapsedStripExtent
+            readonly property real renderedStripExtent:
+                Math.round(stripExtent * deviceScale) / deviceScale
+            readonly property real renderedStripSlide:
+                Math.round(win.stripSlide * deviceScale) / deviceScale
             readonly property real wsAvailableW: Math.max(1, width - stripSideMargin * 2 - addReserve)
             readonly property real wsSpacing: workspaceCount <= 1 ? 0
                 : Math.max(0, Math.min(20, (wsAvailableW - workspaceCount * 72) / Math.max(1, workspaceCount - 1)))
@@ -595,21 +650,40 @@ PanelWindow {
                 if (!expanded || !wsCompressed || win.hoveredWorkspaceId < 1 || win.tileDragActive) return wsBaseThumbW
                 return wsId === win.hoveredWorkspaceId ? wsHoverThumbW : wsCompressedThumbW
             }
-            transform: Translate { y: win.stripSlide }
+            Behavior on stripExtent {
+                enabled: !win.reducedMotion
+                AppleSpring { spring: 3.4; epsilon: 0.25 }
+            }
+
+            transform: Translate { y: topBand.renderedStripSlide }
 
             HoverHandler { id: stripHover }
 
-            // Translucent workspace strip. Overscans by 1px so there is no
-            // visible edge gap on the top/left/right of the layer surface.
+            // Fully opaque workspace strip. Overscans by 1px so neither the
+            // desktop nor its text can leak through at the top/side edges.
             Rectangle {
                 id: stripBg
-                anchors { top: parent.top; left: parent.left; right: parent.right; topMargin: -1; leftMargin: -1; rightMargin: -1 }
-                height: (topBand.expanded ? (topBand.wsDefaultThumbH + 6 + topBand.wsNameH + 28) : (topBand.wsNameH + 28)) + 1
-                color: ThemeService.surface
-                border.color: win.workspaceDragTarget && !win.tileDragActive
+                x: -topBand.physicalPixel
+                y: -topBand.physicalPixel
+                width: parent.width + 2 * topBand.physicalPixel
+                height: topBand.renderedStripExtent + topBand.physicalPixel
+                color: ThemeService.surfaceOpaque
+                border.width: 0
+            }
+
+            // One physical pixel, aligned to the same snapped boundary as the
+            // wallpaper clip. A logical 1px Rectangle becomes 1.5 physical
+            // pixels on this display and aliases across two rows.
+            Rectangle {
+                id: stripSeparator
+                x: 0
+                y: topBand.renderedStripExtent - height
+                width: parent.width
+                height: (win.workspaceDragTarget && !win.tileDragActive ? 2 : 1)
+                    * topBand.physicalPixel
+                color: win.workspaceDragTarget && !win.tileDragActive
                     ? "#0A84FF" : ThemeService.surfaceStroke
-                border.width: win.workspaceDragTarget && !win.tileDragActive ? 2 : 1
-                Behavior on height { AppleSpring { spring: 13; epsilon: 0.25 } }
+                antialiasing: false
             }
 
             Row {
@@ -629,7 +703,9 @@ PanelWindow {
                         monitorData: win.monitorData
                         activeWsId: win.activeWorkspaceId
                         expanded: topBand.expanded
-                        captureEnabled: win.captureEnabled
+                        // Defer one-shot Spaces captures until the primary live
+                        // stage has settled, avoiding an Intel iGPU burst on open.
+                        captureEnabled: win.captureEnabled && win.overviewInteractive
                         layoutThumbW: topBand.workspaceThumbW(modelData)
                         overview: win
                     }
@@ -649,7 +725,7 @@ PanelWindow {
                 width: 46; height: 46; radius: 23
                 color: addHover.hovered ? ThemeService.controlBg : "transparent"
                 scale: addMa.pressed ? ThemeService.pressScale : 1.0
-                Behavior on scale { AppleSpring { spring: 18 } }
+                Behavior on scale { AppleSpring { spring: 4.4 } }
                 Text {
                     anchors.centerIn: parent
                     text: "+"
@@ -662,6 +738,7 @@ PanelWindow {
                 MouseArea {
                     id: addMa
                     anchors.fill: parent
+                    enabled: win.overviewInteractive
                     cursorShape: Qt.PointingHandCursor
                     onPressed: MCService.addWorkspace(win.monitorName)
                 }
@@ -786,13 +863,16 @@ PanelWindow {
                 x: win.tileDropX
                 y: 8
                 width: 3
-                height: stripBg.height - 16
+                height: Math.max(0, topBand.renderedStripExtent - 16)
                 radius: 1.5
                 color: "#0A84FF"
             }
         }
 
         // ── Stage: active workspace windows ───────────────────────────────────
+        // This is only the safe TARGET rectangle. Delegates live in the full-root
+        // stage below, so progress=0 is the exact compositor-local source rect —
+        // no inset scale, offset or clip can create a first/last-frame jump.
         Item {
             id: stageArea
             anchors {
@@ -801,119 +881,91 @@ PanelWindow {
                 right: parent.right
                 bottom: parent.bottom
                 topMargin: 24
-                leftMargin: 80
-                rightMargin: 80
-                bottomMargin: win.dockReserve + 24
+                leftMargin: 80 + (Dock.DockService.dockEdge === "left" ? win.dockReserve : 0)
+                rightMargin: 80 + (Dock.DockService.dockEdge === "right" ? win.dockReserve : 0)
+                bottomMargin: 24 + (Dock.DockService.dockEdge === "bottom" ? win.dockReserve : 0)
             }
+        }
 
-            readonly property real fitW: Math.min(width, height * (win.monLogW / win.monLogH))
-            readonly property real fitH: fitW * (win.monLogH / win.monLogW)
-            readonly property real stageScale: win.monLogW > 0 ? fitW / win.monLogW : 1
+        Item {
+            id: outgoingStage
+            anchors.fill: parent
+            x: win.workspaceSlide - win.workspaceSlideDirection * width
+            visible: win.outgoingStageWsId >= 1
 
-            Item {
-                id: stageViewport
-                width: stageArea.fitW
-                height: stageArea.fitH
+            Repeater {
+                id: outgoingStageRepeater
+                model: win.outgoingStageWsId >= 1 ? win.outgoingModel : []
+                delegate: WindowThumb {
+                    required property var modelData
+                    windowData: MCService.windowByAddress(modelData)
+                    readonly property var packedRect: win.outgoingLayout[modelData] || null
+                    draggable: false
+                    live: false
+                    placeholderVisible: false
+                    captureEnabled: win.captureEnabled
+                    overview: null
+                    monitorData: win.monitorData
+                    mscale: 1
+                    spread: 1
+                    motionActive: win.workspaceSliding
+                    stackZ: Number(win.entryStack[modelData]) || 0
+                    slotX: stageArea.x + (packedRect ? packedRect.x : 0)
+                    slotY: stageArea.y + (packedRect ? packedRect.y : 0)
+                    slotW: packedRect ? packedRect.width : 1
+                    slotH: packedRect ? packedRect.height : 1
+                }
+            }
+        }
+
+        Item {
+            id: stage
+            anchors.fill: parent
+            x: win.workspaceSlide
+
+            Repeater {
+                id: stageRepeater
+                model: win.stageModel
+                delegate: WindowThumb {
+                    required property var modelData
+                    windowData: MCService.windowByAddress(modelData)
+                    readonly property var packedRect: win.stageLayout[modelData] || null
+                    draggable: win.overviewInteractive
+                    live: true
+                    placeholderVisible: false
+                    captureEnabled: win.captureEnabled
+                    overview: win
+                    monitorData: win.monitorData
+                    mscale: 1
+                    spread: win.spatialProgress
+                    motionActive: win.transitionRunning || win.workspaceSliding
+                    selectedForExit: win.exitKind === "window"
+                        && win.selectedAddress === modelData
+                    stackZ: Number(win.entryStack[modelData]) || 0
+                    slotX: stageArea.x + (packedRect ? packedRect.x : 0)
+                    slotY: stageArea.y + (packedRect ? packedRect.y : 0)
+                    slotW: packedRect ? packedRect.width : 1
+                    slotH: packedRect ? packedRect.height : 1
+                }
+            }
+        }
+
+        Rectangle {
+            anchors.centerIn: stageArea
+            visible: stageRepeater.count === 0
+            opacity: win.overviewProgress
+            width: noWinText.implicitWidth + 34
+            height: noWinText.implicitHeight + 18
+            radius: 10
+            color: Qt.rgba(1, 1, 1, 0.9)
+            Text {
+                id: noWinText
                 anchors.centerIn: parent
-                clip: true
-
-                Item {
-                    id: outgoingStage
-                    width: parent.width
-                    height: parent.height
-                    x: win.workspaceSlide - win.workspaceSlideDirection * width
-                    visible: win.outgoingStageWsId >= 1
-                    clip: false
-
-                    Repeater {
-                        id: outgoingStageRepeater
-                        model: win.outgoingStageWsId >= 1 ? win.outgoingModel : []
-                        delegate: WindowThumb {
-                            required property var modelData
-                            required property int index
-                            windowData: MCService.windowByAddress(modelData)
-                            draggable: false
-                            live: false
-                            captureEnabled: win.captureEnabled
-                            overview: null
-                            iconUrl: win.iconUrlForClass(windowData ? windowData.class : "")
-                            monitorData: win.monitorData
-                            mscale: stageArea.stageScale
-                            spread: 1
-
-                            readonly property int total: outgoingStageRepeater.count
-                            readonly property int cols: Math.max(1, Math.ceil(Math.sqrt(total)))
-                            readonly property int rows: Math.max(1, Math.ceil(total / cols))
-                            readonly property real pad: 18
-                            readonly property real cellW: outgoingStage.width / cols
-                            readonly property real cellH: outgoingStage.height / rows
-                            slotX: (index % cols) * cellW + pad
-                            slotY: Math.floor(index / cols) * cellH + pad
-                            slotW: cellW - pad * 2
-                            slotH: cellH - pad * 2
-                        }
-                    }
-                }
-
-                Item {
-                    id: stage
-                    width: parent.width
-                    height: parent.height
-                    x: win.workspaceSlide
-                    clip: false
-
-                    Repeater {
-                        id: stageRepeater
-                        model: win.stageModel
-                        delegate: WindowThumb {
-                            required property var modelData
-                            required property int index
-                            windowData: MCService.windowByAddress(modelData)
-                            draggable: true
-                            live: true
-                            captureEnabled: win.captureEnabled
-                            overview: win
-                            iconUrl: win.iconUrlForClass(windowData ? windowData.class : "")
-                            // Geometry inputs let the thumb start at the window's real
-                            // position and fly out to its grid slot as `spread` animates.
-                            monitorData: win.monitorData
-                            mscale: stageArea.stageScale
-                            spread: win.spread
-
-                            // Spread windows into a grid so nothing overlaps; the cells
-                            // (and previews) shrink as the window count grows so they all
-                            // stay visible.
-                            readonly property int total: stageRepeater.count
-                            readonly property int cols: Math.max(1, Math.ceil(Math.sqrt(total)))
-                            readonly property int rows: Math.max(1, Math.ceil(total / cols))
-                            readonly property real pad: 18
-                            readonly property real cellW: stage.width / cols
-                            readonly property real cellH: stage.height / rows
-                            slotX: (index % cols) * cellW + pad
-                            slotY: Math.floor(index / cols) * cellH + pad
-                            slotW: cellW - pad * 2
-                            slotH: cellH - pad * 2
-                        }
-                    }
-                }
-
-                Rectangle {
-                    anchors.centerIn: parent
-                    visible: stageRepeater.count === 0
-                    width: noWinText.implicitWidth + 34
-                    height: noWinText.implicitHeight + 18
-                    radius: 10
-                    color: Qt.rgba(1, 1, 1, 0.9)
-                    Text {
-                        id: noWinText
-                        anchors.centerIn: parent
-                        text: "No Available Windows"
-                        color: "#1c1c1e"
-                        font.family: "SF Pro Display"
-                        font.pixelSize: 18
-                        font.weight: Font.Medium
-                    }
-                }
+                text: "No Available Windows"
+                color: "#1c1c1e"
+                font.family: "SF Pro Display"
+                font.pixelSize: 18
+                font.weight: Font.Medium
             }
         }
     }

@@ -15,6 +15,8 @@
 // QsMenuAnchor.open() can show the platform DBusMenu used by tray items
 // (nm-applet, blueman, fcitx5, etc.).
 import Quickshell
+import Quickshell.Io
+import QtQuick
 
 import "bar"
 import "dock"
@@ -26,9 +28,68 @@ import "missioncontrol"
 import "switcher"
 import "widgets"
 import "emoji"
+import "capture"
 
 Scope {
     id: root
+
+    readonly property string lockCaptureOutputHint: {
+        const runtime = String(Quickshell.env("XDG_RUNTIME_DIR") || "")
+        return runtime !== "" ? runtime + "/quickshell-desktop-outputs.json" : ""
+    }
+
+    function currentOutputNames(): var {
+        const names = []
+        const screens = Quickshell.screens
+        for (let i = 0; i < screens.length; i++) {
+            const name = String(screens[i].name || "")
+            if (/^[A-Za-z0-9._-]{1,64}$/.test(name))
+                names.push(name)
+        }
+        return names
+    }
+
+    function publishLockCaptureOutputs() {
+        if (root.lockCaptureOutputHint !== "")
+            lockCaptureOutputs.setText(JSON.stringify(root.currentOutputNames()))
+    }
+
+    // Read-only handoff used immediately before the independent lock process
+    // starts. Quickshell already owns the live QScreen wrappers, so this is
+    // more reliable than rediscovering the compositor instance from a user
+    // systemd service. No geometry, window title, or application data leaves
+    // the desktop process.
+    IpcHandler {
+        target: "lockCapture"
+
+        function outputs(): string {
+            return JSON.stringify(root.currentOutputNames())
+        }
+    }
+
+    FileView {
+        id: lockCaptureOutputs
+
+        path: root.lockCaptureOutputHint
+        printErrors: false
+    }
+
+    Component.onCompleted: root.publishLockCaptureOutputs()
+
+    Connections {
+        target: Quickshell
+
+        function onScreensChanged() {
+            root.publishLockCaptureOutputs()
+        }
+    }
+
+    function ncContentTop(targetScreen) {
+        let screenName = targetScreen ? targetScreen.name : ""
+        let fullscreen = screenName !== ""
+            && DockService.fullscreenMonitors.includes(screenName)
+        return BarState.visible && !fullscreen ? BarState.contentTop : BarState.gap
+    }
 
     // ── Bar (self-contained Scope; owns IpcHandler target "bar") ────────
     Bar {}
@@ -38,6 +99,16 @@ Scope {
     // Music Recognition (Shazam) popup that drops from the bar Shazam button
     // (ShazamService singleton owns IpcHandler target "shazam").
     ShazamPopupWindow {}
+    // Mic Mode sheet under the bar's mic indicator (PrivacyService owns its state).
+    MicModePopupWindow {}
+    // Camera-use status sheet under the bar's camera indicator.
+    CameraStatusPopupWindow {}
+    // Stem filter sheet under the media pill's EQ (StemService owns its state).
+    StemPopupWindow {}
+    // Dynamic Island-style player sheet under the media pill.
+    MediaPopupWindow {}
+    // Five-column overflow sheet for system-tray items.
+    TrayPopupWindow {}
 
     // Launchpad is created *before* the dock so its layer surface sits below the
     // dock — the dock then rises above the open launchpad instead of being
@@ -65,13 +136,18 @@ Scope {
     //    NcServer singleton owns IpcHandler "nc") ─────────────────────────
     Variants {
         model: Quickshell.screens
-        NotificationPopupWindow { barContentTop: BarState.contentTop }
+        NotificationPopupWindow { barContentTop: root.ncContentTop(modelData) }
     }
-    ControlCenterWindow { barContentTop: BarState.contentTop }
+    ControlCenterWindow {
+        barContentTop: root.ncContentTop(screen)
+        mediaService: MediaService
+    }
 
     // ── Overlays (each Controller wraps its own IpcHandler + state) ─────
     SpotlightController {}
     SwitcherController {}
     WidgetsController {}
     EmojiController {}
+    // Shift+Super+3/4/5 capture service, toolbar and per-output selection surfaces.
+    CaptureController {}
 }

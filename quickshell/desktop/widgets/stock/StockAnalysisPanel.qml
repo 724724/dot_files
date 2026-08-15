@@ -79,7 +79,7 @@ Item {
             : (root.analysisBusy ? "최근 뉴스와 차트 지표를 분석하고 있습니다…"
             : (root.analysisResult.status === "ok" ? root.analysisResult.summary
             : (root.aiConfigured ? root.t("Run analysis to build a 1–5 trading day probability scenario.")
-            : root.t("Save an OpenAI or Claude API key in Edit."))))
+            : root.t("Save an OpenAI or Claude API key in Settings."))))
         color: root.analysisError !== "" ? root.negativeColor : root.secondaryColor
         font.family: "SF Pro Display"
         font.pixelSize: 11
@@ -98,7 +98,7 @@ Item {
             width: parent.width - historyButton.width - detailsButton.width - analyzeButton.width - parent.spacing * 3
             text: {
                 if (root.analysisResult.status !== "ok")
-                    return root.t("Analysis never triggers an order.")
+                    return root.t("Standalone analysis does not place orders.")
                 let value = root.t("Up %1% · Flat %2% · Down %3%", [
                     root.analysisResult.upProbability,
                     root.analysisResult.flatProbability,

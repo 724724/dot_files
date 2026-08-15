@@ -79,22 +79,22 @@ Rectangle {
         PortfolioMetric {
             width: (parent.width - 36) / 4
             title: root.t("TOTAL")
-            value: StockService.money(root.accountState.totalEvaluation, "KRW")
+            value: StockService.money(root.accountState.totalEvaluation, root.accountState.currency || "KRW")
         }
         PortfolioMetric {
             width: (parent.width - 36) / 4
             title: root.t("CASH")
-            value: StockService.money(root.accountState.cash, "KRW")
+            value: StockService.money(root.accountState.cash, root.accountState.currency || "KRW")
         }
         PortfolioMetric {
             width: (parent.width - 36) / 4
             title: root.t("STOCKS")
-            value: StockService.money(root.accountState.stockEvaluation, "KRW")
+            value: StockService.money(root.accountState.stockEvaluation, root.accountState.currency || "KRW")
         }
         PortfolioMetric {
             width: (parent.width - 36) / 4
             title: root.t("P&L")
-            value: StockService.signedMoney(root.accountState.profitLoss, "KRW")
+            value: StockService.signedMoney(root.accountState.profitLoss, root.accountState.currency || "KRW")
             valueColor: Number(root.accountState.profitLoss || 0) >= 0 ? root.positiveColor : root.negativeColor
         }
     }
@@ -179,8 +179,8 @@ Rectangle {
                     }
                     Text {
                         width: parent.width
-                        text: root.t("%1 · %2 shares · Avg %3", [modelData.symbol, modelData.quantity,
-                            StockService.money(modelData.averagePrice, "KRW")])
+                        text: root.t("%1 · %2 shares · Avg %3", [(modelData.market || root.market) + " · " + modelData.symbol, modelData.quantity,
+                            StockService.money(modelData.averagePrice, modelData.currency || root.accountState.currency || "KRW")])
                         color: root.secondaryColor
                         font.family: "SF Pro Display"
                         font.pixelSize: 9
@@ -190,7 +190,7 @@ Rectangle {
                 Text {
                     anchors.verticalCenter: parent.verticalCenter
                     width: 112
-                    text: StockService.money(modelData.evaluation, "KRW")
+                    text: StockService.money(modelData.evaluation, modelData.currency || root.accountState.currency || "KRW")
                     color: root.foregroundColor
                     font.family: "SF Pro Display"
                     font.pixelSize: 10
@@ -203,7 +203,7 @@ Rectangle {
                     spacing: 1
                     Text {
                         anchors.right: parent.right
-                        text: StockService.signedMoney(modelData.profitLoss, "KRW")
+                        text: StockService.signedMoney(modelData.profitLoss, modelData.currency || root.accountState.currency || "KRW")
                         color: Number(modelData.profitLoss || 0) >= 0 ? root.positiveColor : root.negativeColor
                         font.family: "SF Pro Display"
                         font.pixelSize: 10

@@ -54,7 +54,7 @@ PanelWindow {
         readonly property int iconCol:  OsdService.icon  !== "" ? Math.ceil(iconText.implicitWidth)  + 10 : 0
         readonly property int labelCol: OsdService.label !== "" ? Math.ceil(labelText.implicitWidth) + 4  : 0
         width: OsdService.showProgress
-            ? 300
+            ? (OsdService.label === "" ? 200 : 300)
             : Math.min(maxOsdWidth, iconCol + labelCol + 48)
         Behavior on width { AppleSpring { spring: 13; epsilon: 0.25 } }
 

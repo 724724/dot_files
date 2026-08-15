@@ -19,6 +19,10 @@ IGNORED_APPS = {
     "xdg-desktop-portal",
     "xdg-desktop-portal-hyprland",
 }
+CAMERA_PROVIDER_BINARIES = {"droidcam", "droidcam-cli"}
+DIRECT_CAMERA_CHECK_SECONDS = 1.0
+_camera_device_paths = set()
+_direct_camera_signature = ()
 
 
 def child_exits_with_parent():
@@ -34,7 +38,7 @@ def run(command):
     return subprocess.run(command, check=True, capture_output=True, text=True).stdout.strip()
 
 
-def pipewire_nodes():
+def pipewire_graph():
     graph = json.loads(run(["pw-dump"]))
     clients = {}
     for item in graph:
@@ -42,7 +46,16 @@ def pipewire_nodes():
             clients[item.get("id")] = item.get("info", {}).get("props", {})
 
     nodes = []
+    links = []
     for item in graph:
+        if item.get("type") == "PipeWire:Interface:Link":
+            info = item.get("info", {})
+            if str(info.get("state", "")).lower() == "active":
+                links.append({
+                    "output": info.get("output-node-id"),
+                    "input": info.get("input-node-id"),
+                })
+            continue
         if item.get("type") != "PipeWire:Interface:Node":
             continue
         info = item.get("info", {})
@@ -53,7 +66,7 @@ def pipewire_nodes():
             "state": str(info.get("state", "")).lower(),
             "props": props,
         })
-    return nodes
+    return nodes, links
 
 
 def app_info(node):
@@ -74,6 +87,23 @@ def active_apps(nodes, media_class):
     seen = set()
     for node in nodes:
         if node["state"] != "running" or node["props"].get("media.class") != media_class:
+            continue
+        app = app_info(node)
+        if not app:
+            continue
+        key = (app["name"].lower(), app["id"])
+        if key not in seen:
+            seen.add(key)
+            apps.append(app)
+    return apps
+
+
+def linked_apps(nodes, links, source_ids, media_class):
+    input_ids = {link["input"] for link in links if link["output"] in source_ids}
+    apps = []
+    seen = set()
+    for node in nodes:
+        if node["id"] not in input_ids or node["props"].get("media.class") != media_class:
             continue
         app = app_info(node)
         if not app:
@@ -108,29 +138,32 @@ def process_app(pid):
     return {"name": comm, "id": lower_comm, "binary": lower_comm}
 
 
-def direct_microphone_apps():
+def direct_device_apps(device_test):
     apps = []
     seen = set()
     uid = os.getuid()
-    for proc in Path("/proc").iterdir():
+    for proc in os.scandir("/proc"):
         if not proc.name.isdigit():
             continue
         try:
-            if proc.stat().st_uid != uid:
+            if proc.stat(follow_symlinks=False).st_uid != uid:
                 continue
-            fds = list((proc / "fd").iterdir())
         except OSError:
             continue
-        using_microphone = False
-        for fd in fds:
-            try:
-                target = os.readlink(fd)
-            except OSError:
-                continue
-            if target.startswith("/dev/snd/pcm") and target.endswith("c"):
-                using_microphone = True
-                break
-        if not using_microphone:
+        using_device = False
+        try:
+            with os.scandir(os.path.join(proc.path, "fd")) as fds:
+                for fd in fds:
+                    try:
+                        target = os.readlink(fd.path)
+                    except OSError:
+                        continue
+                    if device_test(target):
+                        using_device = True
+                        break
+        except OSError:
+            continue
+        if not using_device:
             continue
         app = process_app(proc.name)
         if not app:
@@ -140,6 +173,42 @@ def direct_microphone_apps():
             seen.add(key)
             apps.append(app)
     return apps
+
+
+def direct_microphone_apps():
+    return direct_device_apps(
+        lambda target: target.startswith("/dev/snd/pcm") and target.endswith("c")
+    )
+
+
+def direct_camera_apps(device_paths):
+    paths = set(device_paths)
+    if not paths:
+        return []
+    return [
+        app for app in direct_device_apps(paths.__contains__)
+        if app.get("binary") not in CAMERA_PROVIDER_BINARIES
+    ]
+
+
+def virtual_camera_paths(sysfs_root="/sys/class/video4linux"):
+    paths = set()
+    try:
+        entries = Path(sysfs_root).glob("video*")
+    except OSError:
+        return paths
+    for entry in entries:
+        try:
+            resolved = entry.resolve(strict=True).as_posix()
+        except OSError:
+            continue
+        if "/devices/virtual/video4linux/" in resolved:
+            paths.add("/dev/" + entry.name)
+    return paths
+
+
+def app_signature(apps):
+    return tuple(sorted((app["name"].lower(), app["id"], app["binary"]) for app in apps))
 
 
 def merge_apps(*groups):
@@ -167,6 +236,15 @@ def is_monitor_source(node):
     return props.get("device.class") == "monitor" or ".monitor" in text or "monitor of" in text
 
 
+def is_camera_source(node):
+    props = node["props"]
+    if props.get("media.class") != "Video/Source":
+        return False
+    role = str(props.get("media.role", "")).lower()
+    object_path = str(props.get("object.path", "")).lower()
+    return role == "camera" or "api.v4l2.path" in props or object_path.startswith("v4l2:")
+
+
 def pulse_source_mutes():
     try:
         sources = json.loads(run(["pactl", "-f", "json", "list", "sources"]))
@@ -184,11 +262,14 @@ def microphone_is_muted(active_microphones, source_mutes):
 
 
 def status():
+    global _camera_device_paths, _direct_camera_signature
+
     try:
-        nodes = pipewire_nodes()
+        nodes, links = pipewire_graph()
         error = ""
     except (OSError, subprocess.SubprocessError, ValueError) as exc:
         nodes = []
+        links = []
         error = str(exc)
 
     microphones = [
@@ -201,6 +282,23 @@ def status():
     mic_apps = merge_apps(pipewire_apps, direct_apps)
     microphone = (active_microphones or microphones or [None])[0]
     mic_muted = microphone_is_muted(active_microphones, pulse_source_mutes())
+    cameras = [node for node in nodes if is_camera_source(node)]
+    active_cameras = [node for node in cameras if node["state"] == "running"]
+    _camera_device_paths = {
+        str(node["props"]["api.v4l2.path"])
+        for node in cameras
+        if node["props"].get("api.v4l2.path")
+    } | virtual_camera_paths()
+    pipewire_camera_apps = linked_apps(
+        nodes,
+        links,
+        {node["id"] for node in active_cameras},
+        "Stream/Input/Video",
+    )
+    direct_camera = direct_camera_apps(_camera_device_paths)
+    _direct_camera_signature = app_signature(direct_camera)
+    camera_apps = merge_apps(pipewire_camera_apps, direct_camera)
+    camera = (active_cameras or cameras or [None])[0]
     return {
         "ok": not error,
         "error": error,
@@ -209,6 +307,10 @@ def status():
         "micApps": mic_apps,
         "micApp": mic_apps[0] if mic_apps else {},
         "micName": source_name(microphone) if microphone else "Microphone",
+        "cameraActive": bool(active_cameras or direct_camera),
+        "cameraApps": camera_apps,
+        "cameraApp": camera_apps[0] if camera_apps else {},
+        "cameraName": source_name(camera) if camera else "Camera",
     }
 
 
@@ -217,14 +319,14 @@ def pulse_microphone_event(line):
     return "source-output" in event or " on source #" in event
 
 
-def pipewire_microphone_event(line):
+def pipewire_privacy_event(line):
     # pw-dump's monitor output is multiline; node/link changes are settled into
-    # one refresh, whose status path considers Audio nodes only.
+    # one refresh, whose status path considers privacy-sensitive media nodes.
     return "PipeWire:Interface:Node" in line or "PipeWire:Interface:Link" in line
 
 
 def monitor(settle_seconds=0.5):
-    """Emit microphone state only when Pulse/PipeWire reports a change."""
+    """Emit privacy state only when Pulse/PipeWire reports a change."""
     settle_seconds = max(0.25, min(2.0, settle_seconds))
     observers = []
 
@@ -239,8 +341,10 @@ def monitor(settle_seconds=0.5):
 
     def emit():
         print(json.dumps(status(), separators=(",", ":")), flush=True)
+        return _direct_camera_signature
 
-    emit()
+    direct_signature = emit()
+    next_direct_check = time.monotonic() + DIRECT_CAMERA_CHECK_SECONDS
     while True:
         observers = []
         if shutil.which("pactl"):
@@ -272,18 +376,33 @@ def monitor(settle_seconds=0.5):
         }
         if not streams:
             time.sleep(5)
-            emit()
+            direct_signature = emit()
+            next_direct_check = time.monotonic() + DIRECT_CAMERA_CHECK_SECONDS
             continue
 
         dirty = False
         last_event = 0.0
         try:
             while all(observer.poll() is None for observer, _kind in observers):
-                timeout = max(0.0, settle_seconds - (time.monotonic() - last_event)) if dirty else None
+                now = time.monotonic()
+                deadlines = [next_direct_check]
+                if dirty:
+                    deadlines.append(last_event + settle_seconds)
+                timeout = max(0.0, min(deadlines) - now)
                 ready, _, _ = select.select(list(streams), [], [], timeout)
-                if dirty and not ready:
-                    emit()
-                    dirty = False
+                if not ready:
+                    now = time.monotonic()
+                    should_emit = dirty and now - last_event >= settle_seconds
+                    if now >= next_direct_check:
+                        current_signature = app_signature(
+                            direct_camera_apps(_camera_device_paths)
+                        )
+                        should_emit = should_emit or current_signature != direct_signature
+                        direct_signature = current_signature
+                        next_direct_check = now + DIRECT_CAMERA_CHECK_SECONDS
+                    if should_emit:
+                        direct_signature = emit()
+                        dirty = False
                     continue
                 restart = False
                 for stream in ready:
@@ -293,7 +412,7 @@ def monitor(settle_seconds=0.5):
                         break
                     kind = streams[stream]
                     if ((kind == "pulse" and pulse_microphone_event(line))
-                            or (kind == "pipewire" and pipewire_microphone_event(line))):
+                            or (kind == "pipewire" and pipewire_privacy_event(line))):
                         dirty = True
                         last_event = time.monotonic()
                 if restart:
@@ -308,7 +427,8 @@ def monitor(settle_seconds=0.5):
                     observer.kill()
                     observer.wait()
         time.sleep(1)
-        emit()
+        direct_signature = emit()
+        next_direct_check = time.monotonic() + DIRECT_CAMERA_CHECK_SECONDS
 
 
 def main():

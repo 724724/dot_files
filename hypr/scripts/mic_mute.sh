@@ -1,8 +1,10 @@
 #!/bin/bash
-# 모든 오디오 소스 음소거 토글
-SOURCES=$(pactl list sources short | awk '{print $1}')
+SOURCES=()
+while read -r SOURCE _; do
+    [ -n "$SOURCE" ] && SOURCES+=("$SOURCE")
+done < <(pactl list sources short)
 # 현재 뮤트 상태 확인 (첫 번째 소스 기준)
-FIRST_SOURCE=$(echo "$SOURCES" | head -1)
+FIRST_SOURCE="${SOURCES[0]:-}"
 if [ -z "$FIRST_SOURCE" ]; then
     # 소스가 없으면 LED만 토글
     CURRENT=$(brightnessctl -d 'platform::micmute' get)
@@ -14,24 +16,16 @@ if [ -z "$FIRST_SOURCE" ]; then
     exit 0
 fi
 
-IS_MUTED=$(pactl get-source-mute "$FIRST_SOURCE" | grep -c "yes")
+MUTE_STATE=$(pactl get-source-mute "$FIRST_SOURCE")
+if [[ "$MUTE_STATE" == *yes* ]]; then
+    TARGET=0
+else
+    TARGET=1
+fi
 
-for SRC in $SOURCES; do
-    if [ "$IS_MUTED" = "1" ]; then
-        pactl set-source-mute "$SRC" 0
-    else
-        pactl set-source-mute "$SRC" 1
-    fi
+for SRC in "${SOURCES[@]}"; do
+    pactl set-source-mute "$SRC" "$TARGET"
 done
 
-if [ "$IS_MUTED" = "1" ]; then
-    brightnessctl -d 'platform::micmute' set 0
-else
-    brightnessctl -d 'platform::micmute' set 1
-fi
-
-if [ "$IS_MUTED" = "1" ]; then
-    qs ipc -c desktop call osd micmute 0
-else
-    qs ipc -c desktop call osd micmute 1
-fi
+brightnessctl -d 'platform::micmute' set "$TARGET"
+qs ipc -c desktop call osd micmute "$TARGET"

@@ -1,5 +1,6 @@
 from .ai_models import *
 from .ai_usage import ai_usage_summary, ai_usage_totals, append_ai_usage
+from .behavioral_signals import behavior_signal_context
 from zoneinfo import ZoneInfo
 
 
@@ -97,9 +98,7 @@ def session_close_timestamp(timestamp, market):
 
 def forecast_history_points(mode, environment, symbol, market):
     if mode == "kis":
-        if market != "KRX":
-            raise StockServiceError("KIS forecast evaluation currently supports KRX symbols only")
-        points = kis_history_points(environment, symbol, FORECAST_HISTORY_SESSIONS)
+        points = kis_history_points(environment, symbol, FORECAST_HISTORY_SESSIONS, market)
         source = "kis_adjusted_completed_daily_close"
     else:
         points = demo_history_points(symbol, market, FORECAST_HISTORY_SESSIONS)
@@ -206,6 +205,10 @@ def record_forecast(result, snapshot):
         "newsConfidence": int(numeric(result.get("newsConfidence"))),
         "newsSignal": str(result.get("newsSignal", ""))[:500],
         "newsContext": dict(result.get("newsContext") or {}),
+        "newsFingerprint": str(result.get("newsFingerprint") or ""),
+        "newsEvidenceVersion": int(numeric(result.get("newsEvidenceVersion"))),
+        "behaviorContext": dict(result.get("behaviorContext") or {}),
+        "behaviorAdjustment": dict(result.get("behaviorAdjustment") or {}),
         "modelPredictions": list(result.get("modelPredictions") or []),
         "modelWeighting": dict(result.get("modelWeighting") or {}),
         "providerStatus": dict(result.get("providerStatus") or {}),
@@ -784,6 +787,50 @@ def ai_provider_failure(provider, error, stage="analysis"):
     }
 
 
+def apply_behavioral_risk_guard(result, behavior, news_context):
+    guarded = dict(result)
+    behavior = behavior if isinstance(behavior, dict) else {}
+    news_context = news_context if isinstance(news_context, dict) else {}
+    status = str(behavior.get("status", "insufficient"))
+    risk_penalty = max(0, min(100, numeric(behavior.get("riskPenalty"))))
+    evidence_confidence = max(0, min(100, numeric(
+        behavior.get("evidenceConfidence", behavior.get("confidence")),
+    )))
+    verified_direct = int(numeric(news_context.get("verifiedDirectCount")))
+    if status == "usable":
+        news_cap = min(90, max(55, evidence_confidence + 20))
+    elif status == "limited":
+        news_cap = min(55, max(25, evidence_confidence + 10))
+    else:
+        news_cap = 20
+    if verified_direct <= 0:
+        news_cap = min(news_cap, 45)
+    raw_confidence = int(max(0, min(100, numeric(guarded.get("confidence")))))
+    raw_news_confidence = int(max(0, min(100, numeric(guarded.get("newsConfidence")))))
+    status_penalty = 12 if status == "insufficient" else 5 if status == "limited" else 0
+    direct_penalty = 5 if verified_direct <= 0 else 0
+    behavioral_penalty = int(round(risk_penalty * 0.22))
+    guarded["confidence"] = max(
+        0,
+        raw_confidence - behavioral_penalty - status_penalty - direct_penalty,
+    )
+    guarded["newsConfidence"] = min(raw_news_confidence, int(round(news_cap)))
+    guarded["behaviorAdjustment"] = {
+        "status": status,
+        "rawConfidence": raw_confidence,
+        "adjustedConfidence": guarded["confidence"],
+        "rawNewsConfidence": raw_news_confidence,
+        "adjustedNewsConfidence": guarded["newsConfidence"],
+        "riskPenalty": round(risk_penalty),
+        "evidenceConfidence": round(evidence_confidence),
+        "verifiedDirectCount": verified_direct,
+        "directionChanged": False,
+        "probabilitiesChanged": False,
+        "method": "monotonic_confidence_only_guard",
+    }
+    return guarded
+
+
 def analyze(provider, profile, snapshot, force=False):
     if provider not in ("openai", "claude", "both"):
         raise StockServiceError("Select OpenAI, Claude, or Both")
@@ -793,19 +840,40 @@ def analyze(provider, profile, snapshot, force=False):
     requested = ("openai", "claude") if provider == "both" else (provider,)
     available = [name for name in requested if profile_models.get(name)]
     model_ids = [profile_models[name]["id"] for name in available]
-    if not force:
-        cached = load_analysis_cache(provider, profile, snapshot, model_ids)
-        if cached:
-            return cached
     name = snapshot.get("name") or snapshot.get("symbol") or "Stock"
     symbol = snapshot.get("symbol") or ""
     market = snapshot.get("market") or "KRX"
     news = fetch_news(name, symbol, market)
+    news_fingerprint = analysis_news_fingerprint(news)
+    if not force:
+        cached = load_analysis_cache(
+            provider,
+            profile,
+            snapshot,
+            model_ids,
+            news_fingerprint,
+        )
+        if cached:
+            return cached
     news_context = news_evidence_context(news)
     history, analysis_context = analysis_history_context(snapshot)
     historical_snapshot = dict(snapshot, points=history)
     features = chart_features(historical_snapshot)
     evidence = walk_forward_evidence(historical_snapshot)
+    decision_at = int(time.time())
+    behavior_snapshot = dict(
+        historical_snapshot,
+        analysisContext=analysis_context,
+        timeframe="1D",
+        completedSessions=bool(analysis_context.get("completedSessions")),
+    )
+    behavior_context = behavior_signal_context(
+        news,
+        features,
+        behavior_snapshot,
+        news_context,
+        now=decision_at,
+    )
     prompt = analysis_prompt(
         snapshot,
         features,
@@ -814,6 +882,7 @@ def analyze(provider, profile, snapshot, force=False):
         analysis_context,
         news_context,
         snapshot.get("language", "ko"),
+        behavior_context,
     )
     results = []
     models = []
@@ -865,7 +934,11 @@ def analyze(provider, profile, snapshot, force=False):
         "degraded": bool(provider_failures),
         "failures": provider_failures,
     }
-    forecast_items = load_forecasts()
+    news_evidence_version = stock_news_relevance_version()
+    forecast_items = [
+        item for item in load_forecasts()
+        if int(numeric(item.get("newsEvidenceVersion"))) == news_evidence_version
+    ]
     model_weighting = historical_model_weighting(
         model_predictions,
         profile,
@@ -887,6 +960,7 @@ def analyze(provider, profile, snapshot, force=False):
         symbol,
         forecast_items,
     )
+    merged = apply_behavioral_risk_guard(merged, behavior_context, news_context)
     qualified = int(numeric(merged.get("confidence"))) >= AI_CONFIDENCE_FLOOR
     merged.update({
         "status": "ok",
@@ -898,12 +972,15 @@ def analyze(provider, profile, snapshot, force=False):
         "analysisUsage": dict(ai_usage_totals(analysis_usage), items=analysis_usage),
         "modelCatalog": model_catalog_summary(catalog),
         "newsCount": len(news),
+        "newsFingerprint": news_fingerprint,
+        "newsEvidenceVersion": news_evidence_version,
         "newsContext": news_context,
+        "behaviorContext": behavior_context,
         "news": news[:5],
         "features": features,
         "evidence": evidence,
         "analysisContext": analysis_context,
-        "generatedAt": int(time.time()),
+        "generatedAt": decision_at,
         "cached": False,
         "cacheTtlSeconds": ANALYSIS_CACHE_SECONDS,
         "qualityGate": {
@@ -934,5 +1011,12 @@ def analyze(provider, profile, snapshot, force=False):
         merged["forecast"] = record_forecast(merged, snapshot)
     except (OSError, StockServiceError) as error:
         merged["forecast"] = {"status": "unavailable", "message": str(error)}
-    save_analysis_cache(provider, profile, snapshot, model_ids, merged)
+    save_analysis_cache(
+        provider,
+        profile,
+        snapshot,
+        model_ids,
+        merged,
+        news_fingerprint,
+    )
     return merged

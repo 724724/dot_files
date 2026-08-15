@@ -14,7 +14,22 @@ Singleton {
     readonly property string mode: root._profileName(PowerProfiles.profile)
     readonly property real power: device ? Math.abs(device.changeRate || 0) : 0
     readonly property bool batteryPresent: !!(device && device.isPresent)
-    readonly property bool onAcPower: batteryPresent && !UPower.onBattery
+    // Deliberately NOT UPower.onBattery. That property is derived from the
+    // line-power devices, which UPower only refreshes from udev events — it never
+    // polls them. A single missed AC unplug event pins line_power_AC at
+    // online=yes forever (2026-08-04: sysfs *and* the udev db both read online=0
+    // while the daemon still reported on-battery=no), which froze _powerContext
+    // at "ac" — performance stayed on after unplugging, and the battery-balanced
+    // rule became unreachable because the battery branch was dead code.
+    // The battery device *is* polled, so its state is the trustworthy signal.
+    // Listed explicitly rather than reusing `charging` below: the two happen to
+    // cover the same states today, but narrowing `charging` later must not
+    // silently break AC detection. PendingCharge ("Not charging") is the normal
+    // reading once the ThinkPad charge threshold has paused charging at the cap.
+    readonly property bool onAcPower: batteryPresent && (
+        device.state === UPowerDeviceState.Charging
+        || device.state === UPowerDeviceState.FullyCharged
+        || device.state === UPowerDeviceState.PendingCharge)
     property string _powerContext: ""
 
     readonly property bool charging: device && (
@@ -211,12 +226,10 @@ Singleton {
 
     function _reconcilePowerContext() {
         if (!root.batteryPresent && !root.onAcPower) return
-        let context = root.onAcPower ? "ac"
-            : (root.level <= 30 ? "battery-low" : "battery")
+        let context = root.onAcPower ? "ac" : "battery"
         if (context === root._powerContext) return
         root._powerContext = context
-        root._queueMode(context === "ac" ? "performance"
-            : (context === "battery-low" ? "power-saver" : "balanced"), false)
+        root._queueMode(context === "ac" ? "performance" : "balanced", false)
     }
 
     function setMode(m) {
@@ -229,6 +242,9 @@ Singleton {
     onLevelChanged: root._reconcilePowerContext()
     onOnAcPowerChanged: root._reconcilePowerContext()
     onBatteryPresentChanged: root._reconcilePowerContext()
+    // Startup seeding is handled by the Component.onCompleted above, which ends
+    // with a _reconcilePowerContext() call — initial binding evaluation emits no
+    // change signals, so none of these handlers fire on a fresh start.
 
     // Battery health: cycle count, maximum capacity (full vs design), and the
     // current charge cap. All of these sysfs files are world-readable.

@@ -1,6 +1,9 @@
 import json
+import os
 import sys
+import tempfile
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
 
@@ -9,8 +12,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from stock_service.ai_models import (
     StockServiceError,
+    analysis_cache_path,
     analysis_history_context,
+    analysis_news_fingerprint,
     analysis_prompt,
+    cached_widget_news,
     chart_features,
     consensus_result,
     news_evidence_context,
@@ -21,6 +27,7 @@ from stock_service.ai_models import (
 from stock_service.forecasting import (
     ai_provider_failure,
     analyze,
+    apply_behavioral_risk_guard,
     apply_historical_calibration,
     historical_model_weighting,
 )
@@ -44,6 +51,38 @@ class StockAnalysisTests(unittest.TestCase):
             "risks": [],
             "catalysts": [],
         }
+
+    def test_behavioral_guard_only_reduces_confidence(self):
+        result = self.model_result("bullish", 88, (70, 20, 10))
+        result.update({"newsConfidence": 84, "newsStance": "bullish"})
+        behavior = {
+            "status": "usable",
+            "riskPenalty": 80,
+            "evidenceConfidence": 72,
+        }
+        guarded = apply_behavioral_risk_guard(
+            result,
+            behavior,
+            {"verifiedDirectCount": 2},
+        )
+
+        self.assertLess(guarded["confidence"], result["confidence"])
+        self.assertLessEqual(guarded["newsConfidence"], result["newsConfidence"])
+        self.assertEqual(guarded["stance"], result["stance"])
+        self.assertEqual(guarded["upProbability"], result["upProbability"])
+        self.assertEqual(guarded["downProbability"], result["downProbability"])
+
+    def test_behavioral_guard_caps_unverified_news(self):
+        result = self.model_result("bullish", 90, (72, 18, 10))
+        result.update({"newsConfidence": 90, "newsStance": "bullish"})
+        guarded = apply_behavioral_risk_guard(
+            result,
+            {"status": "insufficient", "riskPenalty": 0, "evidenceConfidence": 0},
+            {"verifiedDirectCount": 0},
+        )
+
+        self.assertEqual(guarded["newsConfidence"], 20)
+        self.assertEqual(guarded["confidence"], 73)
 
     def test_demo_analysis_uses_daily_history(self):
         snapshot = {
@@ -150,6 +189,155 @@ class StockAnalysisTests(unittest.TestCase):
         self.assertEqual(context["sourceCount"], 2)
         self.assertEqual(context["recent24h"], 1)
         self.assertEqual(context["status"], "limited")
+
+    def test_industry_news_has_lower_evidence_weight_than_company_news(self):
+        now = 1_000_000
+        news = normalize_news_items([
+            {"title": "Direct company event", "source": "A", "publishedAt": now - 60, "relationType": "direct"},
+            {"title": "Related industry event", "source": "B", "publishedAt": now - 60, "relationType": "theme"},
+        ], now=now)
+        self.assertEqual(news[0]["relevanceWeight"], 1.0)
+        self.assertEqual(news[1]["relevanceWeight"], 0.65)
+        self.assertGreater(news[0]["evidenceWeight"], news[1]["evidenceWeight"])
+        context = news_evidence_context(news)
+        self.assertEqual(context["directCount"], 1)
+        self.assertEqual(context["themeCount"], 1)
+
+    def test_verified_direct_news_requires_a_material_company_event(self):
+        now = 1_000_000
+        news = normalize_news_items([
+            {
+                "title": "Company community sponsorship",
+                "source": "Reuters",
+                "publishedAt": now - 60,
+                "relationType": "direct",
+                "materialEvent": False,
+                "sourceWeight": 1,
+            },
+            {
+                "title": "Company raises earnings guidance",
+                "source": "Bloomberg",
+                "publishedAt": now - 120,
+                "relationType": "direct",
+                "materialEvent": True,
+                "sourceWeight": 1,
+            },
+        ], now=now)
+
+        context = news_evidence_context(news)
+
+        self.assertEqual(context["directCount"], 2)
+        self.assertEqual(context["verifiedDirectCount"], 1)
+
+    def test_syndicated_standard_sources_do_not_become_verified(self):
+        now = 1_000_000
+        news = normalize_news_items([{
+            "title": "Company reports earnings",
+            "source": "Unknown Publisher",
+            "publishedAt": now - 60,
+            "relationType": "direct",
+            "relationClass": "company",
+            "materialEvent": True,
+            "sourceWeight": 0.78,
+            "duplicateCount": 8,
+            "duplicateSources": ["A", "B", "C", "D"],
+            "verifiedSourceCount": 0,
+        }], now=now)
+
+        self.assertEqual(news_evidence_context(news)["verifiedDirectCount"], 0)
+
+    def test_analysis_cache_identity_changes_when_news_changes(self):
+        first = [{
+            "title": "Company announces contract",
+            "clusterId": "event-a",
+            "publishedAt": 1_000_000,
+            "materialEvent": True,
+            "relationClass": "company",
+            "sourceTier": "established",
+        }]
+        second = [dict(first[0], title="Company cancels contract")]
+        first_fingerprint = analysis_news_fingerprint(first)
+        second_fingerprint = analysis_news_fingerprint(second)
+
+        self.assertNotEqual(first_fingerprint, second_fingerprint)
+        self.assertNotEqual(
+            analysis_cache_path("openai", "balanced", {"symbol": "AAPL"}, ["model"], first_fingerprint),
+            analysis_cache_path("openai", "balanced", {"symbol": "AAPL"}, ["model"], second_fingerprint),
+        )
+
+    def test_analysis_cache_identity_changes_when_news_quality_changes(self):
+        first = [{
+            "title": "Company announces contract",
+            "summary": "Initial report",
+            "clusterId": "event-a",
+            "publishedAt": 1_000_000,
+            "materialEvent": True,
+            "relationClass": "company",
+            "relevanceScore": 90,
+            "sourceTier": "standard",
+            "sourceWeight": 0.78,
+            "duplicateCount": 1,
+            "duplicateSources": ["Wire A"],
+            "verifiedSourceCount": 0,
+        }]
+        second = [dict(
+            first[0],
+            summary="Confirmed by an additional source",
+            sourceTier="established",
+            sourceWeight=0.9,
+            duplicateCount=2,
+            duplicateSources=["Wire A", "Wire B"],
+            verifiedSourceCount=1,
+        )]
+
+        self.assertNotEqual(
+            analysis_news_fingerprint(first),
+            analysis_news_fingerprint(second),
+        )
+
+    def test_ai_analysis_reuses_widget_stock_news_cache(self):
+        now = 1_800_000_000
+        published = datetime.fromtimestamp(now - 60, timezone.utc).isoformat(timespec="minutes")
+        payload = {
+            "symbol": "000660",
+            "market": "KRX",
+            "relevanceVersion": 12,
+            "updatedAt": now - 30,
+            "items": [{
+                "title": "HBM 수요 증가",
+                "source": "Example",
+                "url": "https://example.com/hbm",
+                "published": published,
+                "relationType": "theme",
+                "relationTopic": "industry",
+            }],
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            cache = Path(directory) / "quickshell" / "stock-news"
+            cache.mkdir(parents=True)
+            (cache / "sample.json").write_text(json.dumps(payload), encoding="utf-8")
+            with patch.dict(os.environ, {"XDG_CACHE_HOME": directory}):
+                news = cached_widget_news("SK hynix", "000660", "KRX", now=now)
+        self.assertEqual(len(news), 1)
+        self.assertEqual(news[0]["cacheSource"], "stock-news-widget")
+        self.assertEqual(news[0]["relationType"], "theme")
+
+    def test_ai_analysis_rejects_legacy_unranked_widget_cache(self):
+        now = 1_800_000_000
+        payload = {
+            "symbol": "JPM",
+            "market": "NYSE",
+            "name": "JPMorgan",
+            "updatedAt": now - 30,
+            "items": [{"title": "JPMorgan fund trims unrelated stake"}],
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            cache = Path(directory) / "quickshell" / "stock-news"
+            cache.mkdir(parents=True)
+            (cache / "legacy.json").write_text(json.dumps(payload), encoding="utf-8")
+            with patch.dict(os.environ, {"XDG_CACHE_HOME": directory}):
+                news = cached_widget_news("JPMorgan", "JPM", "NYSE", now=now)
+        self.assertIsNone(news)
 
     def test_historical_calibration_reduces_overconfidence(self):
         prediction = {
@@ -403,7 +591,9 @@ class StockAnalysisTests(unittest.TestCase):
         self.assertTrue(result["providerStatus"]["degraded"])
         self.assertEqual(result["providerStatus"]["failures"][0]["code"], "quota")
         self.assertEqual(result["qualityGate"]["status"], "provider_degraded")
-        self.assertEqual(result["qualityGate"]["confidenceStatus"], "qualified")
+        self.assertEqual(result["qualityGate"]["confidenceStatus"], "low_confidence")
+        self.assertEqual(result["newsContext"]["status"], "insufficient")
+        self.assertLess(result["confidence"], claude_result["confidence"])
         self.assertEqual(result["analysisUsage"]["totalTokens"], 1200)
 
     def test_both_providers_report_combined_failure(self):

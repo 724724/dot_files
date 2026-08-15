@@ -3,17 +3,19 @@
 addr="$1"
 [ -n "$addr" ] || exit 1
 
-info=$(hyprctl clients -j 2>/dev/null | jq -c --arg address "$addr" '.[] | select(.address == $address) | {at, size}')
+info=$(hyprctl clients -j 2>/dev/null | jq -r --arg address "$addr" \
+    '.[] | select(.address == $address) | [.at[0], .at[1], .size[0], .size[1]] | @tsv')
 selector="address:$addr"
 
 if [ -z "$info" ] || [ "$info" = "null" ]; then
     exec hyprctl eval "hl.dispatch(hl.dsp.focus({ window = \"$selector\" })); hl.dispatch(hl.dsp.window.bring_to_top(\"$selector\"))"
 fi
 
-x=$(printf '%s' "$info" | jq -r '.at[0]')
-y=$(printf '%s' "$info" | jq -r '.at[1]')
-width=$(printf '%s' "$info" | jq -r '.size[0]')
-height=$(printf '%s' "$info" | jq -r '.size[1]')
+set -- $info
+x=$1
+y=$2
+width=$3
+height=$4
 center_x=$((x + width / 2))
 center_y=$((y + height / 2))
 

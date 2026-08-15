@@ -32,13 +32,24 @@ hl.config({
 -- See https://wiki.hypr.land/Configuring/Advanced-and-Cool/Gestures/
 hl.gesture({ fingers = 3, direction = "horizontal", action = "workspace" })
 hl.gesture({ fingers = 3, direction = "up", mods = "SUPER", action = "fullscreen" })
--- 3-finger swipe up opens Mission Control; swipe down closes it (down is a no-op
--- when it's already closed, since `mc hide` just clears the visible flag).
--- NOTE: the `--` separator is required — without it "show" is parsed as the
--- `qs ipc show` (list-handlers) subcommand instead of the function argument,
--- so the call silently does nothing.
-hl.gesture({ fingers = 3, direction = "up", action = function() hl.exec_cmd("qs ipc -c desktop call -- mc show") end })
-hl.gesture({ fingers = 3, direction = "down", action = function() hl.exec_cmd("qs ipc -c desktop call -- mc hide") end })
+-- Keep Mission Control under the fingers for the full gesture. A compositor
+-- event is cheap enough to emit for every update; QuickShell coalesces the
+-- resulting progress into its display-synchronised animation transaction.
+local mission_control_gesture = {
+    start = function(event)
+        hl.dispatch(hl.dsp.event("qs-mc-gesture|start|" .. tostring(event.time_ms)))
+    end,
+    update = function(event)
+        hl.dispatch(hl.dsp.event("qs-mc-gesture|update|" .. tostring(event.delta.y)
+            .. "|" .. tostring(event.time_ms)))
+    end,
+    finish = function(event)
+        hl.dispatch(hl.dsp.event("qs-mc-gesture|finish|"
+            .. (event.cancelled and "1" or "0") .. "|" .. tostring(event.time_ms)))
+    end,
+}
+
+hl.gesture({ fingers = 3, direction = "vertical", action = mission_control_gesture })
 
 -- Per-device config
 -- See https://wiki.hypr.land/Configuring/Advanced-and-Cool/Devices/ for more

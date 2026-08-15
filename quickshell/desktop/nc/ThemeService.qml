@@ -6,6 +6,8 @@ import QtQuick
 Singleton {
     id: root
     property bool isDark: true
+    property bool animationsEnabled: true
+    property int iconThemeRevision: 0
 
     readonly property real materialAlpha: 0.88
     readonly property color bg: isDark ? Qt.rgba(28 / 255, 28 / 255, 30 / 255, materialAlpha)
@@ -79,14 +81,26 @@ Singleton {
     }
 
     Process {
+        command: ["gsettings", "get", "org.gnome.desktop.interface", "enable-animations"]
+        running: true
+        stdout: StdioCollector {
+            onStreamFinished: root.animationsEnabled = !text.trim().includes("false")
+        }
+    }
+
+    Process {
         command: ["setpriv", "--pdeathsig", "TERM", "--", "gsettings", "monitor",
-                  "org.gnome.desktop.interface", "color-scheme"]
+                  "org.gnome.desktop.interface"]
         running: true
         stdout: SplitParser {
             splitMarker: "\n"
             onRead: data => {
                 if (data.includes("color-scheme"))
                     root.isDark = data.includes("dark")
+                if (data.includes("enable-animations"))
+                    root.animationsEnabled = !data.includes("false")
+                if (data.includes("icon-theme"))
+                    root.iconThemeRevision++
             }
         }
     }

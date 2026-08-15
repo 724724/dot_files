@@ -1,6 +1,7 @@
 import Quickshell.Services.Notifications
 import QtQuick
 import QtQuick.Layouts
+import "../icons" as Icons
 
 Rectangle {
     id: card
@@ -13,8 +14,15 @@ Rectangle {
     property var closeAction: null
 
     readonly property bool dark: ThemeService.isDark
-    readonly property bool hasImage: notification.image && notification.image !== ""
-    readonly property bool hasAppIcon: notification.appIcon && notification.appIcon !== ""
+    readonly property string notificationAppName: notification ? (notification.appName || "") : ""
+    readonly property string notificationImage: notification ? (notification.image || "") : ""
+    readonly property string notificationAppIcon: notification ? (notification.appIcon || "") : ""
+    readonly property string notificationSummary: notification ? (notification.summary || "") : ""
+    readonly property string notificationBody: notification ? (notification.body || "") : ""
+    readonly property var notificationActions: notification ? notification.actions : []
+    readonly property int notificationId: notification ? notification.id : -1
+    readonly property bool hasImage: notificationImage !== ""
+    readonly property bool hasAppIcon: notificationAppIcon !== ""
 
     // ── Control-center scroll fade ───────────────────────────────────────────
     // Darkens the card by its position in the scroll viewport, fading toward
@@ -75,7 +83,7 @@ Rectangle {
             rightMargin: 16
             topMargin: 16
         }
-        text: NcServer.relativeTime(card.notification.id)
+        text: NcServer.relativeTime(card.notificationId)
         color: dark ? Qt.rgba(1,1,1,0.4) : Qt.rgba(0,0,0,0.52)
         font.family: "SF Pro Display"
         font.pixelSize: 10
@@ -118,7 +126,10 @@ Rectangle {
             anchors.margins: -2
             hoverEnabled: true
             cursorShape: Qt.PointingHandCursor
-            onClicked: card.closeAction ? card.closeAction() : card.notification.dismiss()
+            onClicked: {
+                if (card.closeAction) card.closeAction()
+                else if (card.notification) card.notification.dismiss()
+            }
         }
     }
 
@@ -146,10 +157,11 @@ Rectangle {
             color: dark ? Qt.rgba(1,1,1,0.07) : Qt.rgba(0,0,0,0.04)
 
             // Themed app icon
-            Image {
+            Icons.AppIcon {
                 anchors.fill: parent
                 anchors.margins: 4
-                source: card.hasAppIcon ? "image://icon/" + card.notification.appIcon : ""
+                iconName: card.hasAppIcon ? card.notificationAppIcon : ""
+                appClass: card.notificationAppName
                 visible: card.hasAppIcon && status === Image.Ready
                 sourceSize.width: 32; sourceSize.height: 32
                 smooth: true
@@ -159,7 +171,7 @@ Rectangle {
             // Notification image, used as the avatar when no app icon is set
             Image {
                 anchors.fill: parent
-                source: (!card.hasAppIcon && card.hasImage) ? card.notification.image : ""
+                source: (!card.hasAppIcon && card.hasImage) ? card.notificationImage : ""
                 visible: !card.hasAppIcon && card.hasImage && status === Image.Ready
                 fillMode: Image.PreserveAspectCrop
                 sourceSize.width: 72; sourceSize.height: 72
@@ -170,7 +182,7 @@ Rectangle {
             // Letter fallback when there is neither an icon nor an image
             Text {
                 anchors.centerIn: parent
-                text: (card.notification.appName || "?").charAt(0).toUpperCase()
+                text: (card.notificationAppName || "?").charAt(0).toUpperCase()
                 color: dark ? Qt.rgba(1,1,1,0.5) : Qt.rgba(0,0,0,0.56)
                 font.family: "SF Pro Display"
                 font.pixelSize: 16
@@ -197,7 +209,7 @@ Rectangle {
                 // Always reserve room for the absolute-positioned timestamp/close
                 // in the top-right corner (no right-hand image pushes it in now).
                 Layout.rightMargin: 36
-                text: (card.notification.appName || "Notification").toUpperCase()
+                text: (card.notificationAppName || "Notification").toUpperCase()
                 color: dark ? Qt.rgba(1,1,1,0.55) : Qt.rgba(0,0,0,0.62)
                 font.family: "SF Pro Display"
                 font.pixelSize: 10
@@ -208,7 +220,7 @@ Rectangle {
 
             Text {
                 Layout.fillWidth: true
-                text: card.notification.summary
+                text: card.notificationSummary
                 color: dark ? "#f5f6f8" : "#1c1c1e"
                 font.family: "SF Pro Display"
                 font.pixelSize: 13
@@ -221,7 +233,7 @@ Rectangle {
 
             Text {
                 Layout.fillWidth: true
-                text: card.notification.body
+                text: card.notificationBody
                 color: dark ? Qt.rgba(1,1,1,0.65) : Qt.rgba(0,0,0,0.74)
                 font.family: "SF Pro Display"
                 font.pixelSize: 12
@@ -235,10 +247,10 @@ Rectangle {
                 Layout.fillWidth: true
                 Layout.topMargin: 6
                 spacing: 6
-                visible: card.notification.actions.length > 0
+                visible: card.notificationActions.length > 0
 
                 Repeater {
-                    model: card.notification.actions
+                    model: card.notificationActions
                     delegate: Rectangle {
                         required property NotificationAction modelData
                         height: 26

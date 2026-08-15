@@ -4,15 +4,7 @@ MODE="$1"              # output, region
 OUT_DIR="$HOME/Pictures"
 mkdir -p "$OUT_DIR"
 
-# macOS 스타일 파일 이름
-DAY="$(date +%Y-%m-%d)"
-HOUR="$(date +%I)"     # 01~12
-MINUTE="$(date +%M)"
-SECOND="$(date +%S)"
-AMP="$(date +%p)"      # AM / PM
-HOUR=${HOUR#0}         # 05 -> 5
-
-FILENAME="Screenshot $DAY at $HOUR.$MINUTE.$SECOND $AMP.png"
+FILENAME="Screenshot $(date '+%Y-%m-%d at %-I.%M.%S %p').png"
 TARGET="$OUT_DIR/$FILENAME"
 
 case "$MODE" in
@@ -38,6 +30,8 @@ if [ -f "$TARGET" ]; then
       --action="open=Open in Files" \
       --wait)
     
-    [ "$ACTION" = "open" ] && nautilus --select "$TARGET"
+    # setsid -f로 완전히 떼어낸다. 그냥 실행하면 이 서브셸이 nautilus 창이
+    # 닫힐 때까지 살아있어서, 파일 관리자를 열어둔 시간만큼 스크립트가 남는다.
+    [ "$ACTION" = "open" ] && setsid -f nautilus --select "$TARGET" >/dev/null 2>&1
   ) &
 fi

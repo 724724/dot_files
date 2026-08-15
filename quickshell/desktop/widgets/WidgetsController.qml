@@ -1,4 +1,5 @@
 import Quickshell
+import Quickshell.Hyprland
 import Quickshell.Io
 
 // Self-contained controller: IPC + visibility state + the WidgetsWindow.
@@ -7,6 +8,13 @@ import Quickshell.Io
 Scope {
     id: scope
     property bool widgetsVisible: false
+
+    GlobalShortcut {
+        appid: "widgets"
+        name: "toggle"
+        description: "Widgets: toggle"
+        onPressed: scope.widgetsVisible = !scope.widgetsVisible
+    }
 
     IpcHandler {
         target: "widgets"

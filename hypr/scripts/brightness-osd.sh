@@ -10,7 +10,8 @@
 RAMP_STATE="/tmp/brightness-ramp.state"
 DPMS_STATE="/tmp/brightness-dpms.state"
 
-NOW_MS=$(( $(date +%s%N) / 1000000 ))
+NOW=$EPOCHREALTIME
+NOW_MS=$(( ${NOW%.*} * 1000 + 10#${NOW#*.} / 1000 ))
 
 # ── Streak (방향 변경 시 리셋) ────────────────────────────────────────────
 LAST_MS=0; STREAK=0; LAST_ACTION=""
@@ -29,15 +30,17 @@ else
     STREAK=1
 fi
 
-echo "$NOW_MS $STREAK $1" > "$RAMP_STATE"
+printf '%s %s %s\n' "$NOW_MS" "$STREAK" "$1" > "$RAMP_STATE"
 
 STEP=$(( 1 + STREAK / 2 ))
 [ "$STEP" -gt 15 ] && STEP=15
 
 # ── DPMS wake ─────────────────────────────────────────────────────────────
-if [ "$(cat "$DPMS_STATE" 2>/dev/null)" = "off" ]; then
+DPMS=""
+[[ -r "$DPMS_STATE" ]] && IFS= read -r DPMS < "$DPMS_STATE"
+if [ "$DPMS" = "off" ]; then
     hyprctl dispatch 'hl.dsp.dpms({ action = "enable" })' >/dev/null 2>&1
-    echo "on" > "$DPMS_STATE"
+    printf 'on\n' > "$DPMS_STATE"
 fi
 
 # ── Apply ─────────────────────────────────────────────────────────────────
@@ -54,7 +57,7 @@ PCT=$((CUR * 100 / MAX))
 
 if [ "$PCT" -le 0 ]; then
     hyprctl dispatch 'hl.dsp.dpms({ action = "disable" })' >/dev/null 2>&1
-    echo "off" > "$DPMS_STATE"
+    printf 'off\n' > "$DPMS_STATE"
 else
     qs ipc -c desktop call osd brightness "$PCT" 2>/dev/null &
     disown
@@ -62,6 +65,6 @@ fi
 
 # Persist for restore on next boot
 STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}"
-mkdir -p "$STATE_DIR"
+[[ -d "$STATE_DIR" ]] || mkdir -p "$STATE_DIR"
+umask 022
 printf '%s\n' "$PCT" > "$STATE_DIR/brightness"
-chmod 644 "$STATE_DIR/brightness" 2>/dev/null || true

@@ -2,6 +2,7 @@ import Quickshell
 import QtQuick
 import QtQuick.Controls
 import "kinetic.js" as Kinetic
+import "../icons" as Icons
 
 // Screen Time detail panel. Mirrors the iOS Screen Time layout: a "Usage" header
 // with the selected day's total, a tappable weekly bar chart, and a per-app
@@ -751,16 +752,15 @@ Item {
                         }
 
                         // Icon on the left, vertically centered in the row.
-                        Image {
+                        Icons.AppIcon {
                             id: appIcon
                             anchors { left: parent.left; leftMargin: 12; verticalCenter: parent.verticalCenter }
                             width: 28; height: 28
                             sourceSize.width: 56; sourceSize.height: 56
                             fillMode: Image.PreserveAspectFit
                             smooth: true; mipmap: true; asynchronous: true
-                            source: "image://icon/" + ScreenTimeService.iconNameFor(modelData.cls)
-                            onStatusChanged: if (status === Image.Error)
-                                source = "image://icon/application-x-executable"
+                            iconName: ScreenTimeService.iconNameFor(modelData.cls)
+                            appClass: modelData.cls
                         }
 
                         // Time, right-aligned and flush to the right margin (which

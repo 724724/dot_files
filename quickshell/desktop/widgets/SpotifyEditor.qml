@@ -12,13 +12,13 @@ Item {
     onIndexChanged: reload()
 
     function reload() {
-        if (index < 0) return
+        if (index === -1) return
         layout = WidgetsService.getData(index).layout || 3
     }
 
     function pickLayout(value) {
         WidgetsService.setSpotifyLayout(index, value)
-        layout = value
+        reload()
     }
 
     Column {

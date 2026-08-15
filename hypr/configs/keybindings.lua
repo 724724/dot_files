@@ -6,25 +6,31 @@
 local mainMod     = "SUPER" -- Sets "Windows" key as main modifier
 local terminal    = "kitty"
 local fileManager = "nautilus"
+-- Focus guard: routes app launches through the Pomodoro focus check so blocked
+-- apps can't be started by a keybinding either (see scripts/focus-guard.sh).
+local guard       = "~/.config/quickshell/scripts/focus-guard.sh"
 
 -- ── Applications ────────────────────────────────────────────────────────
-hl.bind(mainMod .. " + T",            hl.dsp.exec_cmd(terminal))
-hl.bind(mainMod .. " + E",            hl.dsp.exec_cmd(fileManager))
-hl.bind(mainMod .. " + SPACE",        hl.dsp.exec_cmd("qs ipc -c desktop call spotlight toggle"))
-hl.bind("ALT + SPACE",                hl.dsp.exec_cmd("qs ipc -c desktop call launchpad toggle"))
-hl.bind("XF86Display",                hl.dsp.exec_cmd("qs ipc -c desktop call mc toggle"))
-hl.bind("XF86LaunchA",                hl.dsp.exec_cmd("qs ipc -c desktop call mc toggle"))
-hl.bind(mainMod .. " + B",            hl.dsp.exec_cmd("qs ipc -c desktop call bar toggle"))
-hl.bind(mainMod .. " + C",            hl.dsp.exec_cmd("qs ipc -c desktop call nc toggle"))
-hl.bind(mainMod .. " + V",            hl.dsp.exec_cmd("qs ipc -c desktop call dock toggle"))
-hl.bind(mainMod .. " + W",            hl.dsp.exec_cmd("qs ipc -c desktop call widgets toggle"))
-hl.bind(mainMod .. " + CTRL + SPACE", hl.dsp.exec_cmd("qs ipc -c desktop call emoji toggle"))
+hl.bind(mainMod .. " + T",            hl.dsp.exec_cmd(guard .. " " .. terminal))
+hl.bind(mainMod .. " + E",            hl.dsp.exec_cmd(guard .. " " .. fileManager))
+hl.bind(mainMod .. " + SPACE",        hl.dsp.global("spotlight:toggle"))
+hl.bind("ALT + SPACE",                hl.dsp.global("launchpad:toggle"))
+hl.bind("XF86Display",                hl.dsp.global("mc:toggle"))
+hl.bind("XF86LaunchA",                hl.dsp.global("mc:toggle"))
+hl.bind(mainMod .. " + B",            hl.dsp.global("bar:toggle"))
+hl.bind(mainMod .. " + C",            hl.dsp.global("nc:toggle"))
+hl.bind(mainMod .. " + V",            hl.dsp.global("dock:toggle"))
+hl.bind(mainMod .. " + W",            hl.dsp.global("widgets:toggle"))
+hl.bind(mainMod .. " + CTRL + SPACE", hl.dsp.global("emoji:toggle"))
+hl.bind(mainMod .. " + I", hl.dsp.exec_cmd('hyprpicker -a | xargs -I {} notify-send "󰏘   Color Copied" "{}"'))
 
 -- ── System ──────────────────────────────────────────────────────────────
-hl.bind(mainMod .. " + Q",         hl.dsp.window.close())
+-- Routed through the shell so it can branch: with the switcher open it quits the
+-- highlighted app (macOS Cmd+Tab→Q), otherwise it closes the active window.
+hl.bind(mainMod .. " + Q",         hl.dsp.global("switcher:close"))
 hl.bind(mainMod .. " + SHIFT + Q", hl.dsp.exec_cmd("hyprctl activewindow -j | jq '.pid' | xargs kill -9"))
 hl.bind(mainMod .. " + J",         hl.dsp.layout("togglesplit"))
-hl.bind("XF86PowerOff",            hl.dsp.exec_cmd("hyprlock"))
+hl.bind("XF86PowerOff",            hl.dsp.exec_cmd("~/.config/quickshell/scripts/quickshell-lock.sh lock"))
 hl.bind(mainMod .. " + F",         hl.dsp.window.fullscreen({ mode = "maximized" }))
 hl.bind(mainMod .. " + SHIFT + F", hl.dsp.window.fullscreen({ mode = "fullscreen" }))
 hl.bind(mainMod .. " + P",         hl.dsp.window.float({ action = "toggle" }))
@@ -36,9 +42,9 @@ hl.bind("SUPER_L", hl.dsp.global("switcher:commit"), { release = true, non_consu
 hl.bind("SUPER_R", hl.dsp.global("switcher:commit"), { release = true, non_consuming = true, ignore_mods = true })
 
 -- ── Screenshots ─────────────────────────────────────────────────────────
-hl.bind(mainMod .. " + SHIFT + 3", hl.dsp.exec_cmd("~/.config/hypr/scripts/shot.sh output"))
-hl.bind(mainMod .. " + SHIFT + 4", hl.dsp.exec_cmd("~/.config/hypr/scripts/shot.sh region"))
-hl.bind(mainMod .. " + SHIFT + 5", hl.dsp.exec_cmd("~/.config/hypr/scripts/winshot.sh"))
+hl.bind(mainMod .. " + SHIFT + 3", hl.dsp.global("capture:screen"))
+hl.bind(mainMod .. " + SHIFT + 4", hl.dsp.global("capture:portion"))
+hl.bind(mainMod .. " + SHIFT + 5", hl.dsp.global("capture:toggle"))
 hl.bind("Print", hl.dsp.exec_cmd('grim - | wl-copy && qs ipc -c desktop call osd custom "󰹑" "Screenshot copied to clipboard"'), { locked = true })
 
 -- ── Special Workspace (Magic) ───────────────────────────────────────────
@@ -46,8 +52,8 @@ hl.bind(mainMod .. " + M",         hl.dsp.window.move({ workspace = "special:mag
 hl.bind(mainMod .. " + SHIFT + M", hl.dsp.workspace.toggle_special("magic"))
 
 -- ── Focus / Movement ────────────────────────────────────────────────────
-hl.bind(mainMod .. " + left",  hl.dsp.focus({ direction = "left" }))
-hl.bind(mainMod .. " + right", hl.dsp.focus({ direction = "right" }))
+hl.bind(mainMod .. " + left",  hl.dsp.global("switcher:left"))
+hl.bind(mainMod .. " + right", hl.dsp.global("switcher:right"))
 hl.bind(mainMod .. " + up",    hl.dsp.focus({ direction = "up" }))
 hl.bind(mainMod .. " + down",  hl.dsp.focus({ direction = "down" }))
 
@@ -97,11 +103,11 @@ hl.bind("SHIFT + XF86MonBrightnessUp", hl.dsp.exec_cmd("~/.config/hypr/scripts/b
 hl.bind("XF86MonBrightnessDown",         hl.dsp.exec_cmd("~/.config/hypr/scripts/brightness-osd.sh lower"), { locked = true, repeating = true })
 hl.bind("SHIFT + XF86MonBrightnessDown", hl.dsp.exec_cmd("~/.config/hypr/scripts/brightness-osd.sh -2"),    { locked = true, repeating = true })
 
-hl.bind("XF86HangupPhone",            hl.dsp.exec_cmd("~/.config/hypr/scripts/media-osd.sh next"),       { locked = true })
+hl.bind("XF86LinkPhone",            hl.dsp.exec_cmd("~/.config/hypr/scripts/media-osd.sh next"),       { locked = true })
 hl.bind("XF86AudioNext",            hl.dsp.exec_cmd("~/.config/hypr/scripts/media-osd.sh next"),       { locked = true })
 hl.bind("XF86Favorites",  hl.dsp.exec_cmd("~/.config/hypr/scripts/media-osd.sh play-pause"), { locked = true })
 hl.bind("XF86AudioPlay",  hl.dsp.exec_cmd("~/.config/hypr/scripts/media-osd.sh play-pause"), { locked = true })
-hl.bind("XF86PickupPhone",    hl.dsp.exec_cmd("~/.config/hypr/scripts/media-osd.sh prev"),       { locked = true })
+hl.bind("XF86SelectiveScreenshot",    hl.dsp.exec_cmd("~/.config/hypr/scripts/media-osd.sh prev"),       { locked = true })
 hl.bind("XF86AudioPrev",    hl.dsp.exec_cmd("~/.config/hypr/scripts/media-osd.sh prev"),       { locked = true })
 
 -- ── Keyboard Lock ───────────────────────────────────────────────────────
@@ -111,12 +117,10 @@ hl.bind(mainMod .. " + XF86Display", hl.dsp.exec_cmd("~/.config/hypr/scripts/key
 hl.bind(mainMod .. " + SHIFT + XF86MonBrightnessUp",   hl.dsp.exec_cmd('hyprctl hyprsunset temperature 4500 && printf on > "$XDG_RUNTIME_DIR/qs-nightshift" && qs ipc -c desktop call osd custom "󰃟" "Blue Light Filter ON"'),  { locked = true })
 hl.bind(mainMod .. " + SHIFT + XF86MonBrightnessDown", hl.dsp.exec_cmd('hyprctl hyprsunset identity && printf off > "$XDG_RUNTIME_DIR/qs-nightshift" && qs ipc -c desktop call osd custom "󰃠" "Blue Light Filter OFF"'),         { locked = true })
 
--- ── Clamshell / Lid Switch (macOS clamshell mode) ───────────────────────
--- Hall 센서 인터럽트(LidStateChanged)에 대응. 실제 판단 로직은 scripts/clamshell.sh.
---   switch:on  = 덮개 닫힘,  switch:off = 덮개 열림
---   { locked = true } = 구 `bindl` 플래그 (화면 잠금/DPMS 중에도 동작)
+-- ── Apple-style Clamshell / Lid Switch ──────────────────────────────────
+-- Lid, monitor hotplug, AC change, and resume events all converge on the
+-- single state machine in scripts/clamshell.sh.
+--   switch:on  = lid closed, switch:off = lid open
+--   { locked = true } keeps the physical switch active while locked/DPMS-off.
 hl.bind("switch:on:Lid Switch",  hl.dsp.exec_cmd("~/.config/hypr/scripts/clamshell.sh closed"), { locked = true })
 hl.bind("switch:off:Lid Switch", hl.dsp.exec_cmd("~/.config/hypr/scripts/clamshell.sh open"),   { locked = true })
-
--- (선택) 수동 토글 단축키
-hl.bind(mainMod .. " + SHIFT + L", hl.dsp.exec_cmd("~/.config/hypr/scripts/clamshell.sh closed"), { locked = true })

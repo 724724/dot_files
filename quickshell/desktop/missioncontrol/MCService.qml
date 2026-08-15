@@ -302,18 +302,29 @@ Singleton {
             return m.activeWorkspace.id
         return activeWorkspaceId
     }
-    // Same list, ordered to match the on-screen layout (reading order: upper rows
-    // first, left-to-right within a row) so the overview grid mirrors reality
-    // instead of hyprctl's stacking order.
+    // Stable spatial order for address-keyed delegates. The old pair-dependent
+    // row tolerance was not transitive, so differently-sized windows could swap
+    // slots between polls even when their centres had barely moved.
     function windowsForWorkspaceSorted(wsId) {
         let arr = windowsForWorkspace(wsId).slice()
         arr.sort((a, b) => {
-            let acy = a.at[1] + a.size[1] / 2, bcy = b.at[1] + b.size[1] / 2
-            let tol = Math.min(a.size[1], b.size[1]) * 0.5
-            if (Math.abs(acy - bcy) > tol) return acy - bcy                    // row
-            return (a.at[0] + a.size[0] / 2) - (b.at[0] + b.size[0] / 2)        // column
+            let acy = a.at[1] + a.size[1] / 2
+            let bcy = b.at[1] + b.size[1] / 2
+            if (acy !== bcy) return acy - bcy
+            let acx = a.at[0] + a.size[0] / 2
+            let bcx = b.at[0] + b.size[0] / 2
+            if (acx !== bcx) return acx - bcx
+            return String(a.address).localeCompare(String(b.address))
         })
         return arr
+    }
+    // focusHistoryID=0 is the frontmost/focused client; larger values are older.
+    // Keep this source stack during cancel, while a selected target explicitly
+    // overrides it in WindowThumb for focus zoom-in.
+    function windowStackZ(windowData) {
+        if (!windowData) return 0
+        let history = Number(windowData.focusHistoryID)
+        return Number.isFinite(history) && history >= 0 ? 10000 - history : 0
     }
     // fullscreen field: 0 none, 1 maximized, 2 fullscreen, 3 maximized+fullscreen.
     // States 2 and 3 both cover the full output; maximize-only remains normal.
@@ -431,8 +442,9 @@ Singleton {
     // Clicking a window in the overview should both focus it (switching to its
     // space) and raise it to the very top of the stack.
     function focusWindow(address) {
-        _dispatch("hl.dsp.focus({window = 'address:" + address + "'})")
-        _dispatch("hl.dsp.window.bring_to_top('address:" + address + "')")
+        _eval("hl.dispatch(hl.dsp.focus({window = 'address:" + address
+            + "'})); hl.dispatch(hl.dsp.window.bring_to_top({window = 'address:"
+            + address + "'}))")
     }
     function focusWorkspace(wsId) {
         _dispatch("hl.dsp.focus({workspace = '" + wsId + "'})")
@@ -583,7 +595,8 @@ Singleton {
                 // ALL window previews (and their ScreencopyViews) — the main cause of
                 // the heavy lag while the overview is open.
                 let cs = JSON.stringify(cl.map(w => [w.address, w.workspace && w.workspace.id,
-                    w.at, w.size, w.title, w.fullscreen, w.floating, w.class]))
+                    w.at, w.size, w.title, w.fullscreen, w.floating, w.class,
+                    w.focusHistoryID]))
                 if (cs !== root._winSig) { root._winSig = cs; root.windows = cl }
                 let wl = (d.workspaces || []).filter(w => w.id >= 1 && w.id <= 100)
                 let ws = JSON.stringify(wl.map(w => [w.id, w.name, w.monitor, w.ispersistent]))
@@ -632,8 +645,6 @@ Singleton {
         running: root.open
         onTriggered: root.refresh()
     }
-
-    onOpenChanged: if (open) refresh()
 
     Component.onCompleted: {
         // Restore persisted Split View spaces, then poll once to validate them

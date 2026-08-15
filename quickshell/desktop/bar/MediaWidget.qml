@@ -5,17 +5,25 @@ import Quickshell.Widgets
 
 PillContainer {
     id: root
-    clickable: true
-    pressed: leftTap.pressed || rightTap.pressed || middleTap.pressed
+    // Set by the bar so the stem sheet opens on the right monitor.
+    property var screen: null
+    readonly property int barLeftMargin: 10
+    clickable: MediaService.hasMedia
+    pressed: mediaTap.pressed || eqTapArea.pressed
+    active: (MediaService.popupOpen && MediaService.popupScreen === root.screen)
+            || (StemService.popupOpen && StemService.popupScreen === root.screen)
 
-    visible: MediaService.hasMedia
+    visible: opacity > 0.002
+    opacity: MediaService.hasMedia ? 1 : 0
     implicitHeight: 33
     // 22 = leftMargin (11) + rightMargin (11). The pill's implicitWidth has
     // to budget for both inner margins so the RowLayout actually fits its
     // children — previously it added only 18 against a 23 px margin total,
     // squeezing the title 5 px on the right and making the padding look
     // smaller on that side.
-    implicitWidth: visible ? content.implicitWidth + 22 : 0
+    implicitWidth: MediaService.hasMedia ? content.implicitWidth + 22 : 0
+    Behavior on opacity { AppleSpring { spring: 18 } }
+    Behavior on implicitWidth { AppleSpring { spring: 18; epsilon: 0.1 } }
 
     // Foreground album-art size: small while paused, full while playing.
     // Animated so the artwork eases between the two sizes. The layout slot it
@@ -42,9 +50,29 @@ PillContainer {
     // The backdrop below is near-opaque + heavily blurred, so the pill's
     // brightness reliably tracks the cover's average — which is exactly what
     // MediaService.artDark measures — making this choice readable in practice.
-    readonly property color contentColor: artReady
-        ? (MediaService.artDark ? "#ffffff" : "#101012")
-        : (ThemeService.isDark ? "#ffffff" : ThemeService.fg)
+    // Keyed to the system theme rather than the cover's brightness: the scrim
+    // below forces the pill dark in dark mode and bright in light mode, so the
+    // text (and the EQ) have a predictable background to sit on.
+    readonly property color contentColor: ThemeService.isDark ? "#ffffff" : "#101012"
+
+    // EQ tint: the cover's most vivid colour, pushed away from the pill's own
+    // brightness so the meter never sinks into the artwork behind it.
+    readonly property color accentBase: (MediaService.artAccent !== "")
+        ? MediaService.artAccent : contentColor
+    readonly property real accentLum:
+        0.299 * accentBase.r + 0.587 * accentBase.g + 0.114 * accentBase.b
+    readonly property color eqColor: {
+        if (!artReady) return contentColor
+        // Keep the cover's hue, but drag its lightness away from the pill so the
+        // meter stays readable: lift it on a dark pill, deepen it on a light one.
+        if (ThemeService.isDark)
+            return accentLum < 0.55
+                ? Qt.lighter(accentBase, 1.0 + (0.55 - accentLum) * 2.1)
+                : accentBase
+        return accentLum > 0.45
+            ? Qt.darker(accentBase, 1.0 + (accentLum - 0.45) * 2.1)
+            : accentBase
+    }
 
     // Theme-independent surface: when art is present the pill is an opaque
     // frosted base (identical in light & dark) — the near-opaque blurred art
@@ -52,11 +80,11 @@ PillContainer {
     // than the wallpaper behind it. Falls back to the themed glass pill only
     // when there's no art yet.
     color: artReady
-        ? (hovered ? Qt.rgba(0.14, 0.14, 0.15, 1.0) : Qt.rgba(0.11, 0.11, 0.12, 1.0))
-        : (hovered ? ThemeService.pillBgHover : ThemeService.pillBg)
+        ? ((hovered || active) ? Qt.rgba(0.14, 0.14, 0.15, 1.0) : Qt.rgba(0.11, 0.11, 0.12, 1.0))
+        : ((hovered || active) ? ThemeService.pillBgHover : ThemeService.pillBg)
     border.color: artReady
-        ? (hovered ? Qt.rgba(1, 1, 1, 0.35) : Qt.rgba(1, 1, 1, 0.16))
-        : (hovered ? ThemeService.pillBorderHover : ThemeService.pillBorder)
+        ? ((hovered || active) ? Qt.rgba(1, 1, 1, 0.35) : Qt.rgba(1, 1, 1, 0.16))
+        : ((hovered || active) ? ThemeService.pillBorderHover : ThemeService.pillBorder)
 
     // ── Frosted, blurred album-art backdrop (fills the whole pill) ────────────
     // Clipped to the pill's rounded shape; sits behind the content. Near-opaque
@@ -66,7 +94,9 @@ PillContainer {
         anchors.margins: root.border.width
         radius: parent.radius
         color: "transparent"
-        visible: root.artReady
+        visible: opacity > 0.002
+        opacity: root.artReady ? 1 : 0
+        Behavior on opacity { AppleSpring { spring: 18 } }
 
         Image {
             id: bgArt
@@ -93,6 +123,17 @@ PillContainer {
             blur: 0.78
             blurMax: 32
             opacity: 0.90
+        }
+
+        // Contrast scrim. Same frosted-cover look as before, just pushed
+        // further from the text colour: darkened under white text, brightened
+        // under near-black text, so the title stays legible on busy covers.
+        Rectangle {
+            anchors.fill: parent
+            color: ThemeService.isDark ? "#000000" : "#ffffff"
+            // Heavier than a subtle tint on purpose — the meter is thin 2px bars
+            // and was disappearing into busy artwork.
+            opacity: ThemeService.isDark ? 0.46 : 0.50
         }
     }
 
@@ -156,7 +197,11 @@ PillContainer {
                     anchors.fill: parent
                     radius: Math.round(parent.width * 0.32)
                     color: "transparent"
-                    visible: root.artReady
+                    visible: opacity > 0.002
+                    opacity: root.artReady ? 1 : 0
+                    scale: root.artReady ? 1 : 0.92
+                    Behavior on opacity { AppleSpring { spring: 18 } }
+                    Behavior on scale { AppleSpring { spring: 18 } }
                     Image {
                         anchors.fill: parent
                         source: cover.source
@@ -207,7 +252,13 @@ PillContainer {
 
             // When the song changes, snap text back to the start so the next
             // marquee cycle reads the new title from the beginning.
-            onFullTextChanged: label.x = 0
+            onFullTextChanged: {
+                label.x = 0
+                Qt.callLater(function() {
+                    if (root.hovered && marquee.needsScroll)
+                        titleMarquee.restart()
+                })
+            }
 
             Text {
                 id: label
@@ -220,16 +271,17 @@ PillContainer {
                 font.family: "SF Pro Display"
                 font.pixelSize: 12
                 font.weight: Font.Medium
+                font.letterSpacing: 0.08
             }
 
             // Bounce-style marquee. Both directions share the same constant
             // (linear) speed so the motion feels uniform — no easing, no
             // snap-back. Slow enough to read comfortably.
             SequentialAnimation {
-                // Continuous marquee motion prevents VFR from idling the
-                // compositor. Long titles remain clipped inside the pill.
-                running: false
+                id: titleMarquee
+                running: root.hovered && marquee.needsScroll
                 loops: Animation.Infinite
+                onRunningChanged: if (!running) label.x = 0
 
                 PauseAnimation { duration: 1800 }
                 SmoothedAnimation {
@@ -245,21 +297,58 @@ PillContainer {
                 }
             }
         }
+
+        // ── Live spectrum, right of the title ─────────────────────────────
+        // Doubles as the handle for the stem filter sheet.
+        Item {
+            Layout.alignment: Qt.AlignVCenter
+            Layout.leftMargin: 6
+            Layout.preferredWidth: eq.implicitWidth
+            Layout.preferredHeight: root.artSizePlaying
+
+            EqBars {
+                id: eq
+                anchors.centerIn: parent
+                levels: AudioEqService.levels
+                active: MediaService.isPlaying
+                // Dim slightly while stems are muted so the pill shows the
+                // filter is engaged without adding another indicator.
+                barColor: root.eqColor
+                opacity: StemService.active ? 0.75 : 1
+                Behavior on opacity { AppleSpring { spring: 13 } }
+            }
+
+            // MouseArea, not TapHandler: it consumes the press so the pill's
+            // play/pause handler doesn't also fire.
+            MouseArea {
+                id: eqTapArea
+                anchors.fill: parent
+                enabled: MediaService.hasMedia
+                acceptedButtons: Qt.LeftButton
+                cursorShape: Qt.PointingHandCursor
+                onClicked: {
+                    let p = mapToItem(null, width / 2, height)
+                    StemService.popupAnchorX = p.x + root.barLeftMargin
+                    StemService.popupScreen = root.screen
+                    StemService.popupOpen = !StemService.popupOpen
+                    if (StemService.popupOpen) MediaService.popupOpen = false
+                }
+            }
+        }
     }
 
     TapHandler {
-        id: leftTap
+        id: mediaTap
+        enabled: MediaService.hasMedia
         acceptedButtons: Qt.LeftButton
-        onTapped: MediaService.playPause()
-    }
-    TapHandler {
-        id: rightTap
-        acceptedButtons: Qt.RightButton
-        onTapped: MediaService.next()
-    }
-    TapHandler {
-        id: middleTap
-        acceptedButtons: Qt.MiddleButton
-        onTapped: MediaService.prev()
+        onTapped: {
+            let p = root.mapToItem(null, root.width / 2, root.height)
+            let alreadyOpen = MediaService.popupOpen
+                && MediaService.popupScreen === root.screen
+            MediaService.popupAnchorX = p.x + root.barLeftMargin
+            MediaService.popupScreen = root.screen
+            MediaService.popupOpen = !alreadyOpen
+            if (MediaService.popupOpen) StemService.popupOpen = false
+        }
     }
 }

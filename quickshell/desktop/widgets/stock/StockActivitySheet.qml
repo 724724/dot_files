@@ -52,7 +52,7 @@ Item {
             anchors { left: parent.left; top: activityTitle.bottom }
             anchors.leftMargin: 22
             anchors.topMargin: 3
-            text: root.t("Local audit trail · not a substitute for your KIS broker statement")
+            text: root.activityReconciliationLabel()
             color: root.secondaryColor
             font.family: "SF Pro Display"
             font.pixelSize: 11
@@ -66,12 +66,12 @@ Item {
             height: 32
             radius: 10
             color: refreshActivityHover.hovered ? root.raisedColor : root.separatorColor
-            opacity: activityProcess.running ? 0.42 : 1
+            opacity: root.activityBusy ? 0.42 : 1
             scale: refreshActivityArea.pressed ? ThemeService.pressScale : 1
             Behavior on scale { AppleSpring { spring: 22 } }
             Text {
                 anchors.centerIn: parent
-                text: activityProcess.running ? root.t("Updating…") : root.t("Refresh")
+                text: root.activityBusy ? root.t("Updating…") : root.t("Refresh")
                 color: root.foregroundColor
                 font.family: "SF Pro Display"
                 font.pixelSize: 10
@@ -81,7 +81,7 @@ Item {
             MouseArea {
                 id: refreshActivityArea
                 anchors.fill: parent
-                enabled: !activityProcess.running
+                enabled: !root.activityBusy
                 cursorShape: Qt.PointingHandCursor
                 onPressed: root.refreshActivity()
             }
@@ -124,9 +124,9 @@ Item {
             color: root.dark ? "#333336" : "#e9e9ee"
             Row {
                 anchors.fill: parent
-                ActivityFilterButton { width: parent.width / 3; label: root.t("All"); filterId: "all" }
-                ActivityFilterButton { width: parent.width / 3; label: root.t("Paper"); filterId: "paper" }
-                ActivityFilterButton { width: parent.width / 3; label: root.t("Production"); filterId: "prod" }
+                ActivityFilterButton { width: parent.width / 3; height: parent.height; label: root.t("All"); filterId: "all" }
+                ActivityFilterButton { width: parent.width / 3; height: parent.height; label: root.t("Paper"); filterId: "paper" }
+                ActivityFilterButton { width: parent.width / 3; height: parent.height; label: root.t("Production"); filterId: "prod" }
             }
         }
 
@@ -140,26 +140,26 @@ Item {
             spacing: 10
             ActivityMetric {
                 width: (parent.width - 30) / 4
-                title: root.t("ACCEPTED")
-                value: Number((root.activityState.counts || {}).accepted || 0).toString()
+                title: root.t("MATCHED")
+                value: Number((root.activityState.counts || {}).reconciled || 0).toString()
                 accent: root.positiveColor
             }
             ActivityMetric {
                 width: (parent.width - 30) / 4
-                title: root.t("FAILED")
-                value: Number((root.activityState.counts || {}).failed || 0).toString()
-                accent: root.negativeColor
+                title: root.t("FILLED")
+                value: Number((root.activityState.counts || {}).filled || 0).toString()
+                accent: root.positiveColor
             }
             ActivityMetric {
                 width: (parent.width - 30) / 4
-                title: root.t("SUBMITTING")
-                value: Number((root.activityState.counts || {}).pending || 0).toString()
+                title: root.t("OPEN")
+                value: Number((root.activityState.counts || {}).open || 0).toString()
                 accent: "#0a84ff"
             }
             ActivityMetric {
                 width: (parent.width - 30) / 4
                 title: root.t("VERIFY")
-                value: Number((root.activityState.counts || {}).uncertain || 0).toString()
+                value: Number((root.activityState.counts || {}).verify || 0).toString()
                 accent: "#ff9f0a"
             }
         }
@@ -226,7 +226,7 @@ Item {
                     anchors { left: parent.left; top: parent.top; bottom: parent.bottom }
                     width: 4
                     radius: 2
-                    color: root.activityStatusColor(modelData.status)
+                    color: root.activityStatusColor(modelData)
                 }
                 Row {
                     anchors.fill: parent
@@ -249,7 +249,7 @@ Item {
                         Text {
                             width: parent.width
                             text: root.activityDetail(modelData)
-                            color: modelData.status === "uncertain" ? "#ff9f0a" : root.secondaryColor
+                            color: root.activityDisplayStatus(modelData) === "uncertain" ? "#ff9f0a" : root.secondaryColor
                             font.family: "SF Pro Display"
                             font.pixelSize: 9
                             elide: Text.ElideRight
@@ -276,8 +276,8 @@ Item {
                         spacing: 2
                         Text {
                             anchors.right: parent.right
-                            text: root.t(root.activityStatusLabel(modelData.status))
-                            color: root.activityStatusColor(modelData.status)
+                            text: root.t(root.activityStatusLabel(modelData))
+                            color: root.activityStatusColor(modelData)
                             font.family: "SF Pro Display"
                             font.pixelSize: 10
                             font.weight: Font.DemiBold
@@ -296,7 +296,7 @@ Item {
                 anchors.centerIn: parent
                 visible: activityList.count === 0
                 text: root.activityError !== "" ? root.t(root.activityError)
-                    : (activityProcess.running ? root.t("Loading local activity…")
+                    : (root.activityBusy ? root.t("Loading local activity…")
                         : root.t("No local trade activity yet."))
                 color: root.activityError !== "" ? root.negativeColor : root.secondaryColor
                 font.family: "SF Pro Display"

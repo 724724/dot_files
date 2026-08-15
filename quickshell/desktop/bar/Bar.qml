@@ -1,4 +1,5 @@
 import Quickshell
+import Quickshell.Hyprland
 import Quickshell.Io
 import Quickshell.Wayland
 import QtQuick
@@ -8,6 +9,13 @@ import "../dock" as Dock
 
 Scope {
     id: barScope
+
+    GlobalShortcut {
+        appid: "bar"
+        name: "toggle"
+        description: "Menu bar: toggle"
+        onPressed: BarState.visible = !BarState.visible
+    }
 
     IpcHandler {
         target: "bar"
@@ -52,19 +60,28 @@ Scope {
             // between them — above all the wide center gap on either side of
             // the media pill — stay click-through to the windows below.
             mask: Region {
-                Region { item: clockW }
-                Region { item: workspacesW }
-                Region { item: mediaW }
-                Region { item: privacyW }
-                Region { item: magicW }
-                Region { item: trayW }
-                Region { item: volumeW }
-                Region { item: batteryW }
-                Region { item: networkW }
-                Region { item: notificationW }
+                // Match the visible rounded surfaces instead of rectangular
+                // layout slots. In particular, hidden animated widgets (such
+                // as Magic and the media companion) must not leave an invisible
+                // input blocker between the center pill and the right modules.
+                Region { item: clockW; radius: 17 }
+                Region { item: workspacesW; radius: 17 }
+                Region { item: ddayW.visible ? ddayW : null; radius: 17 }
+                Region { item: mediaW.visible ? mediaW : null; radius: 17 }
+                Region { item: clockStatusW.visible ? clockStatusW : null; radius: 17 }
+                Region { item: privacyW.micHitTarget; radius: 17 }
+                Region { item: privacyW.cameraHitTarget; radius: 17 }
+                Region { item: recordingW.visible ? recordingW : null; radius: 17 }
+                Region { item: magicW.visible ? magicW : null; radius: 17 }
+                Region { item: trayW; radius: 17 }
+                Region { item: volumeW; radius: 17 }
+                Region { item: batteryW; radius: 17 }
+                Region { item: networkW; radius: 17 }
+                Region { item: notificationW; radius: 17 }
             }
 
             RowLayout {
+                id: barRow
                 anchors {
                     left: parent.left
                     right: parent.right
@@ -80,7 +97,12 @@ Scope {
 
                 Item { Layout.fillWidth: true }
 
-                PrivacyIndicatorsWidget { id: privacyW }
+                PrivacyIndicatorsWidget {
+                    id: privacyW
+                    screen: win.modelData
+                    windowOriginX: 10
+                }
+                RecordingIndicator { id: recordingW }
                 MagicWidget { id: magicW }
                 TrayWidget { id: trayW; window: win }
                 VolumeWidget { id: volumeW }
@@ -89,20 +111,48 @@ Scope {
                 NotificationWidget { id: notificationW }
             }
 
-            // MediaWidget is positioned independently from the RowLayout so it
-            // sits at true bar center regardless of how wide the left/right
-            // widget groups are. (Equal-fill spacers don't center it when the
-            // two groups have different widths.)
-            MediaWidget {
-                id: mediaW
-                anchors.horizontalCenter: parent.horizontalCenter
-                anchors.verticalCenter: parent.verticalCenter
+            Item {
+                id: centerGroup
+                anchors.centerIn: parent
+                height: parent.height
+                readonly property real gap:
+                    Math.min(8, mediaW.implicitWidth, companionSlot.width)
+                width: mediaW.implicitWidth + gap + companionSlot.width
+
+                MediaWidget {
+                    id: mediaW
+                    screen: win.modelData
+                    anchors.left: parent.left
+                    anchors.verticalCenter: parent.verticalCenter
+                }
+
+                Item {
+                    id: companionSlot
+                    anchors.left: mediaW.right
+                    anchors.leftMargin: centerGroup.gap
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: Math.max(ddayW.implicitWidth, clockStatusW.implicitWidth)
+                    height: parent.height
+
+                    DDayWidget {
+                        id: ddayW
+                        screen: win.modelData
+                        suppressed: clockStatusW.hasEntries
+                        anchors.centerIn: parent
+                    }
+
+                    ClockStatusWidget {
+                        id: clockStatusW
+                        screen: win.modelData
+                        anchors.centerIn: parent
+                    }
+                }
             }
         }
     }
 
     // True fullscreen deliberately unmaps the full blurred bar for direct
-    // scanout. Retain only the tiny microphone privacy dot while it is in use.
+    // scanout. Retain only active camera/microphone privacy indicators.
     Variants {
         model: Quickshell.screens
 
@@ -114,7 +164,8 @@ Scope {
             readonly property bool fullscreenHere:
                 Dock.DockService.fullscreenMonitors.includes(
                     privacyWin.modelData ? privacyWin.modelData.name : "")
-            readonly property bool privacyActive: PrivacyService.micActive
+            readonly property bool privacyActive:
+                PrivacyService.cameraActive || PrivacyService.micActive
 
             visible: fullscreenHere && privacyActive
             WlrLayershell.namespace: "qs-privacy-indicators"
@@ -126,11 +177,18 @@ Scope {
             implicitWidth: Math.max(1, fullscreenPrivacy.implicitWidth)
             implicitHeight: 33
             color: "transparent"
-            mask: Region { item: fullscreenPrivacy }
+            // 점은 표시 전용이므로 입력 영역을 비워 완전한 클릭 통과로 둔다.
+            // (item: 로 두면 핸들러가 꺼져 있어도 클릭이 오버레이에 먹혀
+            //  아래 전체화면 앱에 전달되지 않는다)
+            mask: Region {}
 
             PrivacyIndicatorsWidget {
                 id: fullscreenPrivacy
                 anchors.centerIn: parent
+                dotMode: true
+                screen: privacyWin.modelData
+                windowOriginX: privacyWin.modelData
+                    ? privacyWin.modelData.width - 10 - privacyWin.width : 0
             }
         }
     }

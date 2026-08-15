@@ -12,8 +12,17 @@ Singleton {
     // `defaultSink`/`defaultSource` name the active device used to mark the row.
     property var sinks: []
     property var sources: []
+    // The voice-isolation filter chain is a *virtual* source. It's a processing
+    // mode, not a device, so it's kept out of the input picker and offered on
+    // the bar's mic indicator instead (see MicModePopupWindow).
+    readonly property string voiceIsolationSource: "quickshell_voice_isolation"
+    property bool voiceIsolationAvailable: false
+    readonly property bool voiceIsolationActive: defaultSource === voiceIsolationSource
+    // Real mic to return to when isolation is switched off.
+    property string lastPhysicalSource: ""
     property string defaultSink: ""
     property string defaultSource: ""
+    readonly property string stemFilterSink: "quickshell_stems"
 
     // MAC → friendly name, harvested from bluetoothctl, since PipeWire reports
     // "(null)" descriptions for Bluetooth devices like AirPods.
@@ -61,9 +70,20 @@ Singleton {
     // Switch the default output and drag any playing streams over with it.
     function setSink(name) {
         setSinkProc.command = ["bash", "-c",
-            "pactl set-default-sink '" + name + "'; " +
-            "for s in $(pactl list short sink-inputs | cut -f1); do " +
-            "pactl move-sink-input \"$s\" '" + name + "' 2>/dev/null; done"]
+            "target=\"$1\"; " +
+            "pactl set-default-sink \"$target\" || exit; " +
+            "filter_idx=$(pactl -f json list sinks 2>/dev/null " +
+                "| jq -r '.[] | select(.name == \"quickshell_stems\") | .index' | head -n1); " +
+            "while IFS=$'\\t' read -r stream current app; do " +
+                "if [ -n \"$filter_idx\" ] && [ \"$current\" = \"$filter_idx\" ] " +
+                    "&& [[ \"${app,,}\" != *quickshell-stems* ]]; then continue; fi; " +
+                "pactl move-sink-input \"$stream\" \"$target\" 2>/dev/null; " +
+            "done < <(pactl -f json list sink-inputs 2>/dev/null " +
+                "| jq -r '.[] | [(.index|tostring), (.sink|tostring), " +
+                    "(.properties[\"application.name\"] // \"\")] | @tsv'); " +
+            "runtime_dir=\"${XDG_RUNTIME_DIR:-/tmp}\"; " +
+            "printf '%s' \"$target\" > \"$runtime_dir/qs-stems-target\"",
+            "qs-set-sink", name]
         setSinkProc.running = true
         root.defaultSink = name   // optimistic; confirmed on next refresh
     }
@@ -108,7 +128,13 @@ Singleton {
             onStreamFinished: {
                 try {
                     let arr = JSON.parse(text)
-                    root.sinks = arr.map(s => ({ name: s.name, description: s.description }))
+                    root.sinks = arr
+                        .filter(s => {
+                            let props = s.properties || {}
+                            let deviceClass = String(props["device.class"] || "").toLowerCase()
+                            return s.name !== root.stemFilterSink && deviceClass !== "filter"
+                        })
+                        .map(s => ({ name: s.name, description: s.description }))
                 } catch (e) {
                     root.sinks = []
                 }
@@ -140,15 +166,42 @@ Singleton {
             onStreamFinished: {
                 try {
                     let arr = JSON.parse(text)
-                    root.sources = arr
+                    let real = arr
                         .filter(s => !(s.name || "").endsWith(".monitor")
                                   && (s.properties || {})["device.class"] !== "monitor")
+                    root.voiceIsolationAvailable =
+                        real.some(s => s.name === root.voiceIsolationSource)
+                    root.sources = real
+                        .filter(s => s.name !== root.voiceIsolationSource)
                         .map(s => ({ name: s.name, description: s.description }))
                 } catch (e) {
                     root.sources = []
+                    root.voiceIsolationAvailable = false
                 }
             }
         }
+    }
+
+    onDefaultSourceChanged: if (defaultSource !== "" && defaultSource !== voiceIsolationSource)
+        lastPhysicalSource = defaultSource
+
+    // "standard" = the real mic, "isolation" = the filter chain in front of it.
+    function setMicMode(mode) {
+        if (mode === "isolation") {
+            if (root.voiceIsolationAvailable) root.setSource(root.voiceIsolationSource)
+            return
+        }
+        let target = root.lastPhysicalSource
+        if (target === "" || target === root.voiceIsolationSource) {
+            target = ""
+            for (let i = 0; i < root.sources.length; i++) {
+                if (root.sources[i].name !== root.voiceIsolationSource) {
+                    target = root.sources[i].name
+                    break
+                }
+            }
+        }
+        if (target !== "") root.setSource(target)
     }
 
     Process {

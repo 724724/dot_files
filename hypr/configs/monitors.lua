@@ -1,121 +1,31 @@
--- Replay nwg-displays output (hyprlang format) through the Lua API.
--- Reads monitors.conf then workspaces.conf, so later specs win per output.
+-- 모니터 배치 — 손으로 관리한다 (nwg-displays 사용 안 함).
+--
+-- 이 파일이 "설정의 source of truth"다. scripts/clamshell.sh 의 restore_internal()이
+-- `hyprctl reload`로 이 파일을 다시 적용해 내장 패널을 되살리므로, eDP-1은 여기서
+-- 항상 "켜진 상태"여야 한다. 클램쉘(덮개 닫힘 + AC + 외부)일 때 끄는 것은
+-- clamshell.sh가 런타임에 hl.monitor{ disabled = true } eval로 처리한다.
+--
+-- position은 논리 좌표다. DP-1 3840x2160 @scale 1.5 → 2560x1440 이므로
+-- eDP-1(3840x2400 @scale 2 → 1920x1200)을 그 아래 가운데 정렬하면 320x1440.
+-- DP-1 scale을 바꾸면 이 좌표도 같이 고칠 것.
 
-local function trim(s)
-    return (s:match("^%s*(.-)%s*$"))
-end
-
-local function split(s, sep)
-    local parts = {}
-    for piece in (s .. sep):gmatch("(.-)" .. sep) do
-        table.insert(parts, trim(piece))
-    end
-    return parts
-end
-
-local function maybe_number(s)
-    return tonumber(s) or s
-end
-
--- nwg-displays writes the full spec as `NAME,RES,POS,SCALE[,key,val...]` but
--- emits some keywords (notably transform) on their own continuation line as
--- `NAME,key,val`. Tell them apart by whether the second field is a resolution.
-local function looks_like_mode(s)
-    if not s then return false end
-    if s:match("%d+x%d+") then return true end     -- e.g. 3840x2160@60.0
-    return s == "preferred" or s == "highres" or s == "highrr"
-end
-
-local function parse_monitor(value)
-    local parts = split(value, ",")
-    if not parts[1] then return nil end
-
-    local spec = { output = parts[1] }
-    if parts[2] == "disable" or parts[2] == "disabled" then
-        spec.disabled = true
-        return spec
-    end
-
-    local i
-    if looks_like_mode(parts[2]) then
-        if parts[2] then spec.mode     = parts[2] end
-        if parts[3] then spec.position = parts[3] end
-        if parts[4] then spec.scale    = maybe_number(parts[4]) end
-        i = 5
-    else
-        -- Continuation line (e.g. `DP-2,transform,1`): keyword/value pairs only,
-        -- not a full mode/position/scale spec.
-        i = 2
-    end
-
-    while parts[i] and parts[i + 1] do
-        spec[parts[i]] = maybe_number(parts[i + 1])
-        i = i + 2
-    end
-    return spec
-end
-
-local function parse_workspace_rule(value)
-    local parts = split(value, ",")
-    if not parts[1] then return nil end
-
-    local rule = { workspace = parts[1] }
-    for i = 2, #parts do
-        local k, v = parts[i]:match("^([^:]+):(.*)$")
-        if k then
-            k, v = trim(k), trim(v)
-            if     v == "true"  then rule[k] = true
-            elseif v == "false" then rule[k] = false
-            else                     rule[k] = maybe_number(v) end
-        end
-    end
-    return rule
-end
-
-local monitor_specs = {}
-local monitor_order = {}
-local workspace_rules = {}
-
-local function add_monitor(spec)
-    local existing = monitor_specs[spec.output]
-    -- A keyword continuation line (transform, bitdepth, …) carries no mode and
-    -- isn't a disable — merge it into the output's existing spec instead of
-    -- clobbering its mode/position/scale. Full specs (and disable) replace, so
-    -- later files still win per output.
-    if existing and not (spec.mode or spec.disabled) then
-        for k, v in pairs(spec) do existing[k] = v end
-    else
-        if not existing then table.insert(monitor_order, spec.output) end
-        monitor_specs[spec.output] = spec
-    end
-end
-
-local function load(path)
-    local f = io.open(path, "r")
-    if not f then return end
-    for raw in f:lines() do
-        local line = trim(raw)
-        if line ~= "" and not line:match("^#") then
-            local key, value = line:match("^([%w_]+)%s*=%s*(.+)$")
-            if key == "monitor" then
-                local spec = parse_monitor(value)
-                if spec then add_monitor(spec) end
-            elseif key == "workspace" then
-                local rule = parse_workspace_rule(value)
-                if rule then table.insert(workspace_rules, rule) end
-            end
-        end
-    end
-    f:close()
-end
-
-local home = os.getenv("HOME") or ""
-load(home .. "/.config/hypr/monitors.conf")
-load(home .. "/.config/hypr/workspaces.conf")
-
-for _, name in ipairs(monitor_order) do
-    hl.monitor(monitor_specs[name])
-end
-for _, rule in ipairs(workspace_rules) do
-    hl.workspace_rule(rule)
-end
+hl.monitor({
+    output = "eDP-1",
+    mode = "3840x2400@60.0",
+    position = "320x1440",
+    scale = 2,
+    --bitdepth = 10,
+    cm = "auto"
+})
+-- USB-C 포트를 바꿔 꽂으면 커넥터 이름이 DP-1 ↔ DP-4로 바뀐다(예전 nwg 백업에도
+-- 둘 다 남아있다). 포트명 대신 desc:로 고정해야 어느 포트에 꽂든 규칙이 붙는다.
+-- USB-C(DisplayPort) 입력은 HDMI 입력과 EDID가 다르다: RGB 4:4:4 10bpc 지원.
+-- (HDMI 입력은 TMDS 600MHz 상한 때문에 10bit가 4:2:0에서만 가능했다)
+hl.monitor({
+    output = "desc:Samsung Electric Company Smart M70D H1AK500000",
+    mode = "3840x2160@60.0",
+    position = "0x0",
+    scale = 1.5,
+    bitdepth = 10,
+    cm = "dp3"
+})

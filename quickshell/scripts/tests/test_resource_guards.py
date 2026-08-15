@@ -28,6 +28,15 @@ class ResourceGuardTests(unittest.TestCase):
         self.assertIn("readonly property int dockTriggerH: 88", source)
         self.assertIn("? panelHeight : dockIdleH", source)
 
+    def test_mission_control_keeps_dock_continuously_mapped(self):
+        dock = self.read("desktop/dock/DockWindow.qml")
+        overview = self.read("desktop/missioncontrol/MissionControlWindow.qml")
+        self.assertNotIn("onOverviewHereChanged:", dock)
+        self.assertIn("visible: true", overview)
+        self.assertIn("mask: active ? null : closedRegion", overview)
+        self.assertIn("WlrLayershell.layer: WlrLayer.Overlay", overview)
+        self.assertNotIn("? WlrLayer.Top", overview)
+
     def test_long_lived_watchers_die_with_quickshell(self):
         for relative in (
             "desktop/bar/MediaService.qml",

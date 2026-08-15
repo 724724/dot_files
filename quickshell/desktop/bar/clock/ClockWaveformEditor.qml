@@ -159,7 +159,7 @@ Item {
                 scale: cancelTap.pressed ? Bar.ThemeService.pressScale : 1
                 Behavior on scale { Bar.AppleSpring { spring: 20 } }
                 HoverHandler { cursorShape: Qt.PointingHandCursor }
-                TapHandler { id: cancelTap; onPressedChanged: if (pressed) root.cancelled() }
+                TapHandler { id: cancelTap; onTapped: root.cancelled() }
             }
             Text {
                 anchors.centerIn: parent
@@ -185,7 +185,7 @@ Item {
                 TapHandler {
                     id: saveTap
                     enabled: !createProcess.running
-                    onPressedChanged: if (pressed) root.saveSelection()
+                    onTapped: root.saveSelection()
                 }
             }
         }
@@ -386,7 +386,7 @@ Item {
                     HoverHandler { id: playHover; cursorShape: Qt.PointingHandCursor }
                     TapHandler {
                         id: playTap
-                        onPressedChanged: if (pressed) root.togglePreview()
+                        onTapped: root.togglePreview()
                     }
                 }
 

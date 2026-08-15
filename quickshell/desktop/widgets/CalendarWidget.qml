@@ -74,7 +74,7 @@ Item {
     readonly property string noEventsMsg: CalendarService.sources.length === 0
         ? "No calendars\nRight-click to set up" : "No more events today"
     readonly property string emptyMsg: CalendarService.sources.length === 0
-        ? "No calendars\nRight-click → Edit to subscribe"
+        ? "No calendars\nRight-click → Settings to subscribe"
         : "No upcoming events"
 
     // ── An event as a tinted rounded card (bar + title + time) ──────────────

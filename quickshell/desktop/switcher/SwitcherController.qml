@@ -55,6 +55,32 @@ Scope {
         scope.switcherOpen = true
     }
 
+    function navigateOrFocus(dir) {
+        if (scope.switcherOpen) {
+            if (dir > 0) switcher.next()
+            else         switcher.prev()
+            return
+        }
+        Hyprland.dispatch('hl.dsp.focus({ direction = "'
+                          + (dir > 0 ? "right" : "left") + '" })')
+    }
+
+    // Super+Q. With the switcher up this quits the highlighted app and leaves the
+    // switcher open (macOS Cmd+Tab→Q); otherwise it's the plain close-window bind.
+    function closeSelected() {
+        if (!scope.switcherOpen) {
+            Hyprland.dispatch("hl.dsp.window.close()")
+            return
+        }
+        let address = switcher.removeSelected()
+        if (!address) return
+        // Table form is mandatory. The string form — close("address:0x…") —
+        // silently falls back to the *active* window when the address no longer
+        // matches, which quits whatever is focused behind the switcher instead.
+        Hyprland.dispatch('hl.dsp.window.close({ window = "address:'
+                          + address + '" })')
+    }
+
     function confirm() {
         if (!scope.switcherOpen) return
         let address = switcher.beginDismissal()
@@ -89,6 +115,24 @@ Scope {
         description: "App switcher: commit on Super release"
         onPressed: scope.confirm()
     }
+    GlobalShortcut {
+        appid: "switcher"
+        name: "close"
+        description: "App switcher: quit selected app, else close active window"
+        onPressed: scope.closeSelected()
+    }
+    GlobalShortcut {
+        appid: "switcher"
+        name: "left"
+        description: "App switcher: move left or focus left"
+        onPressed: scope.navigateOrFocus(-1)
+    }
+    GlobalShortcut {
+        appid: "switcher"
+        name: "right"
+        description: "App switcher: move right or focus right"
+        onPressed: scope.navigateOrFocus(+1)
+    }
 
     IpcHandler {
         target: "switcher"
@@ -96,5 +140,8 @@ Scope {
         function prev()    { scope.openOrAdvance(-1) }
         function confirm() { scope.confirm() }
         function cancel()  { scope.cancel() }
+        function close()   { scope.closeSelected() }
+        function left()     { scope.navigateOrFocus(-1) }
+        function right()    { scope.navigateOrFocus(+1) }
     }
 }

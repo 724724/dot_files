@@ -8,6 +8,7 @@ Singleton {
     // Single gsettings watcher lives in nc/ThemeService; every other module's
     // ThemeService binds to it instead of running its own monitor process.
     readonly property bool isDark: Nc.ThemeService.isDark
+    readonly property int iconThemeRevision: Nc.ThemeService.iconThemeRevision
 
     readonly property color bg: isDark ? Qt.rgba(28 / 255, 28 / 255, 30 / 255, 0.84)
                                        : Qt.rgba(246 / 255, 246 / 255, 248 / 255, 0.80)

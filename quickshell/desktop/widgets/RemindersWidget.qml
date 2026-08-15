@@ -22,29 +22,47 @@ Item {
     property bool lightCard: !ThemeService.isDark
 
     readonly property int incompleteCount: {
-        let n = 0
-        for (let i = 0; i < items.length; i++) if (!items[i].done) n++
-        return n
+        let n = 0;
+        for (let i = 0; i < items.length; i++)
+            if (!items[i].done)
+                n++;
+        return n;
     }
 
     // Completed items linger for 3s (grace[di] = expiry ms) so the check is
     // visible, then drop out of the widget view.
     property var grace: ({})
     readonly property var visibleItems: {
-        let out = []
+        let out = [];
         for (let i = 0; i < items.length; i++) {
-            if (!items[i].done) out.push({ text: items[i].text, done: false, di: i })
-            else if (grace[i] !== undefined) out.push({ text: items[i].text, done: true, di: i })
+            if (!items[i].done)
+                out.push({
+                    text: items[i].text,
+                    done: false,
+                    di: i
+                });
+            else if (grace[i] !== undefined)
+                out.push({
+                    text: items[i].text,
+                    done: true,
+                    di: i
+                });
         }
-        return out
+        return out;
     }
     Timer {
-        interval: 400; repeat: true
+        interval: 400
+        repeat: true
         running: Object.keys(remRoot.grace).length > 0
         onTriggered: {
-            let now = Date.now(), g = Object.assign({}, remRoot.grace), changed = false
-            for (let k in g) if (now >= g[k]) { delete g[k]; changed = true }
-            if (changed) remRoot.grace = g
+            let now = Date.now(), g = Object.assign({}, remRoot.grace), changed = false;
+            for (let k in g)
+                if (now >= g[k]) {
+                    delete g[k];
+                    changed = true;
+                }
+            if (changed)
+                remRoot.grace = g;
         }
     }
 
@@ -53,24 +71,39 @@ Item {
     // diff into a ListModel: when one item drops out (e.g. 3s after you check
     // it) only that row is removed, and the rows below slide up via the `move`
     // transition on the rows Column.
-    ListModel { id: visModel }
+    ListModel {
+        id: visModel
+    }
     function syncModel() {
-        let target = remRoot.visibleItems
-        let present = ({})
-        for (let i = 0; i < target.length; i++) present[target[i].di] = true
+        let target = remRoot.visibleItems;
+        let present = ({});
+        for (let i = 0; i < target.length; i++)
+            present[target[i].di] = true;
         for (let i = visModel.count - 1; i >= 0; i--)
-            if (!present[visModel.get(i).di]) visModel.remove(i)
+            if (!present[visModel.get(i).di])
+                visModel.remove(i);
         for (let i = 0; i < target.length; i++) {
-            let t = target[i]
+            let t = target[i];
             if (i < visModel.count && visModel.get(i).di === t.di) {
-                if (visModel.get(i).done !== t.done) visModel.setProperty(i, "done", t.done)
-                if (visModel.get(i).text !== t.text) visModel.setProperty(i, "text", t.text)
+                if (visModel.get(i).done !== t.done)
+                    visModel.setProperty(i, "done", t.done);
+                if (visModel.get(i).text !== t.text)
+                    visModel.setProperty(i, "text", t.text);
             } else {
-                let at = -1
+                let at = -1;
                 for (let j = i + 1; j < visModel.count; j++)
-                    if (visModel.get(j).di === t.di) { at = j; break }
-                if (at >= 0) visModel.move(at, i, 1)
-                else visModel.insert(i, { di: t.di, text: t.text, done: t.done })
+                    if (visModel.get(j).di === t.di) {
+                        at = j;
+                        break;
+                    }
+                if (at >= 0)
+                    visModel.move(at, i, 1);
+                else
+                    visModel.insert(i, {
+                        di: t.di,
+                        text: t.text,
+                        done: t.done
+                    });
             }
         }
     }
@@ -78,27 +111,48 @@ Item {
     Component.onCompleted: syncModel()
 
     function toggle(di) {
-        let a = items.slice()
-        if (!a[di]) return
-        let nd = !a[di].done
-        a[di] = { text: a[di].text, done: nd }
-        frame.save({ items: a })
-        let g = Object.assign({}, grace)
-        if (nd) g[di] = Date.now() + 3000; else delete g[di]
-        grace = g
+        let a = items.slice();
+        if (!a[di])
+            return;
+        let nd = !a[di].done;
+        a[di] = Object.assign({}, a[di], {
+            done: nd
+        });
+        frame.save({
+            items: a
+        });
+        let g = Object.assign({}, grace);
+        if (nd)
+            g[di] = Date.now() + 3000;
+        else
+            delete g[di];
+        grace = g;
     }
 
     property bool adding: false
     function addItem(t) {
-        if (!t || !t.trim()) return
-        let a = items.slice()
-        a.push({ text: t.trim(), done: false })
-        frame.save({ items: a })
+        if (!t || !t.trim())
+            return;
+        let a = items.slice();
+        a.push({
+            text: t.trim(),
+            done: false
+        });
+        frame.save({
+            items: a
+        });
     }
     // Rename an item (click its name in the widget to edit).
     function rename(di, t) {
-        let a = items.slice()
-        if (a[di] && a[di].text !== t) { a[di] = { text: t, done: a[di].done }; frame.save({ items: a }) }
+        let a = items.slice();
+        if (a[di] && a[di].text !== t) {
+            a[di] = Object.assign({}, a[di], {
+                text: t
+            });
+            frame.save({
+                items: a
+            });
+        }
     }
 
     // ── A single reminder row (circle + text), display + toggle ─────────────
@@ -112,23 +166,39 @@ Item {
         spacing: 9
         Rectangle {
             anchors.verticalCenter: parent.verticalCenter
-            width: 18; height: 18; radius: 9
+            width: 18
+            height: 18
+            radius: 9
             color: done ? remRoot.accentColor : "transparent"
             border.color: done ? remRoot.accentColor : ThemeService.checkRing
             border.width: done ? 0 : 1.6
-            Text { anchors.centerIn: parent; visible: done; text: "\uf00c"
-                   color: "#ffffff"; font.family: ThemeService.iconFont; font.pixelSize: 10 }
-            MouseArea { anchors.fill: parent; anchors.margins: -4
-                        cursorShape: Qt.PointingHandCursor; onClicked: remRoot.toggle(di) }
+            Text {
+                anchors.centerIn: parent
+                visible: done
+                text: "\uf00c"
+                color: "#ffffff"
+                font.family: ThemeService.iconFont
+                font.pixelSize: 10
+            }
+            MouseArea {
+                anchors.fill: parent
+                anchors.margins: -4
+                cursorShape: Qt.PointingHandCursor
+                onClicked: remRoot.toggle(di)
+            }
         }
         TextField {
             anchors.verticalCenter: parent.verticalCenter
             width: parent.width - 27
             text: txt
             background: null
-            leftPadding: 0; rightPadding: 0; topPadding: 0; bottomPadding: 0
+            leftPadding: 0
+            rightPadding: 0
+            topPadding: 0
+            bottomPadding: 0
             color: done ? ThemeService.secondaryLabel : ThemeService.label
-            font.family: "SF Pro Display"; font.pixelSize: 13
+            font.family: "SF Pro Display"
+            font.pixelSize: 13
             font.strikeout: done
             selectByMouse: true
             onEditingFinished: remRoot.rename(di, text)
@@ -138,10 +208,17 @@ Item {
     // Accent icon disc (top of the list).
     component ListIcon: Rectangle {
         property real d: 30
-        width: d; height: d; radius: d / 2
+        width: d
+        height: d
+        radius: d / 2
         color: remRoot.accentColor
-        Text { anchors.centerIn: parent; text: ThemeService.reminderGlyph(remRoot.iconName)
-               color: "#ffffff"; font.family: ThemeService.iconFont; font.pixelSize: parent.d * 0.5 }
+        Text {
+            anchors.centerIn: parent
+            text: ThemeService.reminderGlyph(remRoot.iconName)
+            color: "#ffffff"
+            font.family: ThemeService.iconFont
+            font.pixelSize: parent.d * 0.5
+        }
     }
 
     // A scrollable item list (used by every layout). Items scroll when they
@@ -165,25 +242,33 @@ Item {
                 epsilon: 0.25
             }
         }
-        ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+        ScrollBar.vertical: ScrollBar {
+            policy: ScrollBar.AsNeeded
+        }
 
         // Kinetic scroll shared via kinetic.js (touchpad momentum, crisp mouse)
         // — same feel as the emoji picker / control-center lists.
         property var _ks: ({})
         WheelHandler {
             acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
-            onWheel: (ev) => {
-                ilGlide.stop()
-                if (Kinetic.onWheel(il, ev, il._ks, { gain: 40 }))
-                    ilEndTimer.restart()
+            onWheel: ev => {
+                ilGlide.stop();
+                if (Kinetic.onWheel(il, ev, il._ks, {
+                    gain: 40
+                }))
+                    ilEndTimer.restart();
             }
         }
         Timer {
             id: ilEndTimer
             interval: 48
             onTriggered: {
-                let g = Kinetic.fling(il, il._ks, {})
-                if (g) { ilGlide.from = g.from; ilGlide.to = g.to; ilGlide.restart() }
+                let g = Kinetic.fling(il, il._ks, {});
+                if (g) {
+                    ilGlide.from = g.from;
+                    ilGlide.to = g.to;
+                    ilGlide.restart();
+                }
             }
         }
         SpringAnimation {
@@ -214,8 +299,10 @@ Item {
                 Repeater {
                     model: visModel
                     delegate: ReminderItem {
-                        di: model.di; rowWidth: rows.width
-                        txt: model.text; done: model.done
+                        di: model.di
+                        rowWidth: rows.width
+                        txt: model.text
+                        done: model.done
                     }
                 }
             }
@@ -242,14 +329,30 @@ Item {
         Row {
             id: sTop
             width: parent.width
-            Text { width: parent.width - sCount.width; text: remRoot.title; color: remRoot.accentColor
-                   font.family: "SF Pro Display"; font.pixelSize: 15; font.weight: Font.DemiBold; elide: Text.ElideRight }
-            Text { id: sCount; text: remRoot.incompleteCount; color: remRoot.accentColor
-                   font.family: "SF Pro Display"; font.pixelSize: 17; font.weight: Font.Bold }
+            Text {
+                width: parent.width - sCount.width
+                text: remRoot.title
+                color: remRoot.accentColor
+                font.family: "SF Pro Display"
+                font.pixelSize: 15
+                font.weight: Font.DemiBold
+                elide: Text.ElideRight
+            }
+            Text {
+                id: sCount
+                text: remRoot.incompleteCount
+                color: remRoot.accentColor
+                font.family: "SF Pro Display"
+                font.pixelSize: 17
+                font.weight: Font.Bold
+            }
         }
         ItemList {
-            anchors.top: sTop.bottom; anchors.topMargin: 8
-            anchors.left: parent.left; anchors.right: parent.right; anchors.bottom: parent.bottom
+            anchors.top: sTop.bottom
+            anchors.topMargin: 8
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.bottom: parent.bottom
             spacingV: 5
         }
     }
@@ -260,23 +363,41 @@ Item {
         anchors.margins: 18
         visible: remRoot.layout === 2
         ListIcon {
-            id: mIcon; d: 36
-            anchors.top: parent.top; anchors.left: parent.left
+            id: mIcon
+            d: 36
+            anchors.top: parent.top
+            anchors.left: parent.left
         }
         Column {
             id: mMeta
-            anchors.left: parent.left; anchors.bottom: parent.bottom
+            anchors.left: parent.left
+            anchors.bottom: parent.bottom
             width: 112
             spacing: 0
-            Text { text: remRoot.incompleteCount; color: ThemeService.label
-                   font.family: "SF Pro Display"; font.pixelSize: 34; font.weight: Font.Bold; font.letterSpacing: -0.6 }
-            Text { width: parent.width; text: remRoot.title; color: remRoot.accentColor
-                   font.family: "SF Pro Display"; font.pixelSize: 15; font.weight: Font.DemiBold; elide: Text.ElideRight }
+            Text {
+                text: remRoot.incompleteCount
+                color: ThemeService.label
+                font.family: "SF Pro Display"
+                font.pixelSize: 34
+                font.weight: Font.Bold
+                font.letterSpacing: -0.6
+            }
+            Text {
+                width: parent.width
+                text: remRoot.title
+                color: remRoot.accentColor
+                font.family: "SF Pro Display"
+                font.pixelSize: 15
+                font.weight: Font.DemiBold
+                elide: Text.ElideRight
+            }
         }
         ItemList {
-            anchors.left: parent.left; anchors.leftMargin: 132
+            anchors.left: parent.left
+            anchors.leftMargin: 132
             anchors.right: parent.right
-            anchors.top: parent.top; anchors.bottom: parent.bottom
+            anchors.top: parent.top
+            anchors.bottom: parent.bottom
             spacingV: 9
         }
     }
@@ -288,27 +409,48 @@ Item {
         visible: remRoot.layout === 3
         Text {
             id: lCount
-            anchors.left: parent.left; anchors.top: parent.top
-            text: remRoot.incompleteCount; color: ThemeService.label
-            font.family: "SF Pro Display"; font.pixelSize: 28; font.weight: Font.Bold; font.letterSpacing: -0.5
+            anchors.left: parent.left
+            anchors.top: parent.top
+            text: remRoot.incompleteCount
+            color: ThemeService.label
+            font.family: "SF Pro Display"
+            font.pixelSize: 28
+            font.weight: Font.Bold
+            font.letterSpacing: -0.5
         }
-        ListIcon { d: 30; anchors.right: parent.right; anchors.top: parent.top }
+        ListIcon {
+            d: 30
+            anchors.right: parent.right
+            anchors.top: parent.top
+        }
         Text {
             id: lTitle
-            anchors.left: parent.left; anchors.right: parent.right
-            anchors.top: lCount.bottom; anchors.topMargin: 2
-            text: remRoot.title; color: remRoot.accentColor
-            font.family: "SF Pro Display"; font.pixelSize: 15; font.weight: Font.DemiBold; elide: Text.ElideRight
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.top: lCount.bottom
+            anchors.topMargin: 2
+            text: remRoot.title
+            color: remRoot.accentColor
+            font.family: "SF Pro Display"
+            font.pixelSize: 15
+            font.weight: Font.DemiBold
+            elide: Text.ElideRight
         }
         Rectangle {
             id: lSep
-            anchors.left: parent.left; anchors.right: parent.right
-            anchors.top: lTitle.bottom; anchors.topMargin: 7
-            height: 1; color: ThemeService.separator
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.top: lTitle.bottom
+            anchors.topMargin: 7
+            height: 1
+            color: ThemeService.separator
         }
         ItemList {
-            anchors.left: parent.left; anchors.right: parent.right
-            anchors.top: lSep.bottom; anchors.topMargin: 7; anchors.bottom: parent.bottom
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.top: lSep.bottom
+            anchors.topMargin: 7
+            anchors.bottom: parent.bottom
             spacingV: 7
         }
     }
@@ -320,25 +462,36 @@ Item {
         text: "No reminders\nClick to add"
         horizontalAlignment: Text.AlignHCenter
         color: ThemeService.secondaryLabel
-        font.family: "SF Pro Display"; font.pixelSize: 12; lineHeight: 1.3
+        font.family: "SF Pro Display"
+        font.pixelSize: 12
+        lineHeight: 1.3
     }
 
     // ── Inline add bar (shown when clicking empty space) ────────────────────
     Rectangle {
         id: addBar
         visible: remRoot.adding
-        anchors { left: parent.left; right: parent.right; bottom: parent.bottom }
+        anchors {
+            left: parent.left
+            right: parent.right
+            bottom: parent.bottom
+        }
         anchors.margins: remRoot.layout === 1 ? 14 : 16
         height: 28
         color: ThemeService.cardBg
-        onVisibleChanged: if (visible) addField.forceActiveFocus()
+        onVisibleChanged: if (visible)
+            addField.forceActiveFocus()
         Row {
             anchors.fill: parent
             spacing: 9
             Rectangle {
                 anchors.verticalCenter: parent.verticalCenter
-                width: 18; height: 18; radius: 9
-                color: "transparent"; border.color: ThemeService.checkRing; border.width: 1.6
+                width: 18
+                height: 18
+                radius: 9
+                color: "transparent"
+                border.color: ThemeService.checkRing
+                border.width: 1.6
             }
             TextField {
                 id: addField
@@ -348,14 +501,19 @@ Item {
                 color: ThemeService.label
                 placeholderText: "New reminder…"
                 placeholderTextColor: ThemeService.secondaryLabel
-                font.family: "SF Pro Display"; font.pixelSize: 13
-                onAccepted: { remRoot.addItem(text); text = "" }
+                font.family: "SF Pro Display"
+                font.pixelSize: 13
+                onAccepted: {
+                    remRoot.addItem(text);
+                    text = "";
+                }
                 Keys.onEscapePressed: remRoot.adding = false
                 onActiveFocusChanged: {
                     if (!activeFocus) {
-                        if (text.trim()) remRoot.addItem(text)
-                        text = ""
-                        remRoot.adding = false
+                        if (text.trim())
+                            remRoot.addItem(text);
+                        text = "";
+                        remRoot.adding = false;
                     }
                 }
             }

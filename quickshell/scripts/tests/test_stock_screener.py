@@ -56,6 +56,25 @@ class StockScreenerTests(unittest.TestCase):
         self.assertEqual(result["counts"]["bullish"], 1)
         self.assertEqual(result["counts"]["bearish"], 1)
 
+    @patch("stock_service.quant.demo_history_points")
+    @patch("stock_service.quant.demo_snapshot")
+    def test_watchlist_has_no_eight_symbol_limit(self, snapshot, history):
+        snapshot.side_effect = lambda symbol, market, period: {
+            "name": symbol,
+            "currency": "USD",
+            "price": 100,
+            "changePct": 0,
+        }
+        history.return_value = self.points([100 + index for index in range(120)])
+        symbols = [
+            {"symbol": f"TEST{index}", "market": "NASDAQ"}
+            for index in range(10)
+        ]
+
+        result = screen_watchlist(symbols)
+
+        self.assertEqual(result["counts"]["screened"], 10)
+
 
 if __name__ == "__main__":
     unittest.main()

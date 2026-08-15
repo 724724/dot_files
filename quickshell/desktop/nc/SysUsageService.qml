@@ -207,11 +207,9 @@ Singleton {
         printErrors: false
     }
     Component.onCompleted: {
-        // Battery-first default for this older laptop. RunCat can still be
-        // enabled manually for the current session, but never starts animating
-        // and polling immediately after login.
-        root.runcatEnabled = false
-        if (runcatStore.text().trim() !== "0") runcatStore.setText("0")
+        // The toggle persists across reloads and reboots: whatever the user
+        // last set stays until they change it. Off only when never enabled.
+        root.runcatEnabled = runcatStore.text().trim() === "1"
         let s = runcatSetStore.text().trim()
         if (s) root.runcatSet = s
         try {

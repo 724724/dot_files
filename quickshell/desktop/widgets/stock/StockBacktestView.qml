@@ -29,21 +29,21 @@ Item {
                     height: parent.height
                     label: root.t("Trend")
                     selected: root.backtestStrategy === "trend"
-                    onChosen: { root.backtestStrategy = "trend"; root.resetBacktest() }
+                    onChosen: { root.setBacktestStrategy("trend"); root.resetBacktest() }
                 }
                 QuantChoice {
                     width: parent.width / 3
                     height: parent.height
                     label: root.t("Momentum")
                     selected: root.backtestStrategy === "momentum"
-                    onChosen: { root.backtestStrategy = "momentum"; root.resetBacktest() }
+                    onChosen: { root.setBacktestStrategy("momentum"); root.resetBacktest() }
                 }
                 QuantChoice {
                     width: parent.width / 3
                     height: parent.height
                     label: root.t("RSI")
                     selected: root.backtestStrategy === "mean_reversion"
-                    onChosen: { root.backtestStrategy = "mean_reversion"; root.resetBacktest() }
+                    onChosen: { root.setBacktestStrategy("mean_reversion"); root.resetBacktest() }
                 }
             }
         }

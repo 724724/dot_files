@@ -233,6 +233,7 @@ Singleton {
         if (!cls) return "application-x-executable"
         let lc = cls.toLowerCase()
         if (lc === "code")    return "visual-studio-code"
+        if (lc === "ida" || lc === "ida64") return "/opt/ida-free/appico64.png"
         if (lc === "spotify") return "spotify-client"
         if (lc === "kakaotalk.exe") {
             // Wine's .desktop entry only declares its raw hash icon; prefer the

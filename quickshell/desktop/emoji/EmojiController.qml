@@ -1,4 +1,5 @@
 import Quickshell
+import Quickshell.Hyprland
 import Quickshell.Io
 
 // Self-contained controller: IPC + visibility state + the EmojiWindow.
@@ -7,6 +8,13 @@ import Quickshell.Io
 Scope {
     id: scope
     property bool emojiVisible: false
+
+    GlobalShortcut {
+        appid: "emoji"
+        name: "toggle"
+        description: "Emoji picker: toggle"
+        onPressed: scope.emojiVisible = !scope.emojiVisible
+    }
 
     IpcHandler {
         target: "emoji"

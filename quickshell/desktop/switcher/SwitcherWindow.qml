@@ -3,6 +3,7 @@ import Quickshell.Wayland
 import Quickshell.Hyprland
 import QtQuick
 import Qt5Compat.GraphicalEffects
+import "../icons" as Icons
 
 PanelWindow {
     id: win
@@ -32,6 +33,8 @@ PanelWindow {
             return de && de.icon ? de.icon : "DDB7_KakaoTalk.0"
         }
         if (lc === "code") return "visual-studio-code"
+        if (lc === "ida" || lc === "ida64") return "/opt/ida-free/appico64.png"
+        if (lc === "arduino ide") return "arduino-ide"
         // Spotify reports class "Spotify" but its theme icon is "spotify-client".
         if (lc === "spotify") return "spotify-client"
         // Strip Qt instance suffix (transmission etc.).
@@ -146,6 +149,25 @@ PanelWindow {
         _frozenWins = snapshot
         _dismissing = true
         return selected && selected.address ? selected.address : ""
+    }
+
+    // Drop the highlighted entry and hand its address back for closing (Super+Q,
+    // macOS Cmd+Tab→Q). The session list is a frozen snapshot taken at
+    // prepareOpen(), so the entry has to be spliced out here or the grid keeps
+    // showing a window that is already gone. Selection holds its slot, which
+    // lands on the next app — hold Super and tap Q to quit several in a row.
+    function removeSelected() {
+        if (count === 0) return ""
+        let index = Math.max(0, Math.min(selectedIndex, count - 1))
+        let target = wins[index]
+        if (!target || !target.address) return ""
+        let remaining = wins.slice()
+        remaining.splice(index, 1)
+        _sessionWins = remaining
+        _sessionActive = true
+        if (remaining.length === 0) win.closeRequested()
+        else selectedIndex = Math.min(index, remaining.length - 1)
+        return target.address
     }
 
     // ── Keyboard input — handled directly here, no submap needed ─────────
@@ -301,7 +323,7 @@ PanelWindow {
                                     Behavior on scale { AppleSpring { spring: 18 } }
                                 }
 
-                                Image {
+                                Icons.AppIcon {
                                     id: iconImg
                                     anchors.centerIn: parent
                                     width: win.iconSize
@@ -312,24 +334,9 @@ PanelWindow {
                                     mipmap: true
                                     asynchronous: true
                                     fillMode: Image.PreserveAspectFit
-                                    source: cell.winData && cell.winData.class
-                                        ? "image://icon/" + win._iconNameFor(cell.winData.class)
-                                        : ""
-
-                                    onStatusChanged: {
-                                        if (status === Image.Error) {
-                                            // Try the original class as a fallback before
-                                            // showing the generic exec icon.
-                                            let orig = cell.winData.class
-                                            let mapped = win._iconNameFor(orig)
-                                            if (source.toString().endsWith(mapped) && mapped !== orig.toLowerCase())
-                                                source = "image://icon/" + orig.toLowerCase()
-                                            else if (source.toString().endsWith(orig.toLowerCase()))
-                                                source = "image://icon/" + orig
-                                            else
-                                                source = "image://icon/application-x-executable"
-                                        }
-                                    }
+                                    iconName: cell.winData && cell.winData.class
+                                        ? win._iconNameFor(cell.winData.class) : ""
+                                    appClass: cell.winData ? cell.winData.class : ""
                                 }
 
                                 MouseArea {

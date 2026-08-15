@@ -1,5 +1,6 @@
 pragma Singleton
 import Quickshell
+import Quickshell.Hyprland
 import Quickshell.Io
 import Quickshell.Services.Notifications
 import QtQuick
@@ -271,6 +272,13 @@ Singleton {
         function getstate(): string {
             return JSON.stringify({ count: root.count, dnd: root.dnd })
         }
+    }
+
+    GlobalShortcut {
+        appid: "nc"
+        name: "toggle"
+        description: "Control Center: toggle"
+        onPressed: root.controlCenterVisible = !root.controlCenterVisible
     }
 
     // Kill any existing swaync to take over org.freedesktop.Notifications

@@ -64,7 +64,7 @@ PanelWindow {
         Keys.onEscapePressed: ShazamService.popupVisible = false
 
         // Click anywhere outside the card closes the popup.
-        MouseArea { anchors.fill: parent; onPressed: ShazamService.popupVisible = false }
+        MouseArea { anchors.fill: parent; onClicked: ShazamService.popupVisible = false }
 
         Rectangle {
             id: card
@@ -99,7 +99,7 @@ PanelWindow {
 
             // Swallow clicks on the card so they don't fall through to the
             // dismiss layer behind it; a stray click also closes the dropdown.
-            MouseArea { anchors.fill: parent; onPressed: card.srcMenuOpen = false }
+            MouseArea { anchors.fill: parent; onClicked: card.srcMenuOpen = false }
 
             // ── Header: tap to recognize ─────────────────────────────────
             Rectangle {

@@ -10,6 +10,24 @@ Item {
     visible: root.analysisReportVisible || analysisReport.opacity > 0.002
     z: 100
 
+    function relationClassLabel(item) {
+        switch (String((item || {}).relationClass || "")) {
+        case "company": return root.t((item || {}).materialEvent ? "Company event" : "Company context");
+        case "product": return root.t("Product");
+        case "supply_chain": return root.t("Supply chain");
+        case "competitor": return root.t("Competitor");
+        case "regulation": return root.t("Regulation");
+        case "macro": return root.t("Macro");
+        case "industry": return root.t("Industry");
+        default: return root.t((item || {}).relationType === "theme" ? "Industry" : "Company");
+        }
+    }
+
+    function behaviorLevel(value) {
+        let level = String(value || "low");
+        return root.t(level.charAt(0).toUpperCase() + level.slice(1));
+    }
+
     Rectangle {
         anchors.fill: parent
         color: Qt.rgba(0, 0, 0, 0.42)
@@ -196,6 +214,37 @@ Item {
                 }
 
                 ReportSection {
+                    visible: Number((root.analysisResult.behaviorContext || {}).version || 0) > 0
+                    width: parent.width
+                    title: root.t("Market Psychology & Risk")
+                    body: {
+                        let behavior = root.analysisResult.behaviorContext || ({})
+                        let attention = behavior.attention || ({})
+                        let crowding = behavior.crowding || ({})
+                        let overreaction = behavior.overreaction || ({})
+                        let negativity = behavior.negativity || ({})
+                        let disagreement = behavior.disagreement || ({})
+                        let confidence = Number(behavior.evidenceConfidence || behavior.confidence || 0)
+                        let adjusted = Number(behavior.riskAdjustedEvidenceConfidence || confidence)
+                        let message = root.t("Evidence %1/100 · risk-adjusted %2/100 · risk penalty %3/100", [
+                            confidence, adjusted, Number(behavior.riskPenalty || 0)
+                        ])
+                        message += "\n" + root.t("Attention %1/100 (%2) · crowding %3/100 (%4) · negativity %5/100 (%6)", [
+                            Number(attention.score || 0), sheet.behaviorLevel(attention.level),
+                            Number(crowding.score || 0), sheet.behaviorLevel(crowding.level),
+                            Number(negativity.score || 0), sheet.behaviorLevel(negativity.level)
+                        ])
+                        message += "\n" + root.t("Overreaction %1/100 · disagreement %2/100 · risk signals are not trade directions.", [
+                            Number(overreaction.score || 0), Number(disagreement.score || 0)
+                        ])
+                        return message
+                    }
+                    accent: Number((root.analysisResult.behaviorContext || {}).riskPenalty || 0) >= 70
+                        ? root.negativeColor : (Number((root.analysisResult.behaviorContext || {}).riskPenalty || 0) >= 40
+                        ? "#ff9f0a" : "#bf5af2")
+                }
+
+                ReportSection {
                     width: parent.width
                     title: root.t("Summary")
                     body: root.analysisResult.summary || root.t("No summary available.")
@@ -356,14 +405,22 @@ Item {
                         let context = root.analysisResult.newsContext || ({})
                         let status = context.status === "usable" ? root.t("Usable")
                             : (context.status === "limited" ? root.t("Limited") : root.t("Insufficient"))
-                        return root.t("%1 · quality %2/100 · %3 unique headlines · %4 sources · %5 within 24h · median age %6h", [
+                        let message = root.t("%1 · evidence quality %2/100 · source quality %3/100 · %4 verified company events", [
                             status,
                             Number(context.qualityScore || 0),
-                            Number(context.headlineCount || 0),
+                            Number(context.sourceQualityScore || 0),
+                            Number(context.verifiedDirectCount || 0)
+                        ])
+                        message += "\n" + root.t("%1 independent events · %2 sources · %3 syndicated copies · %4 within 24h · median age %5h", [
+                            Number(context.independentEventCount || context.headlineCount || 0),
                             Number(context.sourceCount || 0),
+                            Number(context.syndicatedCopyCount || 0),
                             Number(context.recent24h || 0),
                             Number(context.medianAgeHours || 0).toFixed(1)
                         ])
+                        message += " · " + (context.cacheSource === "stock-news-widget"
+                            ? root.t("Shared news cache") : root.t("Remote news"))
+                        return message
                     }
                     accent: (root.analysisResult.newsContext || {}).status === "usable"
                         ? root.positiveColor : ((root.analysisResult.newsContext || {}).status === "limited"
@@ -525,8 +582,11 @@ Item {
                                     }
                                     Text {
                                         width: parent.width
-                                        text: (modelData.source || root.t("Unknown source"))
+                                        text: sheet.relationClassLabel(modelData)
+                                            + " · " + (modelData.source || root.t("Unknown source"))
                                             + (root.analysisTime(modelData.publishedAt) !== "" ? " · " + root.analysisTime(modelData.publishedAt) : "")
+                                            + (((modelData.duplicateSources || []).length > 1)
+                                                ? " · " + root.t("%1 reporting sources", [(modelData.duplicateSources || []).length]) : "")
                                         color: root.secondaryColor
                                         font.family: "SF Pro Display"
                                         font.pixelSize: 9

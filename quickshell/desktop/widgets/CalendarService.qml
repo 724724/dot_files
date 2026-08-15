@@ -11,6 +11,8 @@ import QtQuick
 Singleton {
     id: root
 
+    readonly property bool sessionLockPassive: Quickshell.env("QS_LOCK_MODE") === "1"
+
     // ── Sources ──────────────────────────────────────────────────────────
     // Each: { name, url, color }. Managed from CalendarEditor.
     property var sources: []
@@ -23,7 +25,11 @@ Singleton {
         blockLoading: true
         printErrors: false   // missing on first run is expected
     }
-    Component.onCompleted: { root._load(); root.refresh() }
+    Component.onCompleted: {
+        root._load()
+        if (!root.sessionLockPassive)
+            root.refresh()
+    }
     function _load() {
         try {
             let a = JSON.parse(store.text() || "[]")
@@ -82,6 +88,7 @@ Singleton {
     readonly property string fetchScript: _configDir + "/quickshell/scripts/calendar-fetch.py"
 
     function refresh() {
+        if (root.sessionLockPassive) return
         if (root.refreshing) return
         if (root.sources.length === 0) { root.events = []; root.statusMsg = ""; return }
         root.refreshing = true
@@ -110,7 +117,7 @@ Singleton {
 
     Timer {   // periodic re-sync
         interval: 15 * 60 * 1000
-        running: root.sources.length > 0
+        running: !root.sessionLockPassive && root.sources.length > 0
         repeat: true
         onTriggered: root.refresh()
     }

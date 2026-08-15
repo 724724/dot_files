@@ -128,7 +128,10 @@ Item {
         folderPicker.running = true
     }
 
-    Component.onCompleted: service.refresh()
+    Component.onCompleted: {
+        if (!service.sessionLockPassive)
+            service.refresh()
+    }
 
     Rectangle {
         anchors.fill: parent

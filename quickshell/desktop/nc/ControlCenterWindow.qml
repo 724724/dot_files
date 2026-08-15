@@ -4,6 +4,7 @@ import Quickshell.Wayland
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls
+import Qt5Compat.GraphicalEffects
 import "kinetic.js" as Kinetic
 
 PanelWindow {
@@ -27,6 +28,7 @@ PanelWindow {
     // panel rises with the bar when hidden; height grows to keep the bottom edge
     // fixed. Animated so the toggle slides rather than jumps.
     property int barContentTop: 53
+    property var mediaService: null
     property real topInset: barContentTop
     Behavior on topInset { AppleSpring { spring: 13; epsilon: 0.25 } }
 
@@ -118,11 +120,6 @@ PanelWindow {
             if (NcServer.controlCenterVisible) {
                 win._surfaceVisible = true
                 Qt.callLater(() => escScope.forceActiveFocus())
-            } else {
-            detail = ""
-            displayMenuOpen = false
-            soundMenuOpen = false
-            stackColumn.expandedGroups = ({})
             }
         }
     }
@@ -130,6 +127,8 @@ PanelWindow {
     // Connectivity pollers
     property bool wifiOn: false
     property string wifiSsid: ""
+    property string activeNetworkType: "none"
+    property bool ethernetAvailable: false
     property bool btOn: false
 
     // Toggle from row-icon click (left-half of the connectivity row). These
@@ -153,17 +152,15 @@ PanelWindow {
 
     Process {
         id: wifiPoll
-        command: ["bash", "-c",
-            "if [ \"$(nmcli radio wifi)\" = enabled ]; then" +
-            "  ssid=$(nmcli -t -f active,ssid dev wifi 2>/dev/null | awk -F: '$1==\"yes\"{print $2; exit}');" +
-            "  echo \"on|$ssid\";" +
-            "else echo \"off|\"; fi"]
+        command: ["bash", Quickshell.shellDir + "/../scripts/network-route.sh", "status"]
         running: true
         stdout: StdioCollector {
             onStreamFinished: {
                 let parts = text.trim().split("|")
                 win.wifiOn = parts[0] === "on"
                 win.wifiSsid = parts[1] || ""
+                win.activeNetworkType = parts[2] || "none"
+                win.ethernetAvailable = parts[3] === "yes"
             }
         }
     }
@@ -195,7 +192,15 @@ PanelWindow {
         focus: true
         opacity: win.shown ? 1 : 0
         Behavior on opacity { AppleSpring { spring: 13 } }
-        onOpacityChanged: if (!win.shown && opacity <= 0.002) win._surfaceVisible = false
+        onOpacityChanged: {
+            if (!win.shown && opacity <= 0.002) {
+                win._surfaceVisible = false
+                win.detail = ""
+                win.displayMenuOpen = false
+                win.soundMenuOpen = false
+                stackColumn.expandedGroups = ({})
+            }
+        }
         Keys.onEscapePressed: NcServer.controlCenterVisible = false
 
         // Click anywhere outside the card dismisses the panel.
@@ -222,6 +227,14 @@ PanelWindow {
         border.color: ThemeService.stroke
         border.width: 1
         clip: true
+        layer.enabled: true
+        layer.effect: DropShadow {
+            transparentBorder: true
+            radius: 22
+            samples: 45
+            verticalOffset: 8
+            color: Qt.rgba(0, 0, 0, win.dark ? 0.46 : 0.24)
+        }
         scale: win.shown ? 1 : 0.97
         transformOrigin: Item.TopRight
         Behavior on scale { AppleSpring { spring: 13 } }
@@ -254,6 +267,8 @@ PanelWindow {
                 sourceComponent: CCDetailWifi {
                     wifiOn: win.wifiOn
                     activeSsid: win.wifiSsid
+                    activeNetworkType: win.activeNetworkType
+                    ethernetAvailable: win.ethernetAvailable
                     onBack: win.detail = ""
                     onPollRequest: wifiPoll.running = true
                 }
@@ -359,8 +374,10 @@ PanelWindow {
                                 width: parent.width
                                 icon: "󰖩"
                                 label: "Wi-Fi"
-                                sublabel: win.wifiOn ? (win.wifiSsid || "On") : "Off"
-                                active: win.wifiOn
+                                sublabel: win.activeNetworkType === "ethernet"
+                                    ? "Ethernet Connected"
+                                    : (win.wifiOn ? (win.wifiSsid || "On") : "Off")
+                                active: win.wifiOn || win.activeNetworkType === "ethernet"
                                 onIconClicked: { wifiToggle.running = true; wifiPoll.running = true }
                                 onBodyClicked: win.detail = "wifi"
                             }
@@ -772,7 +789,10 @@ PanelWindow {
                     Layout.fillWidth: true
                     Layout.preferredHeight: 76
                     contentPadding: 10
-                    CCMediaPanel { anchors.fill: parent }
+                    CCMediaPanel {
+                        anchors.fill: parent
+                        mediaService: win.mediaService
+                    }
                 }
             }
         }
@@ -815,6 +835,14 @@ PanelWindow {
                 height: Math.min(stackColumn.implicitHeight, notifModule.listMax)
                 contentHeight: stackColumn.implicitHeight
                 clip: true
+                layer.enabled: true
+                layer.effect: DropShadow {
+                    transparentBorder: true
+                    radius: 22
+                    samples: 45
+                    verticalOffset: 8
+                    color: Qt.rgba(0, 0, 0, win.dark ? 0.46 : 0.24)
+                }
 
                 // interactive=true is required for Flickable to even *see*
                 // wheel events (its wheelEvent handler short-circuits when

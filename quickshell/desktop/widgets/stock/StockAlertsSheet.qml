@@ -143,8 +143,8 @@ Item {
                 color: root.dark ? "#333336" : "#e9e9ee"
                 Row {
                     anchors.fill: parent
-                    AlertDirectionButton { width: parent.width / 2; label: root.t("Above"); value: "above" }
-                    AlertDirectionButton { width: parent.width / 2; label: root.t("Below"); value: "below" }
+                    AlertDirectionButton { width: parent.width / 2; height: parent.height; label: root.t("Above"); value: "above" }
+                    AlertDirectionButton { width: parent.width / 2; height: parent.height; label: root.t("Below"); value: "below" }
                 }
             }
             Rectangle {

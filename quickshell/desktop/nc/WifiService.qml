@@ -9,12 +9,15 @@ Singleton {
     // Cached scan results — survive across detail panel mount/unmount so the
     // user sees the previous list immediately when re-entering the Wi-Fi panel.
     property var networks: []
+    property var knownSsids: ({})
     property bool scanning: false
     property double lastScanTime: 0  // ms epoch; 0 means never scanned
 
     // Connection state surfaced to the UI for inline progress / error display.
     property string pendingSsid: ""
+    property bool routeSwitching: false
     signal connectFinished(string ssid, int exitCode)
+    signal networkStateChanged()
 
     // Manual nmcli-style colon split that respects \\: escapes.
     function _splitNmcli(line) {
@@ -41,6 +44,10 @@ Singleton {
         if (!lastScanTime || (Date.now() - lastScanTime) > maxAgeMs) {
             refresh()
         }
+    }
+
+    function isKnown(ssid) {
+        return knownSsids[ssid] === true
     }
 
     // Secure connect: hand the PSK to nmcli's own secret agent via stdin using
@@ -85,6 +92,13 @@ Singleton {
         connectProc.running = true
     }
 
+    function selectEthernet() {
+        if (routeProc.running) return
+        routeProc.command = ["bash", Quickshell.shellDir + "/../scripts/network-route.sh",
+            "prefer-ethernet"]
+        routeProc.running = true
+    }
+
     // ── Per-network management (context menu) ─────────────────────────────────
     // Delete the saved profile for this SSID ("Forget"). No-ops harmlessly if
     // the network was never saved.
@@ -119,17 +133,43 @@ Singleton {
     }
 
     Process {
+        id: routeProc
+        command: ["true"]
+        onRunningChanged: {
+            root.routeSwitching = running
+            if (!running) {
+                root.refresh()
+                root.networkStateChanged()
+            }
+        }
+    }
+
+    Process {
         id: scanProc
         command: ["bash", "-c",
+            "nmcli -t -f NAME,TYPE connection show 2>/dev/null; " +
+            "printf '%s\\n' '__QS_WIFI_SCAN__'; " +
             "nmcli -t -f active,ssid,signal,security dev wifi list --rescan yes 2>/dev/null"]
         onRunningChanged: if (!running) root.scanning = false
         stdout: StdioCollector {
             onStreamFinished: {
                 let arr = []
                 let seen = {}
+                let known = ({})
+                let parsingScan = false
                 for (let l of text.trim().split("\n")) {
                     if (!l) continue
+                    if (l === "__QS_WIFI_SCAN__") {
+                        parsingScan = true
+                        continue
+                    }
                     let parts = root._splitNmcli(l)
+                    if (!parsingScan) {
+                        let type = (parts[1] || "").toLowerCase()
+                        if (type === "802-11-wireless" || type === "wifi" || type === "wireless")
+                            known[parts[0] || ""] = true
+                        continue
+                    }
                     let active = parts[0] === "yes"
                     let ssid = parts[1] || ""
                     if (!ssid || seen[ssid]) continue
@@ -142,6 +182,7 @@ Singleton {
                     })
                 }
                 arr.sort((a,b) => (b.active - a.active) || (b.signal - a.signal))
+                root.knownSsids = known
                 root.networks = arr
                 root.lastScanTime = Date.now()
             }
@@ -171,8 +212,13 @@ Singleton {
             let ssid = root.pendingSsid
             root.pendingSsid = ""
             root.connectFinished(ssid, exitCode)
-            // Refresh after a successful connect so the active flag updates
-            if (exitCode === 0) scanProc.running = true
+            if (exitCode === 0) {
+                routeProc.command = ["bash",
+                    Quickshell.shellDir + "/../scripts/network-route.sh", "prefer-wifi"]
+                routeProc.running = true
+            } else {
+                scanProc.running = true
+            }
         }
     }
 

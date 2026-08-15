@@ -26,6 +26,16 @@ Singleton {
         return (x && x !== "") ? x : (Quickshell.env("HOME") + "/.config")
     }
     readonly property string fetchScript: _configDir + "/quickshell/scripts/openmeteo-fetch.sh"
+    readonly property int cacheTtlMs: 60 * 60 * 1000
+    readonly property string sharedStateRoot: {
+        const xdg = String(Quickshell.env("XDG_STATE_HOME") || "").trim()
+        if (xdg !== "")
+            return xdg + "/quickshell"
+        const home = String(Quickshell.env("HOME") || "").trim()
+        return home !== "" ? home + "/.local/state/quickshell" : ""
+    }
+    property var _forecastCache: ({})
+    property var _locationCache: null
 
     // Current (IP) location, shared by widgets left on "Current Location".
     property string currentName: ""
@@ -64,15 +74,95 @@ Singleton {
         root._persistPlaces()
     }
 
-    Component.onCompleted: { root.resolveCurrent(); root._loadPlaces() }
+    Component.onCompleted: {
+        root._loadPlaces()
+        root._loadDataCache()
+        root._applyCachedLocation()
+        // Both desktop and lock processes share this cache. Resolve only when
+        // the cached location is absent or older than the one-hour TTL.
+        if (!root.locationFresh())
+            root.resolveCurrent()
+    }
     function resolveCurrent() { geoProc.running = true }
+
+    function _coordinateKey(lat, lon) {
+        const latitude = Number(lat)
+        const longitude = Number(lon)
+        if (!Number.isFinite(latitude) || !Number.isFinite(longitude))
+            return ""
+        return latitude.toFixed(4) + "," + longitude.toFixed(4)
+    }
+    function cachedForecast(lat, lon) {
+        const key = root._coordinateKey(lat, lon)
+        const entry = key !== "" ? root._forecastCache[key] : null
+        if (!entry || typeof entry !== "object" || typeof entry.text !== "string")
+            return null
+        return entry
+    }
+    function forecastFresh(lat, lon) {
+        const entry = root.cachedForecast(lat, lon)
+        const savedAt = Number(entry && entry.savedAt)
+        return Number.isFinite(savedAt) && savedAt > 0 && Date.now() - savedAt < root.cacheTtlMs
+    }
+    function storeForecast(lat, lon, text) {
+        const key = root._coordinateKey(lat, lon)
+        if (key === "" || typeof text !== "string" || text.trim() === "")
+            return
+        let next = Object.assign({}, root._forecastCache)
+        next[key] = { "savedAt": Date.now(), "text": text }
+        const keys = Object.keys(next).sort((a, b) => Number(next[b].savedAt || 0) - Number(next[a].savedAt || 0))
+        for (let i = 24; i < keys.length; i++)
+            delete next[keys[i]]
+        root._forecastCache = next
+        root._persistDataCache()
+    }
+    function locationFresh() {
+        const savedAt = Number(root._locationCache && root._locationCache.savedAt)
+        return Number.isFinite(savedAt) && savedAt > 0 && Date.now() - savedAt < root.cacheTtlMs
+    }
+    function _applyCachedLocation() {
+        const entry = root._locationCache
+        if (!entry || !Number.isFinite(Number(entry.lat)) || !Number.isFinite(Number(entry.lon)))
+            return false
+        root.currentLat = Number(entry.lat)
+        root.currentLon = Number(entry.lon)
+        root.currentName = String(entry.name || "Current Location")
+        root.currentReady = true
+        return true
+    }
+    function _storeLocation(name, lat, lon) {
+        root._locationCache = {
+            "savedAt": Date.now(),
+            "name": String(name || "Current Location"),
+            "lat": Number(lat),
+            "lon": Number(lon)
+        }
+        root._persistDataCache()
+    }
+    function _loadDataCache() {
+        try {
+            const parsed = JSON.parse(dataCacheStore.text() || "{}")
+            root._forecastCache = parsed && parsed.forecasts && typeof parsed.forecasts === "object" ? parsed.forecasts : ({})
+            root._locationCache = parsed && parsed.location && typeof parsed.location === "object" ? parsed.location : null
+        } catch (error) {
+            root._forecastCache = ({})
+            root._locationCache = null
+        }
+    }
+    function _persistDataCache() {
+        dataCacheStore.setText(JSON.stringify({
+            "version": 1,
+            "location": root._locationCache,
+            "forecasts": root._forecastCache
+        }))
+    }
 
     // The IP lookup used to be a single shot at startup: if the network wasn't
     // up yet (or the geo APIs hiccuped), every "Current Location" widget stayed
     // blank until a manual reload. Retry once a minute until it succeeds.
     Timer {
         interval: 60 * 1000
-        running: !root.currentReady
+        running: !root.currentReady || !root.locationFresh()
         repeat: true
         onTriggered: root.resolveCurrent()
     }
@@ -89,8 +179,24 @@ Singleton {
                     root.currentLon = (j.longitude !== undefined) ? j.longitude : j.lon
                     root.currentName = j.city || j.region || j.regionName || "Current Location"
                     root.currentReady = true
+                    root._storeLocation(root.currentName, root.currentLat, root.currentLon)
                 } catch (e) { /* keep */ }
             }
+        }
+    }
+
+    FileView {
+        id: dataCacheStore
+
+        blockLoading: true
+        path: root.sharedStateRoot !== "" ? root.sharedStateRoot + "/weather-widget-cache.json" : ""
+        printErrors: false
+        watchChanges: true
+
+        onFileChanged: reload()
+        onLoaded: {
+            root._loadDataCache()
+            root._applyCachedLocation()
         }
     }
 

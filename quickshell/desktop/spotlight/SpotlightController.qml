@@ -1,4 +1,5 @@
 import Quickshell
+import Quickshell.Hyprland
 import Quickshell.Io
 
 // Self-contained controller: IPC + visibility state + the SpotlightWindow.
@@ -8,6 +9,13 @@ import Quickshell.Io
 Scope {
     id: scope
     property bool spotlightVisible: false
+
+    GlobalShortcut {
+        appid: "spotlight"
+        name: "toggle"
+        description: "Spotlight: toggle"
+        onPressed: scope.spotlightVisible = !scope.spotlightVisible
+    }
 
     IpcHandler {
         target: "spotlight"

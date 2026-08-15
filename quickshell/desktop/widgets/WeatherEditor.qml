@@ -31,14 +31,14 @@ Item {
 
     onIndexChanged: ed.reload()
     function reload() {
-        if (index < 0) return
+        if (index === -1) return
         let d = WidgetsService.getData(index)
         layout = d.layout || 1
         place = d.place || null
         results = []
         searchField.text = ""
     }
-    function pickLayout(n) { WidgetsService.setWeatherLayout(index, n); ed.layout = n }
+    function pickLayout(n) { WidgetsService.setWeatherLayout(index, n); ed.reload() }
     function pickCurrent() { WidgetsService.setData(index, { place: null }); ed.place = null }
     function pickPlace(p) {
         let q = { name: p.name, lat: p.lat, lon: p.lon }

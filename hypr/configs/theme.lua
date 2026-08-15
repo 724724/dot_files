@@ -10,8 +10,8 @@ hl.config({
         gaps_out    = 10,
         border_size = 1,
         col = {
-            active_border   = { colors = { "rgba(1e293bee)", "rgba(020617ee)" }, angle = 45 },
-            inactive_border = "rgba(27272faa)",
+            active_border   = { colors = { "rgba(22d3eeff)", "rgba(3b82f6ff)" }, angle = 45 },
+            inactive_border = "rgba(27272f88)",
         },
         resize_on_border = true,
         allow_tearing    = false,
@@ -23,7 +23,7 @@ hl.config({
         rounding         = 7,
         rounding_power   = 3,
         active_opacity   = 1.0,
-        inactive_opacity = 0.7,
+        inactive_opacity = 1.0,
         dim_special      = 0.7,
 
         shadow = {
@@ -73,6 +73,7 @@ hl.config({
     misc = {
         force_default_wallpaper = -1,   -- Set to 0 or 1 to disable the anime mascot wallpapers
         disable_hyprland_logo   = true, -- If true disables the random hyprland logo / anime girl background. :(
+        allow_session_lock_restore = true,
         -- windowsMove animates compositor-driven geometry (including
         -- fullscreen/maximize), while direct manipulation remains 1:1.
         animate_manual_resizes      = false,
@@ -84,15 +85,25 @@ hl.config({
 --- CURVES   ---
 ----------------
 -- Match Quickshell's AppleSpring house style with real physical springs.
--- appleFluid is effectively critically damped (zeta ~= 0.99, response ~= .39s):
--- no decorative bounce, interruption starts from the current presentation.
--- appleSheet mirrors Apple's drawer/sheet recipe (zeta ~= .8, response ~= .37s)
--- and is reserved for spatial, momentum-like transitions.
+-- appleFluid is effectively critically damped (zeta ~= 0.99): no decorative
+-- bounce, interruption starts from the current presentation.
+-- appleSheet mirrors Apple's drawer/sheet recipe (zeta ~= .81) and is reserved
+-- for spatial, momentum-like transitions.
+--
+-- Hyprland 0.56 rewrote the spring simulation to run "more accurately", which
+-- made identical parameters play back noticeably slower. Upstream's guidance is
+-- to make springs ~2-3x stiffer; these are the pre-0.56 values at 3x.
+-- CRITICAL: dampening must scale by sqrt(N), not N. Damping ratio is
+-- zeta = c / (2*sqrt(k*m)), so tripling stiffness alone would drop appleFluid
+-- from 0.99 to 0.57 and reintroduce exactly the bounce this curve exists to
+-- avoid. sqrt(3) on both keeps the character identical.
+--   appleFluid: 260/32 -> 780/55.43   (zeta 0.9923, unchanged)
+--   appleSheet: 280/27 -> 840/46.77   (zeta 0.8068, unchanged)
 hl.curve("appleFluid", {
-    type = "spring", mass = 1, stiffness = 260, dampening = 32,
+    type = "spring", mass = 1, stiffness = 780, dampening = 55.43,
 })
 hl.curve("appleSheet", {
-    type = "spring", mass = 1, stiffness = 280, dampening = 27,
+    type = "spring", mass = 1, stiffness = 840, dampening = 46.77,
 })
 
 ----------------

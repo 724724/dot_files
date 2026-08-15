@@ -53,21 +53,24 @@ Item {
         onRunningChanged: if (!running) root.scanning = false
     }
 
-    // List ALL known devices (paired and recently discovered) and mark which
-    // are paired / connected — single nmcli-style output for parsing.
+    // Keep paired devices visible. Unpaired discovery results are exposed only
+    // during an explicit scan and noisy BlueZ RSSI pseudo-devices are ignored.
     Process {
         id: listProc
         command: ["bash", "-c",
-            "all=$(bluetoothctl devices 2>/dev/null);" +
-            "paired=$(bluetoothctl devices Paired 2>/dev/null | awk '{print $2}');" +
-            "connected=$(bluetoothctl devices Connected 2>/dev/null | awk '{print $2}');" +
+            "all=$(timeout 0.5 bluetoothctl devices 2>/dev/null);" +
+            "paired=$(timeout 0.5 bluetoothctl devices Paired 2>/dev/null" +
+            " | awk '$1 == \"Device\" {print $2}');" +
             "echo \"$all\" | while read -r line; do " +
             "  [ -z \"$line\" ] && continue;" +
+            "  case \"$line\" in Device\\ *) ;; *) continue ;; esac;" +
             "  mac=$(echo \"$line\" | awk '{print $2}');" +
             "  name=$(echo \"$line\" | cut -d' ' -f3-);" +
             "  p=no; c=no;" +
-            "  if echo \"$paired\"    | grep -q \"$mac\"; then p=yes; fi;" +
-            "  if echo \"$connected\" | grep -q \"$mac\"; then c=yes; fi;" +
+            "  if printf '%s\\n' \"$paired\" | grep -Fxq \"$mac\"; then p=yes; fi;" +
+            "  dev_path=/org/bluez/hci0/dev_${mac//:/_};" +
+            "  if [ \"$p\" = yes ] && busctl --system get-property org.bluez \"$dev_path\"" +
+            "     org.bluez.Device1 Connected 2>/dev/null | grep -q '^b true$'; then c=yes; fi;" +
             "  echo \"$p|$c|$mac|$name\";" +
             "done"]
         stdout: StdioCollector {
@@ -77,11 +80,20 @@ Item {
                     if (!line) continue
                     let p = line.split("|")
                     if (p.length < 4) continue
+                    let mac = p[2].trim()
+                    let name = p.slice(3).join("|").trim()
+                    let paired = p[0] === "yes"
+                    let connected = p[1] === "yes"
+                    let invalidName = name === ""
+                        || /\bRSSI\s*:/i.test(name)
+                        || name.toUpperCase() === mac.toUpperCase()
+                        || name.toUpperCase().startsWith(mac.toUpperCase() + " ")
+                    if (invalidName || (!paired && !root.scanning)) continue
                     arr.push({
-                        paired:   p[0] === "yes",
-                        connected: p[1] === "yes",
-                        mac:      p[2],
-                        name:     p[3]
+                        paired: paired,
+                        connected: connected,
+                        mac: mac,
+                        name: name
                     })
                 }
                 arr.sort((a,b) =>

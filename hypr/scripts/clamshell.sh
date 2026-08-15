@@ -1,171 +1,335 @@
 #!/usr/bin/env bash
 #
-# clamshell.sh — macOS 클램쉘 모드 동작을 Hyprland에서 재현
+# Apple-style closed-display policy for Hyprland.
 #
-#   덮개 닫힘 + AC 전원 + 외부 디스플레이  →  내장 패널 끄고 깨어있기 (클램쉘)
-#   덮개 닫힘 (그 외)                       →  RAM 절전 (suspend)
-#   덮개 열림 / suspend 복귀 후 lid open    →  내장 패널 복구
+# Every relevant event converges on one state decision:
 #
-# ── Lua(non-legacy) 파서 주의 ────────────────────────────────────────────────
-# 이 설정은 hyprland.lua(0.55+) 파서를 쓴다. 그래서 `hyprctl keyword monitor ...`는
-#   "keyword can't work with non-legacy parsers. Use eval."
-# 로 무음 실패한다(에러를 내도 exit 0이라 성공한 척한다). 반드시 eval/reload를 쓸 것:
-#   - 내장 끄기 : hyprctl eval 'hl.monitor({ ..., disabled = true })'
-#                 → eDP-1이 빠지면서 그 위 워크스페이스가 외부 모니터로 자동 이동한다.
-#   - 내장 복구 : hyprctl reload
-#                 → monitors.conf(설정의 source of truth)를 다시 적용해 eDP-1을 되살린다.
-#                 hl.monitor()를 다시 호출하는 것만으로는 0.55에서 재활성화가 안 된다(reload 필요).
-#                 reload는 autostart(hl.on "hyprland.start")를 재실행하지 않으므로 앱 중복 없음.
+#   lid open                                  -> internal display on
+#   lid closed + AC + active external display -> closed-display mode
+#   lid closed + anything else                -> suspend
 #
-# 사용법: clamshell.sh [closed|open|resume|monitor-removed]
-# 호출 위치: configs/keybindings.lua 의 Lid Switch 바인딩과 configs/autostart.lua 의 monitor.removed 이벤트
+# Event sources:
+#   Hyprland lid binds       -> closed / open
+#   Hyprland monitor events  -> display-changed
+#   udev power events        -> power-changed
+#   hypridle after_sleep_cmd -> resume
+#
+# There are deliberately no fixed resume delays, polling loops, synthetic input
+# events, or audio/driver workarounds here. Hardware and compositor events are
+# the clocks for this state machine.
 
 set -euo pipefail
 
-INTERNAL="eDP-1"   # 내장 패널 (hyprctl monitors)
-LOCK_FILE="${XDG_RUNTIME_DIR:-/tmp}/clamshell-${UID}.lock"
+readonly INTERNAL_DISPLAY="${CLAMSHELL_INTERNAL_DISPLAY:-eDP-1}"
+readonly RUNTIME_ROOT="${XDG_RUNTIME_DIR:-/run/user/$UID}"
+readonly ACTION_LOCK="$RUNTIME_ROOT/clamshell-policy-$UID.lock"
+readonly LOCK_HELPER="$HOME/.config/quickshell/scripts/quickshell-lock.sh"
+readonly SELF="$(readlink -f -- "${BASH_SOURCE[0]}")"
 
-exec 9>"$LOCK_FILE"
-flock -w 5 9 || exit 0
+ACTION_FD_OPEN=false
 
-note() { logger -t clamshell -- "$*"; }
+note() {
+    logger -t clamshell -- "$*" 2>/dev/null || true
+}
 
-# 현재 lid 상태 (인자 미지정 시 fallback)
 lid_state() {
-    if grep -q closed /proc/acpi/button/lid/*/state 2>/dev/null; then
-        echo closed
+    local state_file state
+
+    for state_file in /proc/acpi/button/lid/*/state; do
+        [[ -r "$state_file" ]] || continue
+        IFS= read -r state < "$state_file"
+        case "$state" in
+            *closed*) printf '%s\n' closed; return 0 ;;
+            *open*)   printf '%s\n' open;   return 0 ;;
+        esac
+    done
+
+    printf '%s\n' unknown
+}
+
+power_state() {
+    local supply type online found=false
+
+    for supply in /sys/class/power_supply/*; do
+        [[ -r "$supply/type" && -r "$supply/online" ]] || continue
+        IFS= read -r type < "$supply/type"
+        [[ "$type" == "Mains" ]] || continue
+        found=true
+        IFS= read -r online < "$supply/online"
+        if [[ "$online" == "1" ]]; then
+            printf '%s\n' ac
+            return 0
+        fi
+    done
+
+    if [[ "$found" == true ]]; then
+        printf '%s\n' battery
     else
-        echo open
+        printf '%s\n' unknown
     fi
 }
 
-# 1) AC 어댑터 연결 여부  (pseudocode: System.Power.isAdapterConnected)
-on_ac() {
-    local ps
-    for ps in /sys/class/power_supply/*; do
-        [[ "$(cat "$ps/type" 2>/dev/null)" == "Mains" ]] || continue
-        [[ "$(cat "$ps/online" 2>/dev/null)" == "1" ]] && return 0
-    done
-    return 1
+external_state() {
+    local monitors
+
+    if ! monitors="$(hyprctl monitors -j 2>/dev/null)"; then
+        printf '%s\n' unknown
+        return 0
+    fi
+
+    if ! jq -e 'type == "array"' <<<"$monitors" >/dev/null 2>&1; then
+        printf '%s\n' unknown
+        return 0
+    fi
+
+    if jq -e --arg internal "$INTERNAL_DISPLAY" '
+        any(.[ ];
+            .name != $internal
+            and (.disabled // false) == false
+            and (.name | test("^(FALLBACK|HEADLESS)") | not)
+        )
+    ' <<<"$monitors" >/dev/null; then
+        printf '%s\n' active
+    else
+        printf '%s\n' absent
+    fi
 }
 
-# 2) 내장 외 외부 디스플레이 활성 여부  (pseudocode: isExternalDisplayActive)
-external_connected() {
-    hyprctl monitors -j 2>/dev/null | jq -e --arg i "$INTERNAL" \
-        'any(.[]; .name != $i and (.name | test("^(FALLBACK|HEADLESS)") | not))' >/dev/null
+internal_active() {
+    hyprctl monitors -j 2>/dev/null \
+        | jq -e --arg internal "$INTERNAL_DISPLAY" '
+            any(.[ ]; .name == $internal and (.disabled // false) == false)
+        ' >/dev/null
 }
 
-hide_mission_control() {
-    qs ipc -c desktop call -- mc hide >/dev/null 2>&1 || true
-}
+# This is the same policy shape used by Apple's clamshell power decision.
+# Unknown hardware/compositor state is fail-safe: wait for the next real event
+# rather than disabling the only display or suspending on a guessed topology.
+desired_mode() {
+    local lid="$1" power="$2" external="$3"
 
-wait_hypr() {
-    local i
-    for i in {1..30}; do
-        hyprctl monitors -j >/dev/null 2>&1 && return 0
-        sleep 0.1
-    done
-    return 1
+    if [[ "$lid" == open ]]; then
+        printf '%s\n' open
+    elif [[ "$lid" != closed ]]; then
+        printf '%s\n' wait
+    elif [[ "$power" == battery ]]; then
+        printf '%s\n' sleep
+    elif [[ "$power" == unknown ]]; then
+        printf '%s\n' wait
+    elif [[ "$external" == active ]]; then
+        printf '%s\n' clamshell
+    elif [[ "$external" == absent ]]; then
+        printf '%s\n' sleep
+    else
+        printf '%s\n' wait
+    fi
 }
 
 dpms_on() {
     hyprctl dispatch 'hl.dsp.dpms({ action = "enable" })' >/dev/null 2>&1 || true
 }
 
-internal_active() {
-    hyprctl monitors -j 2>/dev/null | jq -e --arg i "$INTERNAL" 'any(.[]; .name == $i)' >/dev/null
-}
-
-internal_spec() {
-    awk -F= -v output="$INTERNAL" '
-        $1 == "monitor" {
-            split($2, p, ",")
-            if (p[1] == output && p[2] != "disable" && p[2] != "disabled") {
-                print p[2] "|" p[3] "|" p[4]
-                exit
-            }
-        }
-    ' "$HOME/.config/hypr/monitors.conf"
-}
-
 restore_internal() {
-    wait_hypr || true
     dpms_on
-    internal_active && return 0
-    hide_mission_control
-
-    note "restore $INTERNAL → hyprctl reload"
-    hyprctl reload >/dev/null 2>&1 || true
-
-    local delay
-    for delay in 0.1 0.2 0.4 0.7; do
-        sleep "$delay"
-        dpms_on
-        internal_active && return 0
-    done
-
-    local spec mode position scale
-    spec="$(internal_spec || true)"
-    if [[ -n "$spec" ]]; then
-        IFS='|' read -r mode position scale <<< "$spec"
-        if [[ -n "$mode" && -n "$position" && -n "$scale" ]]; then
-            note "restore $INTERNAL fallback → hl.monitor eval"
-            hyprctl eval "hl.monitor({ output = \"$INTERNAL\", mode = \"$mode\", position = \"$position\", scale = $scale })" >/dev/null 2>&1 || true
-            sleep 0.2
-            dpms_on
-        fi
+    if internal_active; then
+        return 0
     fi
 
-    internal_active && return 0
-    note "restore $INTERNAL failed"
-    return 1
+    note "restore $INTERNAL_DISPLAY from monitor configuration"
+    if ! hyprctl reload >/dev/null 2>&1; then
+        note "failed to reload monitor configuration"
+        return 1
+    fi
+    dpms_on
 }
 
 disable_internal() {
-    wait_hypr || true
-    hide_mission_control
-    sleep 0.15
-    hyprctl eval "hl.monitor({ output = \"$INTERNAL\", disabled = true })" >/dev/null
+    dpms_on
+    if ! internal_active; then
+        return 0
+    fi
+
+    note "disable $INTERNAL_DISPLAY for closed-display mode"
+    if ! hyprctl eval \
+        "hl.monitor({ output = \"$INTERNAL_DISPLAY\", disabled = true })" \
+        >/dev/null 2>&1; then
+        note "failed to disable $INTERNAL_DISPLAY"
+        return 1
+    fi
 }
 
-case "${1:-$(lid_state)}" in
-    closed)
-        if on_ac && external_connected; then
-            note "lid closed + AC + external → clamshell (disable $INTERNAL via lua eval)"
-            disable_internal
-        else
-            note "lid closed, no dock/power → suspend"
-            systemctl suspend                              # SuspendToRAM
-        fi
-        ;;
-    open)
-        note "lid open → restore $INTERNAL"
-        restore_internal || true
-        ;;
-    resume)
-        note "resume → apply lid state"
-        if [[ "$(lid_state)" == "open" ]]; then
+preparing_for_sleep() {
+    local preparing
+
+    preparing="$(busctl --system get-property \
+        org.freedesktop.login1 \
+        /org/freedesktop/login1 \
+        org.freedesktop.login1.Manager \
+        PreparingForSleep 2>/dev/null || true)"
+    [[ "$preparing" == "b true" ]]
+}
+
+release_action_lock() {
+    if [[ "$ACTION_FD_OPEN" == true ]]; then
+        flock -u 9 2>/dev/null || true
+        exec 9>&-
+        ACTION_FD_OPEN=false
+    fi
+}
+
+policy_still_requests_sleep() {
+    local lid power external
+
+    lid="$(lid_state)"
+    power="$(power_state)"
+    external="$(external_state)"
+    [[ "$(desired_mode "$lid" "$power" "$external")" == sleep ]]
+}
+
+request_suspend() {
+    local reason="$1" policy_request="${2:-false}" status=0
+
+    preparing_for_sleep && return 0
+
+    if ! "$LOCK_HELPER" prepare-sleep; then
+        note "suspend cancelled: session lock did not become sleep-ready"
+        return 1
+    fi
+
+    # Lock acquisition can take a few seconds. A lid, power, or display event
+    # during that handshake wins; never sleep using a stale snapshot.
+    if [[ "$policy_request" == true ]] && ! policy_still_requests_sleep; then
+        "$LOCK_HELPER" resume >/dev/null 2>&1 || true
+        note "suspend cancelled: closed-display conditions changed"
+        return 0
+    fi
+
+    note "suspend requested ($reason)"
+    release_action_lock
+    systemctl --no-ask-password suspend || status=$?
+
+    if (( status != 0 )); then
+        "$LOCK_HELPER" resume >/dev/null 2>&1 || true
+        note "suspend request failed with status $status"
+    fi
+    return "$status"
+}
+
+reconcile() {
+    local reason="$1" lid power external target
+
+    lid="$(lid_state)"
+    power="$(power_state)"
+    external="$(external_state)"
+    target="$(desired_mode "$lid" "$power" "$external")"
+
+    note "reconcile reason=$reason lid=$lid power=$power external=$external target=$target"
+
+    case "$target" in
+        open)
             restore_internal || true
-        elif on_ac && external_connected; then
-            disable_internal
-        else
-            dpms_on
-        fi
-        ;;
-    monitor-removed)
-        hide_mission_control
-        sleep 0.15
-        if [[ "$(lid_state)" == "open" ]]; then
-            note "monitor removed + lid open → restore $INTERNAL"
-            restore_internal || true
-        elif external_connected; then
-            note "monitor removed + lid closed + external remains → keep clamshell"
-        else
-            note "last external removed + lid closed → restore $INTERNAL before suspend"
-            restore_internal || true
-            if [[ "$(lid_state)" == "closed" ]]; then
-                systemctl suspend
+            ;;
+        clamshell)
+            # Recheck the volatile inputs immediately before removing eDP.
+            if [[ "$(lid_state)" == closed \
+                    && "$(power_state)" == ac \
+                    && "$(external_state)" == active ]]; then
+                disable_internal || true
+            else
+                note "closed-display transition skipped: conditions changed"
             fi
+            ;;
+        sleep)
+            request_suspend "$reason" true || true
+            ;;
+        wait)
+            note "no action: lid/power/display state is not yet reliable"
+            ;;
+    esac
+}
+
+watch_power() {
+    local previous current
+
+    previous="$(power_state)"
+    note "power watcher started (state=$previous)"
+
+    /usr/bin/udevadm monitor --udev --subsystem-match=power_supply 2>/dev/null \
+        | while IFS= read -r _; do
+            current="$(power_state)"
+            [[ "$current" != "$previous" ]] || continue
+            note "power source changed: $previous -> $current"
+            previous="$current"
+            "$SELF" power-changed || true
+        done
+}
+
+print_status() {
+    local lid power external target
+
+    lid="$(lid_state)"
+    power="$(power_state)"
+    external="$(external_state)"
+    target="$(desired_mode "$lid" "$power" "$external")"
+    printf 'lid=%s power=%s external=%s target=%s\n' \
+        "$lid" "$power" "$external" "$target"
+}
+
+main() {
+    local action="${1:-reconcile}"
+
+    case "$action" in
+        watch-power)
+            watch_power
+            return
+            ;;
+        status)
+            print_status
+            return
+            ;;
+        lock)
+            "$LOCK_HELPER" lock
+            return
+            ;;
+        closed|open|display-changed|monitor-added|monitor-removed|power-changed|reconcile|resume|suspend)
+            ;;
+        *)
+            printf 'usage: %s {closed|open|display-changed|power-changed|reconcile|resume|suspend|lock|status|watch-power}\n' \
+                "$0" >&2
+            return 2
+            ;;
+    esac
+
+    exec 9>"$ACTION_LOCK"
+    ACTION_FD_OPEN=true
+    if ! flock -w 5 9; then
+        # Even if a broken policy process held the lock too long, never leave
+        # PAM/fingerprint state stranded in its pre-suspend phase.
+        if [[ "$action" == resume ]]; then
+            "$LOCK_HELPER" resume >/dev/null 2>&1 || true
         fi
-        ;;
-esac
+        note "event dropped after action-lock timeout ($action)"
+        return 1
+    fi
+
+    # Serialize lifecycle recovery with any concurrent sleep request, and do it
+    # before display work so a renderer failure cannot skip authentication.
+    if [[ "$action" == resume ]]; then
+        if ! "$LOCK_HELPER" resume; then
+            note "session lock failed to resume authentication"
+        fi
+    fi
+
+    case "$action" in
+        suspend)
+            request_suspend idle false || true
+            ;;
+        *)
+            reconcile "$action"
+            ;;
+    esac
+}
+
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    main "$@"
+fi

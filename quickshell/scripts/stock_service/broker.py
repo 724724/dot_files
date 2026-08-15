@@ -1,4 +1,105 @@
 from .core import *
+from zoneinfo import ZoneInfo
+
+
+KIS_REST_INTERVAL = {"paper": 0.65, "prod": 0.15}
+KRX_TIMEZONE = ZoneInfo("Asia/Seoul")
+OVERSEAS_MARKETS = {
+    "NASDAQ": {"quote": "NAS", "order": "NASD", "currency": "USD", "timezone": ZoneInfo("America/New_York")},
+    "NYSE": {"quote": "NYS", "order": "NYSE", "currency": "USD", "timezone": ZoneInfo("America/New_York")},
+}
+
+
+class KisPostError(StockServiceError):
+    def __init__(
+        self,
+        message,
+        *,
+        request_sent=False,
+        outcome_ambiguous=False,
+        broker_code="",
+        failure_class="operator",
+    ):
+        super().__init__(message)
+        self.request_sent = bool(request_sent)
+        self.outcome_ambiguous = bool(outcome_ambiguous)
+        self.broker_code = str(broker_code or "")
+        self.failure_class = str(failure_class or "operator")
+
+
+def overseas_market_codes(market):
+    code = str(market or "").strip().upper()
+    if code not in OVERSEAS_MARKETS:
+        raise StockServiceError("Unsupported overseas market")
+    return code, OVERSEAS_MARKETS[code]
+
+
+def internal_overseas_market(exchange, fallback="NASDAQ"):
+    code = str(exchange or "").strip().upper()
+    if code in ("NYSE", "NYS"):
+        return "NYSE"
+    if code in ("NASD", "NAS"):
+        return "NASDAQ"
+    return fallback
+
+
+def kis_rate_limit_path(environment):
+    return os.path.join(state_directory(), f"kis-{environment}-rest-rate")
+
+
+@contextmanager
+def kis_credential_refresh_lock(environment, kind):
+    path = os.path.join(state_directory(), f"kis-{environment}-{kind}-refresh.lock")
+    descriptor = os.open(path, os.O_RDWR | os.O_CREAT, 0o600)
+    try:
+        fcntl.flock(descriptor, fcntl.LOCK_EX)
+        yield
+    finally:
+        fcntl.flock(descriptor, fcntl.LOCK_UN)
+        os.close(descriptor)
+
+
+def kis_wait_for_slot(environment):
+    path = kis_rate_limit_path(environment)
+    descriptor = os.open(path + ".lock", os.O_RDWR | os.O_CREAT, 0o600)
+    try:
+        fcntl.flock(descriptor, fcntl.LOCK_EX)
+        try:
+            with open(path, encoding="utf-8") as handle:
+                previous = numeric(handle.read())
+        except OSError:
+            previous = 0
+        delay = KIS_REST_INTERVAL["paper" if environment == "paper" else "prod"] - (time.time() - previous)
+        if delay > 0:
+            time.sleep(delay)
+        with open(path, "w", encoding="utf-8") as handle:
+            handle.write(str(time.time()))
+    finally:
+        fcntl.flock(descriptor, fcntl.LOCK_UN)
+        os.close(descriptor)
+
+
+def kis_rate_limited_message(message):
+    value = str(message or "")
+    return "EGW00201" in value or "초당 거래건수" in value
+
+
+def kis_http_json(environment, url, **kwargs):
+    for attempt in range(3):
+        kis_wait_for_slot(environment)
+        try:
+            response = http_json(url, **kwargs)
+        except StockServiceError as error:
+            if not kis_rate_limited_message(error) or attempt == 2:
+                raise
+            time.sleep(0.75 * (attempt + 1))
+            continue
+        if str(response.get("rt_cd", "0")) == "0" or not kis_rate_limited_message(response.get("msg1")):
+            return response
+        if attempt == 2:
+            return response
+        time.sleep(0.75 * (attempt + 1))
+    raise StockServiceError("KIS request retry failed")
 
 def kis_config(environment):
     env = "paper" if environment == "paper" else "prod"
@@ -16,51 +117,55 @@ def kis_config(environment):
 
 def kis_token(environment):
     env, base_url, app_key, app_secret = kis_config(environment)
-    token = secret_lookup(f"kis_{env}_access_token")
-    expiry_raw = secret_lookup(f"kis_{env}_token_expiry")
-    try:
-        expiry = float(expiry_raw)
-    except ValueError:
-        expiry = 0
-    if token and expiry > time.time() + 90:
+    with kis_credential_refresh_lock(env, "token"):
+        token = secret_lookup(f"kis_{env}_access_token")
+        expiry_raw = secret_lookup(f"kis_{env}_token_expiry")
+        try:
+            expiry = float(expiry_raw)
+        except ValueError:
+            expiry = 0
+        if token and expiry > time.time() + 90:
+            return base_url, app_key, app_secret, token
+        response = kis_http_json(
+            env,
+            base_url + "/oauth2/tokenP",
+            method="POST",
+            headers={"Content-Type": "application/json", "Accept": "text/plain"},
+            payload={"grant_type": "client_credentials", "appkey": app_key, "appsecret": app_secret},
+        )
+        token = response.get("access_token", "")
+        if not token:
+            raise StockServiceError("KIS did not return an access token")
+        expires_in = int(response.get("expires_in", 86400))
+        secret_store(f"kis_{env}_access_token", token)
+        secret_store(f"kis_{env}_token_expiry", str(time.time() + max(300, expires_in - 120)))
         return base_url, app_key, app_secret, token
-    response = http_json(
-        base_url + "/oauth2/tokenP",
-        method="POST",
-        headers={"Content-Type": "application/json", "Accept": "text/plain"},
-        payload={"grant_type": "client_credentials", "appkey": app_key, "appsecret": app_secret},
-    )
-    token = response.get("access_token", "")
-    if not token:
-        raise StockServiceError("KIS did not return an access token")
-    expires_in = int(response.get("expires_in", 86400))
-    secret_store(f"kis_{env}_access_token", token)
-    secret_store(f"kis_{env}_token_expiry", str(time.time() + max(300, expires_in - 120)))
-    return base_url, app_key, app_secret, token
 
 
 def kis_ws_approval(environment):
     env, base_url, app_key, app_secret = kis_config(environment)
-    approval = secret_lookup(f"kis_{env}_ws_approval")
-    expiry_raw = secret_lookup(f"kis_{env}_ws_expiry")
-    try:
-        expiry = float(expiry_raw)
-    except ValueError:
-        expiry = 0
-    if approval and expiry > time.time() + 90:
+    with kis_credential_refresh_lock(env, "websocket"):
+        approval = secret_lookup(f"kis_{env}_ws_approval")
+        expiry_raw = secret_lookup(f"kis_{env}_ws_expiry")
+        try:
+            expiry = float(expiry_raw)
+        except ValueError:
+            expiry = 0
+        if approval and expiry > time.time() + 90:
+            return env, approval
+        response = kis_http_json(
+            env,
+            base_url + "/oauth2/Approval",
+            method="POST",
+            headers={"Content-Type": "application/json", "Accept": "text/plain"},
+            payload={"grant_type": "client_credentials", "appkey": app_key, "secretkey": app_secret},
+        )
+        approval = response.get("approval_key", "")
+        if not approval:
+            raise StockServiceError("KIS did not return a WebSocket approval key")
+        secret_store(f"kis_{env}_ws_approval", approval)
+        secret_store(f"kis_{env}_ws_expiry", str(time.time() + 20 * 60 * 60))
         return env, approval
-    response = http_json(
-        base_url + "/oauth2/Approval",
-        method="POST",
-        headers={"Content-Type": "application/json", "Accept": "text/plain"},
-        payload={"grant_type": "client_credentials", "appkey": app_key, "secretkey": app_secret},
-    )
-    approval = response.get("approval_key", "")
-    if not approval:
-        raise StockServiceError("KIS did not return a WebSocket approval key")
-    secret_store(f"kis_{env}_ws_approval", approval)
-    secret_store(f"kis_{env}_ws_expiry", str(time.time() + 20 * 60 * 60))
-    return env, approval
 
 
 def recv_exact(connection, size):
@@ -211,7 +316,8 @@ def stream_ticks(symbol, environment):
 
 def kis_get(environment, path, tr_id, params):
     base_url, app_key, app_secret, token = kis_token(environment)
-    response = http_json(
+    response = kis_http_json(
+        environment,
         base_url + path,
         headers={
             "Content-Type": "application/json",
@@ -231,24 +337,50 @@ def kis_get(environment, path, tr_id, params):
 
 
 def kis_post(environment, path, tr_id, payload):
-    base_url, app_key, app_secret, token = kis_token(environment)
-    response = http_json(
-        base_url + path,
-        method="POST",
-        headers={
-            "Content-Type": "application/json",
-            "Accept": "text/plain",
-            "User-Agent": "Quickshell Stocks/1.0",
-            "authorization": f"Bearer {token}",
-            "appkey": app_key,
-            "appsecret": app_secret,
-            "tr_id": tr_id,
-            "custtype": "P",
-        },
-        payload=payload,
-    )
+    try:
+        base_url, app_key, app_secret, token = kis_token(environment)
+    except Exception as error:
+        raise KisPostError(
+            str(error),
+            request_sent=False,
+            outcome_ambiguous=False,
+            failure_class="operator",
+        ) from error
+    try:
+        response = kis_http_json(
+            environment,
+            base_url + path,
+            method="POST",
+            headers={
+                "Content-Type": "application/json",
+                "Accept": "text/plain",
+                "User-Agent": "Quickshell Stocks/1.0",
+                "authorization": f"Bearer {token}",
+                "appkey": app_key,
+                "appsecret": app_secret,
+                "tr_id": tr_id,
+                "custtype": "P",
+            },
+            payload=payload,
+        )
+    except Exception as error:
+        raise KisPostError(
+            str(error),
+            request_sent=True,
+            outcome_ambiguous=True,
+            failure_class="hard",
+        ) from error
     if str(response.get("rt_cd", "0")) != "0":
-        raise StockServiceError(response.get("msg1") or "KIS returned an error")
+        message = response.get("msg1") or "KIS returned an error"
+        raise KisPostError(
+            message,
+            request_sent=True,
+            outcome_ambiguous=False,
+            broker_code=str(response.get("msg_cd") or response.get("rt_cd") or ""),
+            failure_class=(
+                "transient" if kis_rate_limited_message(message) else "operator"
+            ),
+        )
     return response
 
 
@@ -260,8 +392,204 @@ def kis_account_parts(environment):
     return account[:8], account[8:]
 
 
+def overseas_history_points(environment, symbol, market, count=260):
+    market, codes = overseas_market_codes(market)
+    symbol = str(symbol or "").strip().upper()
+    if not re.fullmatch(r"[A-Z0-9.-]{1,16}", symbol):
+        raise StockServiceError("Overseas symbol is invalid")
+    count = max(2, min(500, int(count)))
+    cursor = ""
+    points = {}
+    for _ in range(max(1, math.ceil(count / 90)) + 1):
+        response = kis_get(
+            environment,
+            "/uapi/overseas-price/v1/quotations/dailyprice",
+            "HHDFS76240000",
+            {
+                "AUTH": "",
+                "EXCD": codes["quote"],
+                "SYMB": symbol,
+                "GUBN": "0",
+                "BYMD": cursor,
+                "MODP": "1",
+            },
+        )
+        rows = response.get("output2") or []
+        if isinstance(rows, dict):
+            rows = [rows]
+        oldest = None
+        before = len(points)
+        for row in rows:
+            date_text = str(row.get("xymd", ""))
+            value = numeric(row.get("clos"))
+            if len(date_text) != 8 or value <= 0:
+                continue
+            try:
+                point_date = datetime.strptime(date_text, "%Y%m%d").date()
+            except ValueError:
+                continue
+            stamp = int(datetime.combine(point_date, datetime.min.time(), tzinfo=codes["timezone"]).timestamp())
+            points[stamp] = {
+                "t": stamp,
+                "v": value,
+                "volume": int(numeric(row.get("tvol"))),
+                "high": numeric(row.get("high")),
+                "low": numeric(row.get("low")),
+                "open": numeric(row.get("open")),
+                "bid": numeric(row.get("pbid")),
+                "ask": numeric(row.get("pask")),
+            }
+            oldest = point_date if oldest is None or point_date < oldest else oldest
+        if len(points) >= count or oldest is None or len(points) == before:
+            break
+        cursor = (oldest - timedelta(days=1)).strftime("%Y%m%d")
+    return sorted(points.values(), key=lambda point: point["t"])[-count:]
+
+
+def overseas_intraday_points(environment, symbol, market, period):
+    market, codes = overseas_market_codes(market)
+    interval = "1" if period == "30M" else "5"
+    response = kis_get(
+        environment,
+        "/uapi/overseas-price/v1/quotations/inquire-time-itemchartprice",
+        "HHDFS76950200",
+        {
+            "AUTH": "",
+            "EXCD": codes["quote"],
+            "SYMB": symbol,
+            "NMIN": interval,
+            "PINC": "1",
+            "NEXT": "",
+            "NREC": "120",
+            "FILL": "",
+            "KEYB": "",
+        },
+    )
+    rows = response.get("output2") or []
+    if isinstance(rows, dict):
+        rows = [rows]
+    points = {}
+    for row in rows:
+        date_text = str(row.get("xymd") or row.get("kymd") or "")
+        time_text = str(row.get("xhms") or row.get("khms") or "")
+        value = numeric(row.get("last"))
+        if len(date_text) != 8 or len(time_text) != 6 or value <= 0:
+            continue
+        try:
+            moment = datetime.strptime(date_text + time_text, "%Y%m%d%H%M%S").replace(tzinfo=codes["timezone"])
+        except ValueError:
+            continue
+        stamp = int(moment.timestamp())
+        points[stamp] = {"t": stamp, "v": value, "volume": int(numeric(row.get("evol")))}
+    result = sorted(points.values(), key=lambda point: point["t"])
+    return result[-30:] if period == "30M" else result
+
+
+def overseas_quote_timestamp(value, timezone, fallback=0):
+    date_text = str(value.get("dymd") or value.get("xymd") or value.get("kymd") or "")
+    time_text = str(value.get("dhms") or value.get("xhms") or value.get("khms") or "")
+    if len(date_text) == 8 and len(time_text) == 6:
+        try:
+            return int(datetime.strptime(date_text + time_text, "%Y%m%d%H%M%S").replace(
+                tzinfo=timezone,
+            ).timestamp())
+        except ValueError:
+            pass
+    return int(fallback)
+
+
+def kis_overseas_orderbook(symbol, market, environment):
+    market, codes = overseas_market_codes(market)
+    response = kis_get(
+        environment,
+        "/uapi/overseas-price/v1/quotations/inquire-asking-price",
+        "HHDFS76200100",
+        {"AUTH": "", "EXCD": codes["quote"], "SYMB": symbol},
+    )
+    values = {}
+    for key in ("output1", "output2", "output3"):
+        output = response.get(key) or {}
+        if isinstance(output, list):
+            output = output[0] if output else {}
+        if isinstance(output, dict):
+            values.update(output)
+    checked_at = overseas_quote_timestamp(values, codes["timezone"])
+    return {
+        "ask": numeric(values.get("pask1")),
+        "bid": numeric(values.get("pbid1")),
+        "askQuantity": int(numeric(values.get("vask1"))),
+        "bidQuantity": int(numeric(values.get("vbid1"))),
+        "orderbookUpdatedAt": checked_at,
+        "orderbookDate": str(values.get("dymd", "")),
+        "orderbookTime": str(values.get("dhms", "")),
+    }
+
+
+def kis_overseas_quote(symbol, market, environment, include_orderbook=False):
+    market, codes = overseas_market_codes(market)
+    symbol = str(symbol or "").strip().upper()
+    if not re.fullmatch(r"[A-Z0-9.-]{1,16}", symbol):
+        raise StockServiceError("Overseas symbol is invalid")
+    response = kis_get(
+        environment,
+        "/uapi/overseas-price/v1/quotations/price-detail",
+        "HHDFS76200200",
+        {"AUTH": "", "EXCD": codes["quote"], "SYMB": symbol},
+    )
+    quote = response.get("output") or {}
+    if isinstance(quote, list):
+        quote = quote[0] if quote else {}
+    price = numeric(quote.get("last"))
+    previous = numeric(quote.get("base"))
+    change = price - previous
+    orderable = str(quote.get("e_ordyn", "")).strip().upper()
+    available = price > 0
+    checked_at = int(time.time())
+    source_updated_at = overseas_quote_timestamp(
+        quote,
+        codes["timezone"],
+    )
+    tick_size = numeric(quote.get("e_hogau"))
+    if tick_size <= 0:
+        decimals = max(0, min(8, int(numeric(quote.get("zdiv"), 2))))
+        tick_size = 10 ** -decimals
+    result = {
+        "status": "ok",
+        "mode": "kis",
+        "environment": environment,
+        "symbol": symbol,
+        "market": market,
+        "name": SECURITIES.get((market, symbol), (symbol, 0, codes["currency"]))[0],
+        "currency": str(quote.get("curr") or codes["currency"]),
+        "price": price,
+        "previousClose": previous,
+        "change": change,
+        "changePct": numeric(quote.get("rate"), change / previous * 100 if previous else 0),
+        "high": numeric(quote.get("high")),
+        "low": numeric(quote.get("low")),
+        "open": numeric(quote.get("open")),
+        "volume": int(numeric(quote.get("tvol"))),
+        "exchangeRate": numeric(quote.get("t_rate")),
+        "priceKrw": numeric(quote.get("t_xprc")),
+        "tickSize": tick_size,
+        "marketSafety": {
+            "checkedAt": checked_at,
+            "available": available,
+            "tradable": available and orderable not in ("N", "0"),
+            "restricted": orderable in ("N", "0"),
+            "restrictionReasons": ["not_orderable"] if orderable in ("N", "0") else [],
+        },
+        "receivedAt": checked_at,
+        "sourceUpdatedAt": source_updated_at,
+        "updatedAt": checked_at,
+    }
+    if include_orderbook:
+        result.update(kis_overseas_orderbook(symbol, market, environment))
+    return result
+
+
 def daily_points(environment, symbol, period):
-    end = datetime.now()
+    end = datetime.now(KRX_TIMEZONE)
     days = {"1W": 10, "1M": 45, "3M": 110}.get(period, 10)
     start = end - timedelta(days=days)
     response = kis_get(
@@ -274,7 +602,7 @@ def daily_points(environment, symbol, period):
             "FID_INPUT_DATE_1": start.strftime("%Y%m%d"),
             "FID_INPUT_DATE_2": end.strftime("%Y%m%d"),
             "FID_PERIOD_DIV_CODE": "D",
-            "FID_ORG_ADJ_PRC": "0",
+            "FID_ORG_ADJ_PRC": "1",
         },
     )
     points = []
@@ -282,14 +610,14 @@ def daily_points(environment, symbol, period):
         date_text = str(row.get("stck_bsop_date", ""))
         value = numeric(row.get("stck_clpr"))
         if len(date_text) == 8 and value > 0:
-            stamp = int(datetime.strptime(date_text, "%Y%m%d").timestamp())
+            stamp = int(datetime.strptime(date_text, "%Y%m%d").replace(tzinfo=KRX_TIMEZONE).timestamp())
             points.append({"t": stamp, "v": value})
     return points
 
 
-def intraday_points(environment, symbol):
-    now = datetime.now()
-    response = kis_get(
+def intraday_response(environment, symbol):
+    now = datetime.now(KRX_TIMEZONE)
+    return kis_get(
         environment,
         "/uapi/domestic-stock/v1/quotations/inquire-time-itemchartprice",
         "FHKST03010200",
@@ -301,19 +629,197 @@ def intraday_points(environment, symbol):
             "FID_ETC_CLS_CODE": "",
         },
     )
+
+
+def intraday_points(response):
+    now = datetime.now(KRX_TIMEZONE)
+    quote = response.get("output1") or {}
+    if isinstance(quote, list):
+        quote = quote[0] if quote else {}
+    business_date = str(quote.get("stck_bsop_date", ""))
+    point_date = now.date()
+    if len(business_date) == 8:
+        try:
+            point_date = datetime.strptime(business_date, "%Y%m%d").date()
+        except ValueError:
+            pass
     points = []
     for row in reversed(response.get("output2") or []):
+        row_date = str(row.get("stck_bsop_date", ""))
+        if len(row_date) == 8:
+            try:
+                point_date = datetime.strptime(row_date, "%Y%m%d").date()
+            except ValueError:
+                pass
         time_text = str(row.get("stck_cntg_hour", ""))
         value = numeric(row.get("stck_prpr"))
         if len(time_text) == 6 and value > 0:
-            point_time = datetime.combine(now.date(), datetime.strptime(time_text, "%H%M%S").time())
+            point_time = datetime.combine(
+                point_date, datetime.strptime(time_text, "%H%M%S").time(), tzinfo=KRX_TIMEZONE
+            )
             points.append({"t": int(point_time.timestamp()), "v": value})
     return points
 
 
-def kis_quote(symbol, market, environment):
+def kis_vi_status(symbol, environment, now=None):
+    current = now if isinstance(now, datetime) else datetime.now(KRX_TIMEZONE)
+    response = kis_get(
+        environment,
+        "/uapi/domestic-stock/v1/quotations/inquire-vi-status",
+        "FHPST01390000",
+        {
+            "FID_DIV_CLS_CODE": "0",
+            "FID_COND_SCR_DIV_CODE": "20139",
+            "FID_MRKT_CLS_CODE": "0",
+            "FID_INPUT_ISCD": symbol,
+            "FID_RANK_SORT_CLS_CODE": "0",
+            "FID_INPUT_DATE_1": current.strftime("%Y%m%d"),
+            "FID_TRGT_CLS_CODE": "0",
+            "FID_TRGT_EXLS_CLS_CODE": "",
+        },
+    )
+    rows = response.get("output") or []
+    if isinstance(rows, dict):
+        rows = [rows]
+    rows = [
+        row for row in rows
+        if not str(row.get("mksc_shrn_iscd", "")).strip()
+        or str(row.get("mksc_shrn_iscd", "")).strip() == symbol
+    ]
+    latest = max(
+        rows,
+        key=lambda row: str(row.get("bsop_date", "")) + str(row.get("cntg_vi_hour", "")),
+        default={},
+    )
+    activation = int(numeric(latest.get("cntg_vi_hour")))
+    cancellation = int(numeric(latest.get("vi_cncl_hour")))
+    current_time = int(current.strftime("%H%M%S"))
+    active = activation > 0 and (cancellation <= 0 or current_time < cancellation)
+    return {
+        "available": True,
+        "active": active,
+        "kindCode": str(latest.get("vi_kind_code", "")).strip(),
+        "triggeredAt": str(latest.get("cntg_vi_hour", "")).strip(),
+        "releaseAt": str(latest.get("vi_cncl_hour", "")).strip(),
+    }
+
+
+def quote_market_safety(quote, price, vi_status=None):
+    normal_codes = ("", "0", "00", "N")
+    # iscd_stat_cls_code: 51 관리, 52 투자위험, 53 투자경고, 54 투자주의,
+    # 55 신용가능, 57 증거금 100%, 58 거래정지, 59 단기과열. Only 58 (and a
+    # temporary halt) makes the security untradable; 55/57 are normal states.
+    status_risk_codes = {
+        "51": "managed_issue",
+        "52": "investment_risk",
+        "53": "market_warning",
+        "54": "investment_caution",
+        "59": "short_overheated",
+    }
+    status_code = str(quote.get("iscd_stat_cls_code", "")).strip().upper()
+    warning_code = str(quote.get("mrkt_warn_cls_code", "")).strip().upper()
+    managed_code = str(quote.get("mang_issu_cls_code", "")).strip().upper()
+    upper_limit = numeric(quote.get("stck_mxpr"))
+    lower_limit = numeric(quote.get("stck_llam"))
+    temporary_halt = str(quote.get("temp_stop_yn", "")).strip().upper() == "Y"
+    restrictions = []
+    if str(quote.get("invt_caful_yn", "")).strip().upper() == "Y":
+        restrictions.append("investment_caution")
+    if warning_code not in normal_codes:
+        restrictions.append("market_warning")
+    if str(quote.get("short_over_yn", "")).strip().upper() == "Y":
+        restrictions.append("short_overheated")
+    if str(quote.get("sltr_yn", "")).strip().upper() == "Y":
+        restrictions.append("liquidation_trading")
+    if managed_code not in normal_codes:
+        restrictions.append("managed_issue")
+    status_risk = status_risk_codes.get(status_code)
+    if status_risk and status_risk not in restrictions:
+        restrictions.append(status_risk)
+    vi = vi_status if isinstance(vi_status, dict) else {"available": False, "active": False}
+    return {
+        "checkedAt": int(time.time()),
+        "available": bool(status_code) and upper_limit > 0 and lower_limit > 0,
+        "statusCode": status_code,
+        "tradable": bool(status_code) and status_code != "58" and not temporary_halt,
+        "temporaryHalt": temporary_halt,
+        "viAvailable": bool(vi.get("available")),
+        "viActive": bool(vi.get("active")),
+        "viKindCode": str(vi.get("kindCode", "")),
+        "upperLimit": upper_limit,
+        "lowerLimit": lower_limit,
+        "atUpperLimit": upper_limit > 0 and numeric(price) >= upper_limit,
+        "atLowerLimit": lower_limit > 0 and numeric(price) <= lower_limit,
+        "restricted": bool(restrictions),
+        "restrictionReasons": restrictions,
+    }
+
+
+def intraday_quote(response, symbol, market, environment):
+    quote = response.get("output1") or {}
+    if isinstance(quote, list):
+        quote = quote[0] if quote else {}
+    price = numeric(quote.get("stck_prpr"))
+    change = numeric(quote.get("prdy_vrss"))
+    previous = numeric(quote.get("stck_prdy_clpr")) or price - change
+    return {
+        "status": "ok",
+        "mode": "kis",
+        "environment": environment,
+        "symbol": symbol,
+        "market": market,
+        "name": quote.get("hts_kor_isnm") or SECURITIES.get((market, symbol), (symbol, 0, "KRW"))[0],
+        "currency": "KRW",
+        "price": price,
+        "ask": numeric(quote.get("askp") or quote.get("askp1")),
+        "bid": numeric(quote.get("bidp") or quote.get("bidp1")),
+        "previousClose": previous,
+        "change": change,
+        "changePct": numeric(quote.get("prdy_ctrt")),
+        "high": numeric(quote.get("stck_hgpr")),
+        "low": numeric(quote.get("stck_lwpr")),
+        "volume": int(numeric(quote.get("acml_vol"))),
+        "updatedAt": int(time.time()),
+    }
+
+
+def kis_orderbook(symbol, market, environment):
     if market != "KRX":
         raise StockServiceError("KIS live data currently supports KRX symbols only")
+    if not symbol.isdigit() or len(symbol) != 6:
+        raise StockServiceError("KRX symbols must contain six digits")
+    response = kis_get(
+        environment,
+        "/uapi/domestic-stock/v1/quotations/inquire-asking-price-exp-ccn",
+        "FHKST01010200",
+        {"FID_COND_MRKT_DIV_CODE": "J", "FID_INPUT_ISCD": symbol},
+    )
+    orderbook = response.get("output1") or {}
+    time_text = str(orderbook.get("aspr_acpt_hour", "")).strip()[:6]
+    updated_at = 0
+    if len(time_text) == 6:
+        try:
+            moment = datetime.now(KRX_TIMEZONE)
+            updated_at = int(datetime.combine(
+                moment.date(),
+                datetime.strptime(time_text, "%H%M%S").time(),
+                tzinfo=KRX_TIMEZONE,
+            ).timestamp())
+        except ValueError:
+            updated_at = 0
+    return {
+        "ask": numeric(orderbook.get("askp1")),
+        "bid": numeric(orderbook.get("bidp1")),
+        "askQuantity": int(numeric(orderbook.get("askp_rsqn1"))),
+        "bidQuantity": int(numeric(orderbook.get("bidp_rsqn1"))),
+        "orderbookUpdatedAt": updated_at,
+        "orderbookTime": time_text,
+    }
+
+
+def kis_quote(symbol, market, environment, include_orderbook=False, include_vi=False):
+    if market != "KRX":
+        return kis_overseas_quote(symbol, market, environment, include_orderbook)
     if not symbol.isdigit() or len(symbol) != 6:
         raise StockServiceError("KRX symbols must contain six digits")
     quote_response = kis_get(
@@ -326,7 +832,23 @@ def kis_quote(symbol, market, environment):
     price = numeric(quote.get("stck_prpr"))
     change = numeric(quote.get("prdy_vrss"))
     previous = price - change
-    return {
+    received_at = int(time.time())
+    source_updated_at = 0
+    business_date = str(quote.get("stck_bsop_date", "")).strip()
+    trade_time = str(
+        quote.get("stck_cntg_hour")
+        or quote.get("stck_prpr_hour")
+        or "",
+    ).strip()[:6]
+    if len(business_date) == 8 and len(trade_time) == 6:
+        try:
+            source_updated_at = int(datetime.strptime(
+                business_date + trade_time,
+                "%Y%m%d%H%M%S",
+            ).replace(tzinfo=KRX_TIMEZONE).timestamp())
+        except ValueError:
+            source_updated_at = 0
+    result = {
         "status": "ok",
         "mode": "kis",
         "environment": environment,
@@ -335,28 +857,77 @@ def kis_quote(symbol, market, environment):
         "name": quote.get("hts_kor_isnm") or SECURITIES.get((market, symbol), (symbol, 0, "KRW"))[0],
         "currency": "KRW",
         "price": price,
+        "ask": numeric(quote.get("askp") or quote.get("askp1")),
+        "bid": numeric(quote.get("bidp") or quote.get("bidp1")),
         "previousClose": previous,
         "change": change,
         "changePct": numeric(quote.get("prdy_ctrt")),
         "high": numeric(quote.get("stck_hgpr")),
         "low": numeric(quote.get("stck_lwpr")),
         "volume": int(numeric(quote.get("acml_vol"))),
-        "updatedAt": int(time.time()),
+        "receivedAt": received_at,
+        "sourceUpdatedAt": source_updated_at,
+        "updatedAt": received_at,
     }
+    if include_orderbook:
+        result.update(kis_orderbook(symbol, market, environment))
+        if source_updated_at <= 0:
+            result["sourceUpdatedAt"] = int(numeric(
+                result.get("orderbookUpdatedAt"),
+            ))
+    vi_status = None
+    if include_vi:
+        try:
+            vi_status = kis_vi_status(symbol, environment)
+        except StockServiceError as error:
+            vi_status = {"available": False, "active": False, "message": str(error)}
+    result["marketSafety"] = quote_market_safety(quote, result["price"], vi_status)
+    return result
 
 
 def kis_snapshot(symbol, market, period, environment):
-    result = kis_quote(symbol, market, environment)
+    if market != "KRX":
+        result = kis_overseas_quote(symbol, market, environment)
+        price = result["price"]
+        previous = result["previousClose"]
+        points = (
+            overseas_intraday_points(environment, symbol, market, period)
+            if period in ("30M", "1D")
+            else overseas_history_points(environment, symbol, market, {"1W": 10, "1M": 35, "3M": 90}.get(period, 35))
+        )
+        if len(points) < 2:
+            points = [
+                {"t": int(time.time()) - (60 if period in ("30M", "1D") else 86400), "v": previous or price},
+                {"t": int(time.time()), "v": price},
+            ]
+        values = [point["v"] for point in points]
+        result.update({
+            "range": period,
+            "high": result["high"] or max(values),
+            "low": result["low"] or min(values),
+            "buyingPower": 0,
+            "points": points,
+        })
+        return result
+    if not symbol.isdigit() or len(symbol) != 6:
+        raise StockServiceError("KRX symbols must contain six digits")
+    intraday = period in ("30M", "1D")
+    response = intraday_response(environment, symbol) if intraday else None
+    result = kis_quote(symbol, market, environment, include_vi=True)
     price = result["price"]
     previous = result["previousClose"]
-    points = intraday_points(environment, symbol) if period == "1D" else daily_points(environment, symbol, period)
+    points = intraday_points(response) if intraday else daily_points(environment, symbol, period)
+    point_limits = {"30M": 30}
+    if period in point_limits and len(points) > point_limits[period]:
+        points = points[-point_limits[period]:]
     if len(points) < 2:
         points = [
-            {"t": int(time.time()) - 86400, "v": previous or price},
+            {"t": int(time.time()) - (1 if intraday else 86400), "v": price or previous},
             {"t": int(time.time()), "v": price},
         ]
     values = [point["v"] for point in points]
     result.update({
+        "range": period,
         "high": result["high"] or max(values),
         "low": result["low"] or min(values),
         "buyingPower": 0,

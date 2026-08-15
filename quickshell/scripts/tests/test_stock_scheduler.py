@@ -12,8 +12,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from stock_service.scheduler import (
     background_control,
     background_control_status,
+    background_cycle_lock,
     background_status,
     evaluate_alert_configs,
+    reconcile_widget_activity,
     run_background_cycle,
     stock_widget_configs,
 )
@@ -65,6 +67,13 @@ class StockSchedulerTests(unittest.TestCase):
                         "payload": json.dumps({
                             "dataMode": "kis",
                             "kisEnvironment": "prod",
+                            "symbol": "005930",
+                            "market": "KRX",
+                            "aiProvider": "both",
+                            "analysisProfile": "balanced",
+                            "backtestStrategy": "momentum",
+                            "tradingMode": "automatic",
+                            "automationTargetEnabled": True,
                             "priceAlerts": self.config()["alerts"],
                         }),
                     }],
@@ -79,6 +88,9 @@ class StockSchedulerTests(unittest.TestCase):
         self.assertEqual(result["items"][0]["sourceId"], "eDP-1:7")
         self.assertEqual(result["items"][0]["mode"], "kis")
         self.assertEqual(result["items"][0]["environment"], "prod")
+        self.assertEqual(result["items"][0]["tradingMode"], "automatic")
+        self.assertTrue(result["items"][0]["automationTargetEnabled"])
+        self.assertEqual(result["items"][0]["backtestStrategy"], "momentum")
 
     def test_crossing_fires_once_rearms_then_can_fire_again(self):
         delivered = []
@@ -161,11 +173,20 @@ class StockSchedulerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             with (
                 patch("stock_service.scheduler.state_directory", return_value=directory),
+                patch("stock_service.automation_operations.operations_part1_status", return_value={
+                    "status": "ok", "eligible": True,
+                }),
+                patch("stock_service.automation_soak.record_soak_cycle", return_value={
+                    "status": "ok", "enabled": False,
+                }),
                 patch("stock_service.scheduler.evaluate_all_forecasts", return_value={
                     "status": "ok", "checked": 2, "resolved": 1,
                 }),
                 patch("stock_service.scheduler.stock_widget_configs", return_value={
                     "found": False, "path": "", "items": [],
+                }),
+                patch("stock_service.scheduler.run_automation_scheduler", return_value={
+                    "status": "ok", "state": "disabled",
                 }),
             ):
                 result = run_background_cycle()
@@ -176,6 +197,30 @@ class StockSchedulerTests(unittest.TestCase):
         self.assertEqual(result["alerts"]["status"], "unavailable")
         self.assertEqual(status["workerStatus"], "active")
         self.assertEqual(status["last"]["forecasts"]["resolved"], 1)
+
+    def test_background_cycle_lock_rejects_concurrent_worker(self):
+        with tempfile.TemporaryDirectory() as directory, patch(
+            "stock_service.scheduler.state_directory", return_value=directory,
+        ):
+            with background_cycle_lock() as first:
+                with background_cycle_lock() as second:
+                    self.assertTrue(first)
+                    self.assertFalse(second)
+
+    def test_broker_reconciliation_is_throttled_per_environment(self):
+        configs = [self.config()]
+        with tempfile.TemporaryDirectory() as directory, patch(
+            "stock_service.scheduler.state_directory", return_value=directory,
+        ), patch(
+            "stock_service.scheduler.kis_reconcile_activity",
+            return_value={"status": "ok", "environment": "paper", "matched": 2},
+        ) as reconcile:
+            first = reconcile_widget_activity(configs, now=1_000)
+            second = reconcile_widget_activity(configs, now=1_100)
+
+        self.assertEqual(first["status"], "ok")
+        self.assertTrue(second["environments"][0]["cached"])
+        reconcile.assert_called_once_with("paper")
 
     def test_background_status_reports_disabled_timer(self):
         with (

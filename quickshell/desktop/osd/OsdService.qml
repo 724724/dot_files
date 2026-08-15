@@ -22,6 +22,11 @@ Singleton {
         hideTimer.restart()
     }
 
+    function showKeyboardBacklight(level) {
+        let pct = Math.round(level * 100 / Math.max(1, _kbdMax))
+        showOsd("󰌌", "", pct, true)
+    }
+
     Timer {
         id: hideTimer
         interval: 2000
@@ -65,25 +70,13 @@ Singleton {
     }
 
     // ── Keyboard backlight watcher ────────────────────────────────────────
-    // Some laptops cycle keyboard backlight in firmware, without a userspace
-    // key or an inotify event. Probe the machine-specific LED path once, then
-    // use a low-rate in-process FileView fallback only when such a device exists.
-    // This keeps the OSD working without doing ThinkPad-specific reads forever
-    // on machines that expose a different LED name (or no keyboard light).
-    property string _kbdPath: ""
+    // Fn+Space changes the ThinkPad EC directly, without a userspace key or an
+    // inotify event. Keep the confirmed machine path stable across hot reloads;
+    // a one-shot Process probe could remain stopped after a Quickshell reload,
+    // leaving the polling timer disabled until the next full shell restart.
+    readonly property string _kbdPath: "/sys/class/leds/tpacpi::kbd_backlight"
     property int _kbdLevel: -1   // -1 = uninitialized; first read just seeds
     property int _kbdMax:   2
-
-    Process {
-        id: kbdProbe
-        command: ["bash", "-c",
-            "for d in /sys/class/leds/*::kbd_backlight /sys/class/leds/*kbd_backlight*; do " +
-            "[ -d \"$d\" ] && { printf '%s' \"$d\"; exit; }; done"]
-        running: true
-        stdout: StdioCollector {
-            onStreamFinished: root._kbdPath = text.trim()
-        }
-    }
 
     FileView {
         id: kbdMaxView
@@ -119,8 +112,7 @@ Singleton {
                 // Skip OSD when change came from hypridle (flag present);
                 // reload() below refreshed the flag just before this read.
                 if (root._kbdSuppressed) return
-                let pct = Math.round(cur * 100 / Math.max(1, root._kbdMax))
-                root.showOsd("", "", pct, true)
+                root.showKeyboardBacklight(cur)
             }
         }
     }

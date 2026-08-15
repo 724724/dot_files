@@ -221,15 +221,47 @@ def search_symbols(query, limit=8, market="ALL"):
     }
 
 
+def trade_audit_path():
+    return os.path.join(state_directory(), "trades.jsonl")
+
+
 def trade_audit(event):
-    path = os.path.join(state_directory(), "trades.jsonl")
+    path = trade_audit_path()
     payload = dict(event)
-    payload["timestamp"] = int(time.time())
+    payload["timestamp"] = int(numeric(payload.get("timestamp"))) or int(time.time())
     descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
     try:
         os.write(descriptor, (json.dumps(payload, ensure_ascii=False, separators=(",", ":")) + "\n").encode("utf-8"))
     finally:
         os.close(descriptor)
+
+
+def load_trade_requests(environment="all"):
+    if environment not in ("all", "paper", "prod"):
+        raise StockServiceError("Unsupported activity environment")
+    requests = {}
+    sequence = 0
+    try:
+        with open(trade_audit_path(), encoding="utf-8") as handle:
+            for line in handle:
+                sequence += 1
+                try:
+                    event = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if event.get("action") not in ("order", "cancel"):
+                    continue
+                if environment != "all" and event.get("environment") != environment:
+                    continue
+                request_id = str(event.get("requestId") or f"legacy-{sequence}")
+                merged = dict(requests.get(request_id, {}))
+                merged.update(event)
+                merged["requestId"] = request_id
+                merged["sequence"] = sequence
+                requests[request_id] = merged
+    except OSError:
+        pass
+    return requests
 
 
 def risk_policy_path():
@@ -294,7 +326,7 @@ def save_risk_policy(patch):
 
 
 def production_buy_usage():
-    path = os.path.join(state_directory(), "trades.jsonl")
+    path = trade_audit_path()
     today = datetime.now().date()
     requests = {}
     legacy = []
@@ -318,7 +350,7 @@ def production_buy_usage():
     except OSError:
         pass
     effective = legacy + [event for event in requests.values() if event.get("status") in ("submitting", "accepted")]
-    return len(effective), sum(int(numeric(event.get("estimatedNotional"))) for event in effective)
+    return len(effective), sum(int(numeric(event.get("estimatedNotionalKrw") or event.get("estimatedNotional"))) for event in effective)
 
 
 def trade_activity(environment="all", limit=50):
@@ -328,27 +360,7 @@ def trade_activity(environment="all", limit=50):
         limit = int(limit)
     except (TypeError, ValueError) as error:
         raise StockServiceError("Activity limit must be a number") from error
-    path = os.path.join(state_directory(), "trades.jsonl")
-    requests = {}
-    sequence = 0
-    try:
-        with open(path, encoding="utf-8") as handle:
-            for line in handle:
-                sequence += 1
-                try:
-                    event = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                if event.get("action") not in ("order", "cancel"):
-                    continue
-                if environment != "all" and event.get("environment") != environment:
-                    continue
-                request_id = str(event.get("requestId") or f"legacy-{sequence}")
-                event["requestId"] = request_id
-                event["sequence"] = sequence
-                requests[request_id] = event
-    except OSError:
-        pass
+    requests = load_trade_requests(environment)
     now = int(time.time())
     activity = []
     for event in requests.values():
@@ -364,13 +376,25 @@ def trade_activity(environment="all", limit=50):
             "timestamp": timestamp,
             "side": str(event.get("side", "")),
             "symbol": str(event.get("symbol", "")),
+            "market": str(event.get("market", "KRX")),
+            "currency": str(event.get("currency", "KRW")),
             "quantity": int(numeric(event.get("quantity"))),
             "orderType": str(event.get("orderType", "")),
             "price": numeric(event.get("price")),
             "estimatedNotional": int(numeric(event.get("estimatedNotional"))),
+            "estimatedNotionalKrw": int(numeric(event.get("estimatedNotionalKrw") or event.get("estimatedNotional"))),
+            "automationPlanId": str(event.get("automationPlanId", "")),
             "orderNumber": str(event.get("orderNumber", "")),
             "originalOrderNumber": str(event.get("originalOrderNumber", "")),
             "message": str(event.get("message", "")),
+            "reconciliation": str(event.get("reconciliation", "")),
+            "reconciliationMatch": str(event.get("reconciliationMatch", "")),
+            "brokerState": str(event.get("brokerState", "")),
+            "filledQuantity": int(numeric(event.get("filledQuantity"))),
+            "remainingQuantity": int(numeric(event.get("remainingQuantity"))),
+            "cancelQuantity": int(numeric(event.get("cancelQuantity"))),
+            "averagePrice": numeric(event.get("averagePrice")),
+            "reconciledAt": int(numeric(event.get("reconciledAt"))),
             "sequence": event["sequence"],
         })
     activity.sort(key=lambda event: (event["timestamp"], event["sequence"]), reverse=True)
@@ -384,6 +408,13 @@ def trade_activity(environment="all", limit=50):
             "failed": sum(1 for event in activity if event["status"] == "failed"),
             "pending": sum(1 for event in activity if event["status"] == "submitting"),
             "uncertain": sum(1 for event in activity if event["status"] == "uncertain"),
+            "reconciled": sum(1 for event in activity if event["reconciliation"] == "matched"),
+            "unmatched": sum(1 for event in activity if event["reconciliation"] == "unmatched"),
+            "filled": sum(1 for event in activity if event["brokerState"] == "filled"),
+            "open": sum(1 for event in activity if event["brokerState"] in ("pending", "partial", "submitted")
+                        or event["reconciliation"] == "pending"),
+            "verify": sum(1 for event in activity if event["status"] == "uncertain"
+                          or event["reconciliation"] == "unmatched"),
         },
         "updatedAt": now,
     }
